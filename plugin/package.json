@@ -1,0 +1,25 @@
+{
+  "name": "@sharper-flow/opencode-model-routing-plugin",
+  "version": "0.1.0",
+  "description": "OpenCode plugin for transparent per-agent model fallback. Reads agent.<name>.options.fallback_models from opencode.json and rotates through the chain on errors, TTFT timeout, or cooldown.",
+  "type": "module",
+  "main": "src/plugin.ts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sharper-Flow/opencode-model-routing"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.4.8",
+    "@opencode-ai/sdk": "1.4.17"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  }
+}

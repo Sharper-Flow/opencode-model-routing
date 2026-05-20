@@ -1,2 +1,9 @@
 /omp
 .adv/db/
+
+# Plugin (TypeScript)
+plugin/node_modules/
+plugin/dist/
+
+# Per-run backups created by ApplyPreferences
+*.omp-backup.*

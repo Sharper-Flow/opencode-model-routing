@@ -1,0 +1,17 @@
+opencode-model-routing-plugin
+Copyright 2026 Sharper-Flow
+
+This product includes software developed at the projects above. Apache-2.0.
+
+This plugin's module shape, mock-client test pattern, and replay
+orchestrator semantics borrow heavily from:
+
+  Smart-Coders-HQ/opencode-model-fallback (Apache-2.0)
+  https://github.com/Smart-Coders-HQ/opencode-model-fallback
+
+Net-new contributions on top of that reference:
+  - TTFT (time-to-first-token) timer layer
+  - Integration with the omp Go authoring TUI via the shared
+    schema/fallback-schema.json contract
+  - Canonical config path `agent.<name>.options.fallback_models`
+    aligned with OpenCode's documented `AgentConfig.normalize()` slot
