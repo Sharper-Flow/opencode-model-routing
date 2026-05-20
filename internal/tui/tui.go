@@ -376,7 +376,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.prefs.TargetFallbacks = make(map[string][]string)
 				}
 				chain := append([]string{}, m.prefs.TargetFallbacks[msg.targetName]...)
+				for _, existing := range chain {
+					if existing == msg.model {
+						m.status = fmt.Sprintf("%s is already in %s fallback chain", msg.model, msg.targetName)
+						m.view = viewFallbackEditor
+						return m, nil
+					}
+				}
+				if len(chain) >= config.MaxChainLength {
+					m.status = fmt.Sprintf("Fallback chain for %s already has max %d entries", msg.targetName, config.MaxChainLength)
+					m.view = viewFallbackEditor
+					return m, nil
+				}
 				chain = append(chain, msg.model)
+				if err := config.ValidateFallbackChain(chain); err != nil {
+					m.status = fmt.Sprintf("Invalid fallback chain: %v", err)
+					m.view = viewFallbackEditor
+					return m, nil
+				}
 				m.prefs.TargetFallbacks[msg.targetName] = chain
 				m.fallbackEditorList.SetItems(buildChainItems(chain))
 				m.fallbackEditorList.Select(len(chain) - 1)

@@ -56,6 +56,25 @@ describe("handleChatMessage", () => {
     await handleChatMessage(ctx, client, {}, out);
     expect(ctx.ttft.has("")).toBe(false);
   });
+
+  test("manual model change resets fallback depth", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "b/two";
+    state.originalModel = "a/one";
+    state.fallbackDepth = 2;
+    state.lastFallbackAt = Date.now();
+
+    const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
+    const output = { message: { model: { providerID: "c", modelID: "manual" } } };
+    await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
+
+    expect(state.currentModel).toBe("c/manual");
+    expect(state.originalModel).toBe("c/manual");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    ctx.ttft.clear("s1");
+  });
 });
 
 describe("handleEvent — session.error", () => {
@@ -134,6 +153,20 @@ describe("handleEvent — token arrival", () => {
       properties: {
         sessionID: "s1",
         part: { type: "", text: "" },
+      },
+    });
+    expect(ctx.ttft.has("s1")).toBe(true);
+    ctx.ttft.clear("s1");
+  });
+
+  test("does not clear TTFT timer on non-text metadata parts", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    ctx.ttft.arm("s1", 5_000, () => {});
+    await handleEvent(ctx, new MockClient(), {
+      type: "session.message.part.updated",
+      properties: {
+        sessionID: "s1",
+        part: { type: "tool" },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(true);

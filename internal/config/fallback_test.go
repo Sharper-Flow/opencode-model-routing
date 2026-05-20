@@ -51,13 +51,15 @@ func TestValidateFallbackChain_TooLong(t *testing.T) {
 
 func TestValidateFallbackChain_BadPattern(t *testing.T) {
 	bad := [][]string{
-		{"GPT-5"},              // no slash
-		{"openai/"},            // empty model
-		{"/gpt-5"},             // empty provider
-		{"OpenAI/gpt-5"},       // uppercase provider not allowed (pattern starts [a-z0-9])
-		{"-openai/gpt-5"},      // leading hyphen in provider not allowed
-		{"openai/gpt-5 extra"}, // trailing space (invalid model chars)
-		{"openai/gpt$5"},       // disallowed `$` in model
+		{"GPT-5"},                // no slash
+		{"openai/"},              // empty model
+		{"/gpt-5"},               // empty provider
+		{"OpenAI/gpt-5"},         // uppercase provider not allowed (pattern starts [a-z0-9])
+		{"-openai/gpt-5"},        // leading hyphen in provider not allowed
+		{"openai/gpt-5 extra"},   // trailing space (invalid model chars)
+		{"openai/gpt$5"},         // disallowed `$` in model
+		{"openai/../secret"},     // path-traversal-like model segment
+		{"openai/model..secret"}, // consecutive dots rejected
 	}
 	for _, chain := range bad {
 		err := ValidateFallbackChain(chain)
@@ -351,6 +353,30 @@ func TestParseFrontmatterList_InlineArray(t *testing.T) {
 	mustWriteFile(t, path,
 		[]byte(`---
 fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"]
+---
+Body.`),
+		0644)
+
+	got := parseFrontmatterList(path, "fallback_models")
+	want := []string{"openai/gpt-5", "google/gemini-2.5-pro"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], v)
+		}
+	}
+}
+
+func TestParseFrontmatterList_MultilineArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+	mustWriteFile(t, path,
+		[]byte(`---
+fallback_models:
+  - openai/gpt-5
+  - "google/gemini-2.5-pro"
 ---
 Body.`),
 		0644)

@@ -20,8 +20,7 @@ describe("TtftRegistry", () => {
     expect(registry.has("s1")).toBe(true);
     await new Promise((r) => setTimeout(r, 30));
     expect(fired).toBe(true);
-    expect(registry.has("s1")).toBe(true); // timer fired but registry retains until cleared
-    registry.clear("s1");
+    expect(registry.has("s1")).toBe(false);
   });
 
   test("clear prevents onTimeout from firing", async () => {

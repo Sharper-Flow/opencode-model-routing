@@ -342,11 +342,15 @@ func discoverMarkdownAgents(dir string, raw []byte, seen map[string]bool, allowP
 	return targets
 }
 
-// parseFrontmatterList parses a single inline-array YAML frontmatter field of
-// the form `field: ["a", "b", "c"]`. Multi-line list form (`- a\n- b`) is not
-// supported in v1 — the existing frontmatter parser is intentionally minimal
-// and inline-array covers the only case we currently write/read. Returns
-// nil when the field is missing or malformed.
+// parseFrontmatterList parses a minimal YAML frontmatter list field. It
+// supports the two forms omp documents for fallback_models:
+//
+//	field: ["a", "b", "c"]
+//	field:
+//	  - "a"
+//	  - "b"
+//
+// Returns nil when the field is missing or malformed.
 func parseFrontmatterList(path, field string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -361,30 +365,55 @@ func parseFrontmatterList(path, field string) []string {
 		return nil
 	}
 	frontmatter := content[3 : 3+end]
-	for _, line := range strings.Split(frontmatter, "\n") {
+	lines := strings.Split(frontmatter, "\n")
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		prefix := field + ":"
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
 		val := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		// Expect bracketed inline array.
-		if !strings.HasPrefix(val, "[") || !strings.HasSuffix(val, "]") {
-			return nil
+		if val == "" {
+			return parseFrontmatterMultilineList(lines[i+1:])
 		}
-		inner := strings.TrimSuffix(strings.TrimPrefix(val, "["), "]")
-		var out []string
-		for _, raw := range strings.Split(inner, ",") {
-			s := strings.TrimSpace(raw)
-			// Strip surrounding quotes (single or double).
-			s = strings.Trim(s, `"'`)
-			if s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
+		return parseFrontmatterInlineList(val)
 	}
 	return nil
+}
+
+func parseFrontmatterInlineList(val string) []string {
+	if !strings.HasPrefix(val, "[") || !strings.HasSuffix(val, "]") {
+		return nil
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(val, "["), "]")
+	var out []string
+	for _, raw := range strings.Split(inner, ",") {
+		if s := cleanFrontmatterListValue(raw); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func parseFrontmatterMultilineList(lines []string) []string {
+	var out []string
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "- ") {
+			break
+		}
+		if s := cleanFrontmatterListValue(strings.TrimSpace(strings.TrimPrefix(line, "- "))); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func cleanFrontmatterListValue(raw string) string {
+	return strings.Trim(strings.TrimSpace(raw), `"'`)
 }
 
 // parseFrontmatterField does a minimal parse of YAML frontmatter for a single field.
@@ -483,5 +512,14 @@ func SetAgentOrder(names []string) error {
 		return fmt.Errorf("resulting config is invalid JSON")
 	}
 
-	return os.WriteFile(configPath, updated, 0644)
+	if err := writeBackup(configPath); err != nil {
+		return fmt.Errorf("writing backup: %w", err)
+	}
+	if err := writeFileAtomic(configPath, updated, 0600); err != nil {
+		return err
+	}
+	if err := pruneBackups(configPath, maxOpencodeBackups); err != nil {
+		return fmt.Errorf("pruning backups: %w", err)
+	}
+	return nil
 }

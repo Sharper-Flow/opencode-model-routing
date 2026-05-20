@@ -44,7 +44,7 @@ describe("loadFallbackChains — options.fallback_models", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("malformed entries dropped silently", () => {
+  test("malformed entries dropped with warnings", () => {
     const cfg = {
       agent: {
         scout: {
@@ -55,13 +55,15 @@ describe("loadFallbackChains — options.fallback_models", () => {
               "OpenAI/UpperProvider",
               123,
               "google/gemini-2.5-pro",
+              "openai/../secret",
             ],
           },
         },
       },
     };
-    const { chains } = loadFallbackChains(cfg);
+    const { chains, warnings } = loadFallbackChains(cfg);
     expect(chains.get("scout")).toEqual(["openai/gpt-5", "google/gemini-2.5-pro"]);
+    expect(warnings).toContain("agent 'scout' has 4 invalid fallback_models entries; skipped");
   });
 
   test("empty agents map returns empty chains", () => {

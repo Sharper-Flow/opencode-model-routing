@@ -275,5 +275,11 @@ func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
 		}
 	}
 
-	return writeFileAtomic(configPath, updated, 0644)
+	if err := writeFileAtomic(configPath, updated, 0600); err != nil {
+		return err
+	}
+	if err := pruneBackups(configPath, maxOpencodeBackups); err != nil {
+		return fmt.Errorf("pruning backups: %w", err)
+	}
+	return nil
 }

@@ -17,11 +17,12 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // ModelKeyPattern is the regex that every fallback chain entry must match.
 // Mirrors `items.pattern` in schema/fallback-schema.json.
-const ModelKeyPattern = `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9._:/-]+$`
+const ModelKeyPattern = `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\.[A-Za-z0-9_:/-]+)*$`
 
 // FallbackJSONPath is the canonical JSON path under each agent for the
 // fallback chain. Used by ApplyPreferences (sjson SetBytes target) and by
@@ -52,6 +53,9 @@ func ValidateFallbackChain(chain []string) error {
 		if !modelKeyRE.MatchString(entry) {
 			return fmt.Errorf("fallback chain entry %d (%q) does not match pattern %s",
 				i, entry, ModelKeyPattern)
+		}
+		if strings.Contains(entry, "..") {
+			return fmt.Errorf("fallback chain entry %d (%q) must not contain '..'", i, entry)
 		}
 		if _, dup := seen[entry]; dup {
 			return fmt.Errorf("fallback chain has duplicate entry %q at position %d", entry, i)

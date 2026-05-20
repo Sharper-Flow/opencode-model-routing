@@ -2,7 +2,7 @@
 // expiry timestamps; isInCooldown compares against `Date.now()` (or an
 // injected clock for tests).
 
-import type { ModelKey } from "../types.js";
+import type { ModelKey } from "../types.ts";
 
 export type HealthState = "healthy" | "unhealthy" | "cooling";
 

@@ -4,7 +4,7 @@
 // Cooldown windows are short enough that recreating state on restart costs
 // at most one extra failed attempt per model per restart.
 
-import type { ModelKey } from "../types.js";
+import type { ModelKey } from "../types.ts";
 
 export interface SessionState {
   // The model that started this session — used for recovery detection

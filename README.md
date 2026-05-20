@@ -49,6 +49,30 @@ Example:
 }
 ```
 
+Markdown agent frontmatter may use either inline or multi-line YAML list form:
+
+```yaml
+---
+fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"]
+---
+```
+
+```yaml
+---
+fallback_models:
+  - openai/gpt-5
+  - google/gemini-2.5-pro
+---
+```
+
+## Config write safety
+
+`omp` treats `opencode.json` as sensitive because it can contain provider API
+keys and other credentials. Mutations write the file with owner-only
+permissions (`0600`). Before `ApplyPreferences` changes the file, it writes a
+timestamped backup beside it (`opencode.json.omp-backup.<timestamp>`); after a
+successful apply, only the 5 most recent backups are retained.
+
 ## Installation
 
 ### omp (Go TUI)

@@ -42,7 +42,24 @@ export function applyPreemptiveSkip(
     // Healthy — leave the user's selection alone.
     // Also remember this is our session-current.
     const state = store.sessions.get(input.sessionId);
-    if (!state.currentModel) state.currentModel = key;
+    if (!state.currentModel) {
+      state.currentModel = key;
+      state.originalModel = key;
+      return;
+    }
+    if (state.currentModel !== key) {
+      state.currentModel = key;
+      state.originalModel = key;
+      state.fallbackDepth = 0;
+      state.lastFallbackAt = 0;
+      state.recoveryNotifiedForModel = null;
+      state.fallbackActiveNotifiedKey = null;
+      logger.info("manual_model_change.reset_depth", {
+        sessionId: input.sessionId,
+        agent: input.agentName,
+        model: key,
+      });
+    }
     return;
   }
 

@@ -1,0 +1,670 @@
+{
+  "id": "buildModelFallbackMonorepo",
+  "title": "Build model fallback monorepo",
+  "status": "archived",
+  "created_at": "2026-05-20T05:25:45.439Z",
+  "tasks": [
+    {
+      "id": "tk-5d0c01c26656",
+      "title": "Rename go module path to github.com/Sharper-Flow/opencode-model-routing",
+      "type": "code",
+      "section": "Phase A — Hygiene foundations",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-20T06:01:08.391Z",
+      "metadata": {
+        "tdd_intent": "not_applicable",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:11:25.008Z",
+      "verification": "Module path renamed sharperflow/opencode-model-preferences → Sharper-Flow/opencode-model-routing across go.mod + 4 Go files (cmd/omp/main.go, cmd/omp/main_test.go, internal/tui/tui.go, internal/tui/tui_test.go). `go build ./...` succeeds; `go test ./... -count=1` all three packages PASS (cmd/omp 0.070s, internal/config 0.005s, internal/tui 0.066s). Zero stale references to old module path remain.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "cmd/omp/main.go",
+        "cmd/omp/main_test.go",
+        "go.mod",
+        "internal/tui/tui.go",
+        "internal/tui/tui_test.go"
+      ],
+      "touched_files": [
+        "cmd/omp/main.go",
+        "cmd/omp/main_test.go",
+        "go.mod",
+        "internal/tui/tui.go",
+        "internal/tui/tui_test.go"
+      ],
+      "checkpointSha": "c495a2f891c8e2bf1c1e4ba9393dd5d84017c899",
+      "completedAt": "2026-05-20T06:11:58.733Z",
+      "completed_at": "2026-05-20T06:11:58.733Z"
+    },
+    {
+      "id": "tk-d0feb0643e82",
+      "title": "Decouple make install from pre-push hook installation",
+      "type": "code",
+      "section": "Phase A — Hygiene foundations",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-20T06:01:17.418Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:12:04.108Z",
+      "verification": "Decoupled make install from pre-push hook. (1) Makefile install target dependency changed from `build install-hooks` → `build` only; added user-facing hint about install-hooks. (2) .githooks/pre-push body rewritten from `make install` → `make build && make test` (with chmod +x preserved). (3) README install section added documenting the split. (4) New scripts/test-makefile-targets.sh contract test (RED before edits, GREEN after). All checks pass: go build clean, all Go tests pass, contract test PASSES (install does not touch .git/hooks; pre-push runs build&&test; install-hooks still exists for opt-in).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        ".githooks/pre-push",
+        "Makefile",
+        "README.md",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "touched_files": [
+        ".githooks/pre-push",
+        "Makefile",
+        "README.md",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "checkpointSha": "cd8c0a8bb59f46e335c1eb9b86ca179efd2075e0",
+      "completedAt": "2026-05-20T06:12:54.383Z",
+      "completed_at": "2026-05-20T06:12:54.383Z"
+    },
+    {
+      "id": "tk-02e30e69485c",
+      "title": "Add make test and make lint targets",
+      "type": "code",
+      "section": "Phase A — Hygiene foundations",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-20T06:01:28.232Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d0c01c26656"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:12:59.025Z",
+      "verification": "Added `test` and `lint` targets to Makefile + extended .PHONY. `make -n test` prints `go test ./... -count=1`; `make -n lint` prints `go vet ./...`. `make test` exit 0 (all 3 Go packages pass); `make lint` exit 0 (vet clean). RED before edits (no rule), GREEN after.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "Makefile"
+      ],
+      "touched_files": [
+        "Makefile"
+      ],
+      "checkpointSha": "94f03d56feadc02faee0df93b500c471053df350",
+      "completedAt": "2026-05-20T06:13:22.105Z",
+      "completed_at": "2026-05-20T06:13:22.105Z"
+    },
+    {
+      "id": "tk-879f0b344010",
+      "title": "Add writeBackup helper and integrate into ApplyPreferences with writeFileAtomic",
+      "type": "code",
+      "section": "Phase A — Hygiene foundations",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-05-20T06:01:42.626Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d0c01c26656"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:13:29.172Z",
+      "verification": "writeBackup helper added to internal/config/atomic.go (silent on missing source, RFC3339 timestamp, 0600 perm, errors propagated). ApplyPreferences in preferences.go now (1) calls writeBackup(configPath) before any mutation with error propagation, (2) replaces final os.WriteFile with writeFileAtomic. RED phase: TestApplyPreferences_CreatesBackup and TestApplyPreferences_BackupContainsOriginal both FAILED before edits. GREEN phase: all 4 new tests PASS (CreatesBackup, BackupContainsOriginal, AtomicWriteLeavesNoTempFile, MissingConfigErrorsAndNoBackup). All existing tests still pass; `go test ./... -count=1` all 3 packages green.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/config/atomic.go",
+        "internal/config/config_test.go",
+        "internal/config/preferences.go"
+      ],
+      "touched_files": [
+        "internal/config/atomic.go",
+        "internal/config/config_test.go",
+        "internal/config/preferences.go"
+      ],
+      "checkpointSha": "829407c4a2afaf5a76f6b3032e71690959abc3ab",
+      "completedAt": "2026-05-20T06:15:00.812Z",
+      "completed_at": "2026-05-20T06:15:00.812Z"
+    },
+    {
+      "id": "tk-95a87c9421ed",
+      "title": "Refresh Go dependencies (go mod tidy) and resolve documented lint warnings",
+      "type": "code",
+      "section": "Phase A — Hygiene foundations",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-05-20T06:01:57.615Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-02e30e69485c"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:15:05.357Z",
+      "verification": "`go mod tidy` produces zero diff (deps already current). `go vet ./...` clean. Sweep for unhandled-error patterns in internal/config: (1) atomic.go cleanup branches now use explicit `_ =` with rationale comment (\"Best-effort cleanup paths\") to make discard intentional; (2) preferences.go SavePreferences sanitize discard now has rationale comment. No nil-map declarations found. Tests: `make test` all 3 packages PASS; `make lint` exit 0. No regression in test count.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/config/atomic.go",
+        "internal/config/preferences.go"
+      ],
+      "touched_files": [
+        "internal/config/atomic.go",
+        "internal/config/preferences.go"
+      ],
+      "checkpointSha": "817d6509db61552d996e037b15a59604a35e3eb8",
+      "completedAt": "2026-05-20T06:15:47.161Z",
+      "completed_at": "2026-05-20T06:15:47.161Z"
+    },
+    {
+      "id": "tk-3a041c38f091",
+      "title": "Author schema/fallback-schema.json and schema-contract-check.sh",
+      "type": "code",
+      "section": "Phase B — Schema contract",
+      "status": "done",
+      "priority": 5,
+      "created_at": "2026-05-20T06:02:19.718Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-02e30e69485c"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:17:36.250Z",
+      "verification": "Phase B schema contract delivered. (1) schema/fallback-schema.json — JSON Schema 2020-12 with pattern `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9._:/-]+$`, maxItems:8, uniqueItems:true, examples, design-citation $comment. Valid JSON (jq + python3 parse both clean). (2) schema-contract-check.sh — bash script with set -euo pipefail, validates JSON, asserts field name in schema, asserts Go-side ≥1 ref, defers TS check until plugin/src/ exists. RED: failed before schema file existed. GREEN: passes (4 OKs + 1 SKIP). (3) README.md Schema Contract section added with rationale, example, and cross-reference. (4) preferences.go package doc updated to anchor Go-side field-name reference. Tests: make test (3 packages pass), make lint clean, schema-contract-check.sh PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "README.md",
+        "internal/config/preferences.go",
+        "schema-contract-check.sh",
+        "schema/fallback-schema.json"
+      ],
+      "touched_files": [
+        "README.md",
+        "internal/config/preferences.go",
+        "schema-contract-check.sh",
+        "schema/fallback-schema.json"
+      ],
+      "checkpointSha": "5568d2f2fddfef3e72b2ee7197b45d65874abb43",
+      "completedAt": "2026-05-20T06:19:00.007Z",
+      "completed_at": "2026-05-20T06:19:00.007Z"
+    },
+    {
+      "id": "tk-61dd2a2e7288",
+      "title": "Add fallback chain validation (internal/config/fallback.go) and PreferencesConfig field",
+      "type": "code",
+      "section": "Phase C — Authoring path (omp Go binary)",
+      "status": "done",
+      "priority": 6,
+      "created_at": "2026-05-20T06:02:39.279Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-3a041c38f091"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:19:04.610Z",
+      "verification": "Phase C validation delivered. (1) internal/config/fallback.go NEW: ModelKeyPattern (mirrors schema regex), FallbackJSONPath=\"options.fallback_models\" const, MaxChainLength=8 const, modelKeyRE compiled regex, ValidateFallbackChain enforces length ≤ MaxChainLength, pattern match, no duplicates; empty/nil chain valid. File-level doc cites schema and design § D1. (2) PreferencesConfig.TargetFallbacks field added with json tag `target_fallbacks,omitempty`. (3) sanitizePreferences extended to init TargetFallbacks if nil, drop unmappable keys, drop chains that fail ValidateFallbackChain. RED: build failed before fallback.go existed. GREEN: 11 new tests PASS (6 ValidateFallbackChain cases + ModelKeyPattern schema examples + FallbackJSONPath const + 3 sanitize cases). `make test`, `make lint`, `schema-contract-check.sh` all PASS (Go-side hits jumped from 2 to 7 after real code added).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/config/fallback.go",
+        "internal/config/fallback_test.go",
+        "internal/config/preferences.go"
+      ],
+      "touched_files": [
+        "internal/config/fallback.go",
+        "internal/config/fallback_test.go",
+        "internal/config/preferences.go"
+      ],
+      "checkpointSha": "99164d3210656beef8db4664db2eb8647d964870",
+      "completedAt": "2026-05-20T06:20:26.464Z",
+      "completed_at": "2026-05-20T06:20:26.464Z"
+    },
+    {
+      "id": "tk-1f98a7efcbac",
+      "title": "Extend discoverTargets to read fallback_models from JSON config and markdown frontmatter",
+      "type": "code",
+      "section": "Phase C — Authoring path (omp Go binary)",
+      "status": "done",
+      "priority": 7,
+      "created_at": "2026-05-20T06:02:56.549Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:20:33.383Z",
+      "verification": "discoverTargets extended for fallback chain reads. (1) Target.FallbackModels []string field added. (2) readFallbackChain helper extracts agent.<name>.options.fallback_models via gjson — returns nil when absent/non-array. Wired into built-in agent loop and JSON-configured agent loop in discoverTargets. (3) discoverMarkdownAgents reads chain with precedence: JSON wins over markdown frontmatter (matches existing model-override behavior). (4) parseFrontmatterList helper supports inline-array form `field: [\"a\",\"b\"]` — minimal parser matching existing parseFrontmatterField scope. RED: 7 new tests failed compile (undefined symbols). GREEN: all 7 PASS — JSON-options read, empty chain, built-in agent chain, markdown frontmatter, JSON-overrides-md, parseFrontmatterList inline + missing. `make test`, `make lint`, schema-contract-check all PASS; Go-side field hits 18.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/config/config.go",
+        "internal/config/fallback_test.go"
+      ],
+      "touched_files": [
+        "internal/config/config.go",
+        "internal/config/fallback_test.go"
+      ],
+      "checkpointSha": "feb28db501ce46240c053237097bd2968e137e44",
+      "completedAt": "2026-05-20T06:22:11.178Z",
+      "completed_at": "2026-05-20T06:22:11.178Z"
+    },
+    {
+      "id": "tk-ce0efa9bc723",
+      "title": "Extend ApplyPreferences to write agent.<name>.options.fallback_models",
+      "type": "code",
+      "section": "Phase C — Authoring path (omp Go binary)",
+      "status": "done",
+      "priority": 8,
+      "created_at": "2026-05-20T06:03:26.992Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-61dd2a2e7288"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-879f0b344010"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:22:15.310Z",
+      "verification": "ApplyPreferences chain write delivered. New loop after the model-write block iterates targets: skips unmappable; for empty/nil chain, deletes path if it exists (no-op if absent); for non-empty chain, validates via ValidateFallbackChain (returns error with \"invalid fallback chain for {name}\" wrapping if bad), then sjson.SetBytes to agent.<name>.options.fallback_models. RED: 4 of 6 new tests FAILED before edit. GREEN: all 6 PASS (WritesFallbackChain, WritesPrimaryModelAndChainTogether, ClearsEmptyChain, PreservesOtherOptionsSiblings, RejectsInvalidChain, ChainWriteCreatesBackupToo). sjson preserves existing options siblings (verified). Backup before chain write verified. Full suite green; Go-side field hits 25.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/config/fallback_test.go",
+        "internal/config/preferences.go"
+      ],
+      "touched_files": [
+        "internal/config/fallback_test.go",
+        "internal/config/preferences.go"
+      ],
+      "checkpointSha": "f11783f27c1cdfb2c9af2e3e913b6dba43c7ef05",
+      "completedAt": "2026-05-20T06:23:34.520Z",
+      "completed_at": "2026-05-20T06:23:34.520Z"
+    },
+    {
+      "id": "tk-bf90b388f1f9",
+      "title": "Add fallback chain editor view to TUI",
+      "type": "code",
+      "section": "Phase C — Authoring path (omp Go binary)",
+      "status": "done",
+      "priority": 9,
+      "created_at": "2026-05-20T06:03:47.728Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-61dd2a2e7288"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:23:39.581Z",
+      "verification": "TUI fallback chain editor delivered. (1) viewFallbackEditor viewState const + Model fields (fallbackEditorList, fallbackEditorTargetName, fallbackEditorFromEditor). (2) chainItem list item type with \"N. provider/model\" Title format + buildChainItems builder. (3) targetItem.chainCount field (preferences-first, falling back to target.FallbackModels); Description appends \"→ +N fallbacks\" when chainCount>0. (4) Key handlers: `f` in assignments opens editor; in editor, `enter` opens model picker scoped to chain (fromEditor flag), `d` removes selected entry, `K`/`J` reorder up/down (swap), `esc` exits to assignments with savePrefsCmd. (5) modelPickDoneMsg extended with fromEditor flag; handler appends to chain instead of setting TargetModels when set. (6) View() case for viewFallbackEditor + updated help text on assignments view. RED phase: 4 of 7 tests FAILED (build errors + cursor-on-section-header bug). Retry 1 diagnosis: tests needed to advance cursor past section header before pressing 'f'. Added advanceToFirstTarget helper. GREEN: all 7 tests PASS. Full suite green; make test, make lint, schema-contract-check all PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "internal/tui/tui.go",
+        "internal/tui/tui_test.go"
+      ],
+      "touched_files": [
+        "internal/tui/tui.go",
+        "internal/tui/tui_test.go"
+      ],
+      "checkpointSha": "ceead62c82e712b843934dc4ad948f48365c5cdd",
+      "completedAt": "2026-05-20T06:27:47.580Z",
+      "completed_at": "2026-05-20T06:27:47.580Z"
+    },
+    {
+      "id": "tk-1dc5db80c40f",
+      "title": "Scaffold plugin/ directory: package.json, tsconfig, config loader, types, state store",
+      "type": "code",
+      "section": "Phase D — Runtime plugin (TypeScript)",
+      "status": "done",
+      "priority": 10,
+      "created_at": "2026-05-20T06:04:20.718Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-3a041c38f091"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:27:57.702Z",
+      "verification": "Phase D plugin scaffold delivered. (1) plugin/package.json with exact-pinned deps @opencode-ai/plugin@1.4.8 and @opencode-ai/sdk@1.4.17 (no ranges per agreement). (2) plugin/tsconfig.json — ES2022/strict/bundler/allowImportingTsExtensions. (3) src/types.ts — ModelKey template literal, ErrorCategory union, PluginConfig + defaultConfig with conservative values (60s TTFT, 5min cooldown, depth 3, 3s dedup, 150ms abortWait). (4) src/logging/logger.ts — JSON-line stderr Logger with level filtering, write-sink test seam. (5) src/config/loader.ts — loadFallbackChains reads options.fallback_models (primary) + fallback_models sibling (legacy with one-time warning), validates entries via modelKeyPattern (mirrors schema regex) + maxChainLength cap, silently drops malformed entries. (6) src/state/session-state.ts + model-health.ts + store.ts — SessionState defaults, ModelHealthMap with cooldown lifecycle (self-healing on expiry), FallbackStore with acquireLock/releaseLock + sessions accessor with isInDedupWindow. (7) plugin/NOTICE crediting Smart-Coders-HQ borrow. (8) .gitignore extended with plugin/node_modules, plugin/dist, *.omp-backup.*. RED: tests imported undefined symbols. GREEN: 13 tests PASS (loader: 7 cases including legacy-path warning, options-wins, malformed-drop, schema examples; store/health: 6 cases including dedup window expiry, cooldown self-heal). Typecheck clean after retry-1 fix (allowImportingTsExtensions + ModelKey[] cast in schema-examples test). Schema-contract-check now reports BOTH stacks (Go 25 hits, TS 8 hits). Full suite green: Go tests + lint + plugin tests + plugin typecheck.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        ".gitignore",
+        "plugin/NOTICE",
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/src/config/loader.ts",
+        "plugin/src/logging/logger.ts",
+        "plugin/src/state/model-health.ts",
+        "plugin/src/state/session-state.ts",
+        "plugin/src/state/store.ts",
+        "plugin/src/types.ts",
+        "plugin/test/config.test.ts",
+        "plugin/test/store.test.ts",
+        "plugin/tsconfig.json"
+      ],
+      "touched_files": [
+        ".gitignore",
+        "plugin/NOTICE",
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/src/config/loader.ts",
+        "plugin/src/logging/logger.ts",
+        "plugin/src/state/model-health.ts",
+        "plugin/src/state/session-state.ts",
+        "plugin/src/state/store.ts",
+        "plugin/src/types.ts",
+        "plugin/test/config.test.ts",
+        "plugin/test/store.test.ts",
+        "plugin/tsconfig.json"
+      ],
+      "checkpointSha": "634f21130004ab86be12ae1a8224abd097a68bec",
+      "completedAt": "2026-05-20T06:30:51.012Z",
+      "completed_at": "2026-05-20T06:30:51.012Z"
+    },
+    {
+      "id": "tk-4d6d000ad2d9",
+      "title": "Detection classifier and agent resolver",
+      "type": "code",
+      "section": "Phase D — Runtime plugin (TypeScript)",
+      "status": "done",
+      "priority": 11,
+      "created_at": "2026-05-20T06:04:37.887Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:30:55.239Z",
+      "verification": "Detection + resolver + mock-client delivered. (1) src/detection/patterns.ts — vendor-agnostic retry text patterns by category (rate_limit, quota_exhausted, unknown_model, auth_error, server_error, unknown). (2) src/detection/classifier.ts — classifySessionError (typed payload, precedence: name → statusCode → message), classifyRetryStatusText (regex bank lookup, null when no match). (3) src/resolution/agent-resolver.ts — resolveAgentName with cache-hit fast path, fetches from client.session.messages (handles sessionID/sessionId variance), caches on session state, error/empty returns null. (4) src/resolution/fallback-resolver.ts — pure resolveFallbackModel(currentModel, chain, depth, health, maxDepth) returns next healthy entry or null; handles cooldowns, chain exhaustion, maxDepth cap, currentModel outside chain, null currentModel. (5) test/helpers/mock-client.ts — narrow stub with calls[] recorder + scripted error injection. RED: 1 failure (auth_error pattern didn't match \"Unauthorized\"). Retry 1 diagnosis: `[iz]ed` matches only one of i/z — replaced with explicit `(unauthorized|unauthorised|forbidden)` plus a `bad/invalid api key` hint. GREEN: all 45 plugin tests PASS (13 prior + 11 classifySessionError + 8 classifyRetryStatusText + 5 agent-resolver + 8 fallback-resolver). Typecheck clean. Full suite: Go tests, lint, schema-contract, plugin tests all PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/detection/classifier.ts",
+        "plugin/src/detection/patterns.ts",
+        "plugin/src/resolution/agent-resolver.ts",
+        "plugin/src/resolution/fallback-resolver.ts",
+        "plugin/test/agent-resolver.test.ts",
+        "plugin/test/detection.test.ts",
+        "plugin/test/fallback-resolver.test.ts",
+        "plugin/test/helpers/mock-client.ts"
+      ],
+      "touched_files": [
+        "plugin/src/detection/classifier.ts",
+        "plugin/src/detection/patterns.ts",
+        "plugin/src/resolution/agent-resolver.ts",
+        "plugin/src/resolution/fallback-resolver.ts",
+        "plugin/test/agent-resolver.test.ts",
+        "plugin/test/detection.test.ts",
+        "plugin/test/fallback-resolver.test.ts",
+        "plugin/test/helpers/mock-client.ts"
+      ],
+      "checkpointSha": "cd56e8377300c8ef8128333ba588fb532a58fe41",
+      "completedAt": "2026-05-20T06:35:48.643Z",
+      "completed_at": "2026-05-20T06:35:48.643Z"
+    },
+    {
+      "id": "tk-cc1ac5370c65",
+      "title": "Replay orchestrator with abort→revert→prompt sequence",
+      "type": "code",
+      "section": "Phase D — Runtime plugin (TypeScript)",
+      "status": "done",
+      "priority": 12,
+      "created_at": "2026-05-20T06:05:00.146Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-4d6d000ad2d9"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:35:53.798Z",
+      "verification": "Replay orchestrator delivered. (1) src/replay/message-converter.ts — convertPartsForPrompt (defensive copy, null/undefined safe). (2) src/replay/orchestrator.ts — attemptFallback(args) implements canonical sequence: acquireLock → dedup check → resolve next via fallback-resolver → cooldown previous model → fetch session messages → find last user message → abort → sleep(abortWaitMs) → revert → prompt with parsed {providerID, modelID} + restored agent/parts → update session state (currentModel, fallbackDepth, lastFallbackAt, originalModel). Always releases lock in finally. Never throws — all paths return structured ReplayResult. (3) 13 new orchestrator + replay tests cover: happy-path call order, lock contention, dedup window, empty chain, exhausted depth, abort/revert/prompt failures (each with lock-release verification), no-user-message guard, parts pass-through, defensive copy. All 58 plugin tests PASS; typecheck clean. Full suite green.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/replay/message-converter.ts",
+        "plugin/src/replay/orchestrator.ts",
+        "plugin/test/orchestrator.test.ts",
+        "plugin/test/replay.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/replay/message-converter.ts",
+        "plugin/src/replay/orchestrator.ts",
+        "plugin/test/orchestrator.test.ts",
+        "plugin/test/replay.test.ts"
+      ],
+      "checkpointSha": "8564151e7332246d3c3c00647c74774276eb2e30",
+      "completedAt": "2026-05-20T06:37:16.911Z",
+      "completed_at": "2026-05-20T06:37:16.911Z"
+    },
+    {
+      "id": "tk-11bfb0af7da6",
+      "title": "Preemptive skip via chat.message hook, TTFT timer, plugin entrypoint wiring",
+      "type": "code",
+      "section": "Phase D — Runtime plugin (TypeScript)",
+      "status": "done",
+      "priority": 13,
+      "created_at": "2026-05-20T06:05:22.526Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:37:22.127Z",
+      "verification": "Preemptive + TTFT + plugin entry delivered. (1) src/preemptive.ts — applyPreemptiveSkip mutates output.message.model when current is in cooldown, picks next healthy via resolveFallbackModel, tracks session.currentModel even when healthy. (2) src/ttft.ts — TtftRegistry with arm/clear/has, per-session timer isolation, re-arm replaces previous timer. (3) src/plugin.ts — default-exported async plugin function + exported handleChatMessage, handleEvent, createPluginContext for testability. chat.message wires preemptive then arms TTFT (calls attemptFallback with reason=ttft_timeout on expiry). event dispatcher handles session.error (classifySessionError), session.status (classifyRetryStatusText, null=no-op), session.message.part.updated (clears TTFT on non-empty content), session.idle (no-op v1). Default config: 60s TTFT, 5min cooldown, depth 3, 3s dedup, 150ms abortWait. (4) 19 new tests across preemptive (6), ttft (4), plugin (9). Full suite: 77 plugin tests pass, typecheck clean; Go tests + lint + schema-contract-check all PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/plugin.ts",
+        "plugin/src/preemptive.ts",
+        "plugin/src/ttft.ts",
+        "plugin/test/plugin.test.ts",
+        "plugin/test/preemptive.test.ts",
+        "plugin/test/ttft.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin.ts",
+        "plugin/src/preemptive.ts",
+        "plugin/src/ttft.ts",
+        "plugin/test/plugin.test.ts",
+        "plugin/test/preemptive.test.ts",
+        "plugin/test/ttft.test.ts"
+      ],
+      "checkpointSha": "9c148fe834666bd5d830d24a8adfe50c4d662c5c",
+      "completedAt": "2026-05-20T06:39:12.928Z",
+      "completed_at": "2026-05-20T06:39:12.928Z"
+    },
+    {
+      "id": "tk-431e23122a43",
+      "title": "Top-level Makefile orchestrating both stacks, wire schema-contract-check into lint",
+      "type": "code",
+      "section": "Phase E — Monorepo wiring",
+      "status": "done",
+      "priority": 14,
+      "created_at": "2026-05-20T06:05:43.373Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-11bfb0af7da6"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-bf90b388f1f9"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-ce0efa9bc723"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:39:17.559Z",
+      "verification": "Top-level Makefile orchestration delivered. .PHONY extended with build-plugin, test-go, test-plugin, lint-go, lint-plugin. New targets: build-plugin (bun install --frozen-lockfile + typecheck), test-go (go test), test-plugin (bun test), test (depends on test-go test-plugin), lint-go (vet + schema-contract-check), lint-plugin (bun typecheck), lint (depends on lint-go lint-plugin), clean extended to rm plugin/node_modules and plugin/dist. README.md install section expanded: separated omp + plugin install paths, opencode.json plugin path example (local + npm-once-published), Make targets table. `make test` runs 3 Go packages + 77 plugin tests; `make lint` runs vet + schema-contract-check + plugin typecheck — all PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "Makefile",
+        "README.md"
+      ],
+      "touched_files": [
+        "Makefile",
+        "README.md"
+      ],
+      "checkpointSha": "c27322c815b140394bf4ac9ca34fe3b759f844eb",
+      "completedAt": "2026-05-20T06:39:53.552Z",
+      "completed_at": "2026-05-20T06:39:53.552Z"
+    },
+    {
+      "id": "tk-d76359db29e2",
+      "title": "End-to-end smoke test: omp writes options.fallback_models, plugin loads it correctly",
+      "type": "code",
+      "section": "Phase E — Monorepo wiring",
+      "status": "done",
+      "priority": 15,
+      "created_at": "2026-05-20T06:05:56.434Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-20T06:40:01.395Z",
+      "verification": "End-to-end smoke test delivered. (1) cmd/e2e-helper/main.go — non-interactive Go binary that calls ApplyPreferences with PreferencesConfig{TargetModels: {adv-researcher: anthropic/claude-sonnet-4-5}, TargetFallbacks: {adv-researcher: [openai/gpt-5, google/gemini-2.5-pro]}} against $OPENCODE_CONFIG_DIR. (2) scripts/e2e-smoke.sh — builds helper, seeds tempdir opencode.json, runs helper, asserts JSON shape (options.fallback_models at canonical path + primary model), asserts backup file exists, runs bun loader test against same fixture in plugin/test/ (temp file cleaned up via trap). RED-1 retry: initial filename .test.ts.tmp didn't match bun's discovery; fixed to put a properly-named .e2e-smoke-tmp.test.ts in plugin/test/ with trap-cleanup. Full e2e PASS: writer (omp) writes to options.fallback_models, reader (plugin loader) parses from same path. Round-trip contract verified.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "cmd/e2e-helper/main.go",
+        "scripts/e2e-smoke.sh"
+      ],
+      "touched_files": [
+        "cmd/e2e-helper/main.go",
+        "scripts/e2e-smoke.sh"
+      ],
+      "checkpointSha": "9360acc88701eb0e5af252105e16be8fdd7f787e",
+      "completedAt": "2026-05-20T06:41:10.160Z",
+      "completed_at": "2026-05-20T06:41:10.160Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-20T05:30:29.166Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved via whitelist word 'approve'. B/F/S/M scan: 0 CRITICAL, 0 HIGH. Three confirmation items acknowledged (scope coverage, out-of-scope items, no-daemon constraint)."
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-05-20T05:39:21.998Z",
+      "completed_by": "user",
+      "approval_evidence": "Agreement signed off via 'approve'. Discovery research complete: plugin API verified (chat.message preemptive + event hooks for session.error/status), config reading via agent.[name].fallback_models works due to AgentConfig index signature, replay sequence (abort→revert→prompt) confirmed canonical. B/F/S/M scan: 0 CRITICAL, 0 HIGH."
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-20T05:59:53.082Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design persisted. Independent validator returned CAUTION with two material findings; both resolved inline before gate completion: (1) D1 config-shape claim corrected from sibling key to agent.<name>.options.fallback_models after direct verification against sst/opencode source (KNOWN_KEYS + normalize() transform in packages/opencode/src/config/agent.ts @ 4702cdd); (2) Alternative-A \"use Smart-Coders-HQ verbatim\" surfaced to user, who confirmed building a new plugin with heavy borrowing. Agreement amended with the corrected config path on all affected ACs. NOTICE attribution to Smart-Coders-HQ already in place. No unresolved CONFLICT."
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-20T06:11:05.111Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved via Tier A whitelist word 'approve'. 16 tasks across 5 phases (A→B→C→D→E), strict validation passed (only NO_DELTAS warning, expected for founding change). All 12 cross-cutting concerns either covered or documented N/A with rationale. Ready queue starts at tk-5d0c01c26656 (priority 0, module rename)."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-20T06:41:24.615Z",
+      "completed_by": "agent",
+      "approval_evidence": "16/16 tasks complete. Full suite: 3 Go packages pass (cmd/omp, internal/config, internal/tui), 77 plugin tests pass across 10 files, schema-contract-check PASS (Go 25 refs, TS 8 refs), make lint clean (go vet + plugin typecheck), end-to-end smoke PASS (omp writes agent.<name>.options.fallback_models, plugin loader reads it). Built across 5 phases A→B→C→D→E. Two SEMANTIC retries used (TUI cursor-on-section-header in tk-bf90b388f1f9, auth regex in tk-4d6d000ad2d9, bun test filename in tk-d76359db29e2 — all diagnosed and fixed on retry 1)."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-20T14:03:12.504Z",
+      "completed_by": "user",
+      "approval_evidence": "User accepted review remediation via Tier A whitelist reply 'accept'. Review findings remediated; verification passed: make test, make lint, e2e smoke, strict validation (NO_DELTAS warning only)."
+    },
+    "release": {
+      "status": "done",
+      "completed_at": "2026-05-20T14:04:12.933Z",
+      "completed_by": "user",
+      "approval_evidence": "Archive sign-off approved via Tier B whitelist reply 'approve'. Release hardening passed: make test, make lint, e2e smoke, strict validation; conformance status has no locked specs configured."
+    }
+  },
+  "reentry_history": [],
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_UNCLEAR_SCOPE",
+      "severity": "warning",
+      "message": "Proposal has no Scope section. What files and modules will be affected?",
+      "recorded_at": "2026-05-20T05:45:43.997Z"
+    },
+    {
+      "code": "CLARIFY_ASSUMPTION_HEAVY",
+      "severity": "warning",
+      "message": "Proposal references authentication/authorization without specifying the model. What auth mechanism will be used?",
+      "recorded_at": "2026-05-20T05:45:43.997Z",
+      "resolved": true,
+      "resolved_at": "2026-05-20T06:56:40.999Z"
+    }
+  ]
+}

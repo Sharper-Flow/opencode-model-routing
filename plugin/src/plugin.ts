@@ -124,6 +124,10 @@ interface EventInputShape {
   };
 }
 
+function hasStreamingTextContent(part: { type?: string; text?: string }): boolean {
+  return part.type === "text" && typeof part.text === "string" && part.text.length > 0;
+}
+
 export async function handleEvent(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -168,14 +172,12 @@ export async function handleEvent(
       return;
     }
     case "session.message.part.updated": {
-      // First token of any part for this session → clear TTFT timer + reset
-      // depth (user is now actively receiving tokens).
+      // First streamed text content for this session → clear TTFT timer. Do
+      // not clear on metadata/tool/status parts that have a non-empty type but
+      // no generated text.
       const part = props.part;
       if (!part) return;
-      const hasContent =
-        (typeof part.text === "string" && part.text.length > 0) ||
-        (typeof part.type === "string" && part.type !== "");
-      if (!hasContent) return;
+      if (!hasStreamingTextContent(part)) return;
       if (ctx.ttft.has(sessionId)) {
         ctx.ttft.clear(sessionId);
         ctx.logger.debug("ttft.cleared_on_token", { sessionId });

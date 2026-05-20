@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -668,6 +669,54 @@ func TestTUI_FallbackEditor_ReorderDown(t *testing.T) {
 		if chain[i] != v {
 			t.Errorf("chain[%d] = %q, want %q", i, chain[i], v)
 		}
+	}
+}
+
+func TestTUI_FallbackEditor_DoesNotAddDuplicate(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, _ = model.(Model).Update(modelPickDoneMsg{
+		targetName: "scout",
+		model:      "openai/gpt-5",
+		fromEditor: true,
+	})
+
+	mm := model.(Model)
+	chain := mm.prefs.TargetFallbacks["scout"]
+	if len(chain) != 1 || chain[0] != "openai/gpt-5" {
+		t.Fatalf("chain = %v, want unchanged single openai/gpt-5", chain)
+	}
+	if !strings.Contains(mm.status, "already") {
+		t.Fatalf("status = %q, want duplicate warning", mm.status)
+	}
+}
+
+func TestTUI_FallbackEditor_RespectsMaxChainLength(t *testing.T) {
+	chain := make([]string, config.MaxChainLength)
+	for i := range chain {
+		chain[i] = fmt.Sprintf("provider/model-%d", i)
+	}
+	state, prefs := scoutWithChain(chain)
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, _ = model.(Model).Update(modelPickDoneMsg{
+		targetName: "scout",
+		model:      "provider/model-extra",
+		fromEditor: true,
+	})
+
+	mm := model.(Model)
+	got := mm.prefs.TargetFallbacks["scout"]
+	if len(got) != config.MaxChainLength {
+		t.Fatalf("chain length = %d (%v), want %d", len(got), got, config.MaxChainLength)
+	}
+	if !strings.Contains(mm.status, "max") {
+		t.Fatalf("status = %q, want max warning", mm.status)
 	}
 }
 

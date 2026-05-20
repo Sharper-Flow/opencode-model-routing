@@ -56,6 +56,27 @@ describe("attemptFallback — happy path", () => {
     // previous model put in cooldown
     expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
+
+  test("does not set originalModel to fallback when current model is unknown", async () => {
+    const store = new FallbackStore();
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.fallbackModel).toBe("a/one");
+    expect(result.fromModel).toBeNull();
+    expect(store.sessions.get("s1").originalModel).toBeNull();
+  });
 });
 
 describe("attemptFallback — gating", () => {

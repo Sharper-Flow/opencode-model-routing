@@ -11,20 +11,30 @@
 
 export type TimerHandle = ReturnType<typeof setTimeout>;
 
+interface TimerEntry {
+  handle: TimerHandle;
+}
+
 export class TtftRegistry {
-  private timers = new Map<string, TimerHandle>();
+  private timers = new Map<string, TimerEntry>();
 
   arm(sessionId: string, ttftMs: number, onTimeout: () => void): void {
     // Replace any existing timer for the same session.
     this.clear(sessionId);
-    const handle = setTimeout(onTimeout, ttftMs);
-    this.timers.set(sessionId, handle);
+    const entry: TimerEntry = {
+      handle: setTimeout(() => {
+        if (this.timers.get(sessionId) !== entry) return;
+        this.timers.delete(sessionId);
+        onTimeout();
+      }, ttftMs),
+    };
+    this.timers.set(sessionId, entry);
   }
 
   clear(sessionId: string): void {
-    const handle = this.timers.get(sessionId);
-    if (handle) {
-      clearTimeout(handle);
+    const entry = this.timers.get(sessionId);
+    if (entry) {
+      clearTimeout(entry.handle);
       this.timers.delete(sessionId);
     }
   }

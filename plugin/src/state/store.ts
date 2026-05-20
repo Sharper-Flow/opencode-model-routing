@@ -8,8 +8,8 @@
 // All state is in-memory; the plugin recreates it on every OpenCode restart
 // per agreement.
 
-import { ModelHealthMap, type NowFn } from "./model-health.js";
-import { newSessionState, type SessionState } from "./session-state.js";
+import { ModelHealthMap, type NowFn } from "./model-health.ts";
+import { newSessionState, type SessionState } from "./session-state.ts";
 
 export class FallbackStore {
   readonly sessions: SessionsAccessor;

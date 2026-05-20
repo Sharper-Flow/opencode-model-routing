@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -628,6 +629,31 @@ func TestSetAgentOrder_PreservesValues(t *testing.T) {
 	}
 	if !strings.Contains(raw, `"anthropic/claude-opus-4"`) {
 		t.Errorf("refine model value should be preserved, got: %s", raw)
+	}
+}
+
+func TestSetAgentOrder_WritesConfigOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	initial := `{
+  "agent": {
+    "scout": {"model": "openai/gpt-5", "mode": "primary"},
+    "refine": {"model": "anthropic/claude-opus-4"}
+  }
+}`
+	mustWriteFile(t, configPath, []byte(initial), 0644)
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	if err := SetAgentOrder([]string{"refine", "scout"}); err != nil {
+		t.Fatalf("SetAgentOrder: %v", err)
+	}
+
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat opencode.json: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("mode = %o, want 0600", got)
 	}
 }
 
@@ -1512,6 +1538,28 @@ func TestApplyPreferences_CreatesBackup(t *testing.T) {
 	}
 }
 
+func TestApplyPreferences_WritesConfigOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	configPath := filepath.Join(dir, "opencode.json")
+	mustWriteFile(t, configPath, []byte(`{"agent": {"scout": {"mode": "primary"}}}`), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat opencode.json: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("mode = %o, want 0600", got)
+	}
+}
+
 func TestApplyPreferences_BackupContainsOriginal(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
@@ -1556,6 +1604,40 @@ func TestApplyPreferences_AtomicWriteLeavesNoTempFile(t *testing.T) {
 	tmps := findTempFiles(t, dir)
 	if len(tmps) > 0 {
 		t.Errorf("expected no leftover .omp-*.tmp files, found: %v", tmps)
+	}
+}
+
+func TestApplyPreferences_PrunesBackupsToMostRecentFive(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	configPath := filepath.Join(dir, "opencode.json")
+	mustWriteFile(t, configPath, []byte(`{"agent": {"scout": {"mode": "primary"}}}`), 0644)
+
+	base := time.Now().Add(-10 * time.Hour)
+	for i := 0; i < 6; i++ {
+		name := filepath.Join(dir, "opencode.json.omp-backup.old-"+string(rune('0'+i)))
+		mustWriteFile(t, name, []byte("old"), 0600)
+		mod := base.Add(time.Duration(i) * time.Hour)
+		if err := os.Chtimes(name, mod, mod); err != nil {
+			t.Fatalf("chtimes %s: %v", name, err)
+		}
+	}
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	backups := findBackups(t, dir)
+	if len(backups) != maxOpencodeBackups {
+		t.Fatalf("backup count = %d (%v), want %d", len(backups), backups, maxOpencodeBackups)
+	}
+	for _, backup := range backups {
+		if backup == "opencode.json.omp-backup.old-0" || backup == "opencode.json.omp-backup.old-1" {
+			t.Fatalf("old backup %q should have been pruned; backups=%v", backup, backups)
+		}
 	}
 }
 

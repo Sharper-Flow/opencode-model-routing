@@ -37,6 +37,11 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function errorSummary(err: unknown): string {
+  if (err instanceof Error) return err.name || "Error";
+  return typeof err;
+}
+
 interface LastUserMessage {
   messageID: string | null;
   parts: Part[];
@@ -121,7 +126,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
         client.session.messages({ sessionId } as never),
       );
     } catch (err) {
-      logger.error("fallback.messages_failed", { sessionId, err: String(err) });
+      logger.error("fallback.messages_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "messages failed" };
     }
     const lastUser = findLastUserMessage(messages);
@@ -133,7 +138,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     try {
       await client.session.abort({ sessionID: sessionId } as never);
     } catch (err) {
-      logger.error("fallback.abort_failed", { sessionId, err: String(err) });
+      logger.error("fallback.abort_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "abort failed" };
     }
 
@@ -142,7 +147,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     try {
       await client.session.revert({ sessionID: sessionId, messageID: lastUser.messageID } as never);
     } catch (err) {
-      logger.error("fallback.revert_failed", { sessionId, err: String(err) });
+      logger.error("fallback.revert_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "revert failed" };
     }
 
@@ -157,7 +162,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
         agent: agentName,
       } as never);
     } catch (err) {
-      logger.error("fallback.prompt_failed", { sessionId, err: String(err) });
+      logger.error("fallback.prompt_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "prompt failed" };
     }
 
@@ -165,7 +170,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     state.currentModel = next;
     state.fallbackDepth += 1;
     state.lastFallbackAt = Date.now();
-    if (!state.originalModel) state.originalModel = current ?? next;
+    if (!state.originalModel && current) state.originalModel = current;
 
     logger.info("fallback.success", {
       sessionId,
