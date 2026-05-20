@@ -51,6 +51,8 @@ Example:
 
 ## Installation
 
+### omp (Go TUI)
+
 ```sh
 make build       # builds the omp binary
 make install     # copies omp to ~/.local/bin/ (no git hook side-effects)
@@ -62,6 +64,44 @@ hook that runs `make build && make test` before each push, run:
 ```sh
 make install-hooks
 ```
+
+### Plugin (TypeScript)
+
+The runtime fallback plugin lives in [`plugin/`](./plugin) and ships separately.
+
+```sh
+make build-plugin  # installs deps (frozen lockfile) + typechecks
+```
+
+To enable in OpenCode, add the plugin path to your `opencode.json`:
+
+```jsonc
+{
+  "plugin": ["/absolute/path/to/repo/plugin"]
+}
+```
+
+Once published to npm, it can be loaded by name:
+
+```jsonc
+{
+  "plugin": ["@sharper-flow/opencode-model-routing-plugin"]
+}
+```
+
+### Make targets
+
+| Target | Action |
+|---|---|
+| `make build` | Builds the `omp` Go binary. |
+| `make build-plugin` | Installs plugin deps (frozen lockfile) and typechecks. |
+| `make install` | Installs `omp` to `~/.local/bin/`. Does NOT touch git hooks. |
+| `make install-hooks` | Installs the optional pre-push hook (build + test). |
+| `make test` | Runs both Go and plugin test suites. |
+| `make test-go` | Go tests only. |
+| `make test-plugin` | Plugin tests only (`bun test`). |
+| `make lint` | Go vet, schema-contract-check, plugin typecheck. |
+| `make clean` | Removes `omp` binary and `plugin/node_modules`, `plugin/dist`. |
 
 ## License
 

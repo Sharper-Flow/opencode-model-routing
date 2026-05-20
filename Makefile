@@ -1,4 +1,4 @@
-.PHONY: build install install-hooks test lint clean
+.PHONY: build install install-hooks build-plugin test test-go test-plugin lint lint-go lint-plugin clean
 
 BINARY := omp
 INSTALL_DIR := $(HOME)/.local/bin
@@ -20,11 +20,26 @@ install-hooks:
 	install -m 0755 $(PRE_PUSH_HOOK) $(HOOKS_DIR)/pre-push
 	@echo "Installed git hook to $(HOOKS_DIR)/pre-push"
 
-test:
+build-plugin:
+	cd plugin && bun install --frozen-lockfile && bun run typecheck
+
+test-go:
 	go test ./... -count=1
 
-lint:
+test-plugin:
+	cd plugin && bun test
+
+test: test-go test-plugin
+
+lint-go:
 	go vet ./...
+	./schema-contract-check.sh
+
+lint-plugin:
+	cd plugin && bun run typecheck
+
+lint: lint-go lint-plugin
 
 clean:
 	rm -f $(BINARY)
+	rm -rf plugin/node_modules plugin/dist
