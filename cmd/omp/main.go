@@ -40,7 +40,7 @@ func run(w io.Writer) error {
 	if len(state.Models) == 0 {
 		return fmt.Errorf(
 			"no models found via opencode CLI or provider config\n" +
-				"  Ensure 'opencode models' works, or configure providers in ~/.config/opencode/opencode.json",
+				"  Ensure 'opencode models' works, or configure providers in ~/.config/opencode/opencode.json(c)",
 		)
 	}
 

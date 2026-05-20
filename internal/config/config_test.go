@@ -32,6 +32,36 @@ func mustChdir(t *testing.T, dir string) {
 	}
 }
 
+func TestConfigPath_PrefersOpencodeJSONWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(`{}`), 0644)
+	mustWriteFile(t, filepath.Join(dir, "opencode.jsonc"), []byte(`{}`), 0644)
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	if got, want := ConfigPath(), filepath.Join(dir, "opencode.json"); got != want {
+		t.Fatalf("ConfigPath() = %q, want %q", got, want)
+	}
+}
+
+func TestConfigPath_UsesOpencodeJSONCWhenJSONMissing(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "opencode.jsonc"), []byte(`{}`), 0644)
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	if got, want := ConfigPath(), filepath.Join(dir, "opencode.jsonc"); got != want {
+		t.Fatalf("ConfigPath() = %q, want %q", got, want)
+	}
+}
+
+func TestConfigPath_DefaultsToJSONForFirstWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	if got, want := ConfigPath(), filepath.Join(dir, "opencode.json"); got != want {
+		t.Fatalf("ConfigPath() = %q, want %q", got, want)
+	}
+}
+
 // -- CLI-first model source tests --------------------------------------------
 // These tests verify that Load uses CLI-discovered models as primary source
 // and falls back to provider.*.models config parsing when CLI fails.
@@ -118,6 +148,41 @@ func TestLoad_FallsBackToConfigWhenCLIFails(t *testing.T) {
 
 	if !ids["anthropic/claude-config-fallback"] {
 		t.Error("config fallback model should be present when CLI fails")
+	}
+}
+
+func TestLoad_ReadsOpencodeJSONCWhenJSONMissing(t *testing.T) {
+	dir := t.TempDir()
+	configJSONC := `{
+		"provider": {
+			"anthropic": {
+				"models": {
+					"claude-jsonc-fallback": {"name": "Config JSONC Model"}
+				}
+			}
+		}
+	}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.jsonc"), []byte(configJSONC), 0644)
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	withCommandRunner(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "opencode" && len(args) == 1 && args[0] == "models" {
+			return []byte("error: provider unavailable"), &execExitError{}
+		}
+		return nil, nil
+	})
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() should read opencode.jsonc when opencode.json is absent, got: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, m := range state.Models {
+		ids[m.ID] = true
+	}
+	if !ids["anthropic/claude-jsonc-fallback"] {
+		t.Error("jsonc config fallback model should be present when CLI fails")
 	}
 }
 

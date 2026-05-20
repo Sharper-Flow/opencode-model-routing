@@ -105,9 +105,22 @@ func ConfigDir() string {
 	return filepath.Join(home, ".config", "opencode")
 }
 
-// ConfigPath returns the path to opencode.json.
+// ConfigPath returns the path to the OpenCode config file. Prefer
+// opencode.json when present for backward compatibility; otherwise use
+// opencode.jsonc, which is the common config filename created by modern
+// OpenCode setups. If neither exists, return the JSON path so first-write
+// flows keep the historical filename.
 func ConfigPath() string {
-	return filepath.Join(ConfigDir(), "opencode.json")
+	dir := ConfigDir()
+	jsonPath := filepath.Join(dir, "opencode.json")
+	if _, err := os.Stat(jsonPath); err == nil {
+		return jsonPath
+	}
+	jsoncPath := filepath.Join(dir, "opencode.jsonc")
+	if _, err := os.Stat(jsoncPath); err == nil {
+		return jsoncPath
+	}
+	return jsonPath
 }
 
 // Load reads the global config and resolves all targets and models.
@@ -125,9 +138,10 @@ func Load() (*State, error) {
 		return nil, fmt.Errorf("could not determine config directory")
 	}
 
-	raw, err := os.ReadFile(ConfigPath())
+	configPath := ConfigPath()
+	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading opencode.json: %w", err)
+		return nil, fmt.Errorf("reading OpenCode config %s: %w", configPath, err)
 	}
 
 	state := &State{}
