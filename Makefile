@@ -1,4 +1,4 @@
-.PHONY: build install install-hooks clean
+.PHONY: build install install-hooks test lint clean
 
 BINARY := omp
 INSTALL_DIR := $(HOME)/.local/bin
@@ -19,6 +19,12 @@ install-hooks:
 	mkdir -p $(HOOKS_DIR)
 	install -m 0755 $(PRE_PUSH_HOOK) $(HOOKS_DIR)/pre-push
 	@echo "Installed git hook to $(HOOKS_DIR)/pre-push"
+
+test:
+	go test ./... -count=1
+
+lint:
+	go vet ./...
 
 clean:
 	rm -f $(BINARY)
