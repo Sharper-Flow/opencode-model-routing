@@ -1,4 +1,4 @@
-module github.com/sharperflow/opencode-model-preferences
+module github.com/Sharper-Flow/opencode-model-routing
 
 go 1.24.2
 

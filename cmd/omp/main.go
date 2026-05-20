@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/sharperflow/opencode-model-preferences/internal/config"
-	"github.com/sharperflow/opencode-model-preferences/internal/tui"
+	"github.com/Sharper-Flow/opencode-model-routing/internal/config"
+	"github.com/Sharper-Flow/opencode-model-routing/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

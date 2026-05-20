@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sharperflow/opencode-model-preferences/internal/config"
+	"github.com/Sharper-Flow/opencode-model-routing/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

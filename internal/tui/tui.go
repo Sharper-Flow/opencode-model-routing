@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sharperflow/opencode-model-preferences/internal/config"
+	"github.com/Sharper-Flow/opencode-model-routing/internal/config"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
