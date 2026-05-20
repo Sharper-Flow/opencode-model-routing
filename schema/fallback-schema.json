@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Sharper-Flow/opencode-model-routing/schema/fallback-schema.json",
+  "title": "OpenCode Model Routing — Fallback Chain Contract",
+  "description": "Canonical schema for the per-agent fallback chain field consumed by both the Go writer (omp) and the TypeScript runtime plugin. The chain lives at `agent.<name>.options.fallback_models` inside OpenCode's global `opencode.json`. The `options` slot is OpenCode's documented extension surface — `AgentConfig.normalize()` in packages/opencode/src/config/agent.ts relocates any non-allow-listed sibling key into `options` at config load time, so writing directly to `options.fallback_models` matches the schema contract rather than relying on the transform side-effect. See design.md § D1 for the source citation.",
+
+  "type": "object",
+  "properties": {
+    "fallback_models": {
+      "type": "array",
+      "description": "Ordered list of `provider/model` pairs to try in sequence when the primary model fails. Empty array == no fallback (single-model behavior).",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*/[A-Za-z0-9._:/-]+$",
+        "description": "A `provider/model` identifier. Examples: `openai/gpt-5`, `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4-5`."
+      },
+      "maxItems": 8,
+      "uniqueItems": true,
+      "examples": [
+        [],
+        ["openai/gpt-5"],
+        ["openai/gpt-5", "google/gemini-2.5-pro", "anthropic/claude-sonnet-4-5"]
+      ]
+    }
+  },
+
+  "examples": [
+    {
+      "fallback_models": []
+    },
+    {
+      "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"]
+    }
+  ],
+
+  "$comment": "Cross-stack consumers MUST reference the field name `fallback_models` verbatim. Drift between Go writer (internal/config/) and TS reader (plugin/src/) is enforced via schema-contract-check.sh in `make lint`."
+}

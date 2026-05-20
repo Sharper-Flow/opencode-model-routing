@@ -4,6 +4,11 @@
 // a model ID with no intermediate abstraction. Config is stored in
 // ~/.config/opencode/omp-preferences.json (separate from opencode.json which
 // uses additionalProperties:false).
+//
+// Fallback chains: the canonical JSON path in opencode.json is
+// `agent.<name>.options.fallback_models`. See schema/fallback-schema.json for
+// the cross-stack contract — both this Go writer and the TypeScript plugin
+// reader reference the field name `fallback_models` verbatim.
 package config
 
 import (
