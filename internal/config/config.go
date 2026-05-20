@@ -27,14 +27,15 @@ const (
 
 // Target represents an agent that can have a model preference.
 type Target struct {
-	Name        string
-	Kind        TargetKind
-	Mode        string // "primary", "subagent", "system" (agents only)
-	Model       string // current model preference, empty = none
-	Description string // one-line purpose description, shown in TUI
-	BuiltIn     bool
-	Locked      bool // true for built-in primary agents whose cycle order is fixed by OpenCode
-	Hidden      bool // true when frontmatter sets hidden: true
+	Name           string
+	Kind           TargetKind
+	Mode           string // "primary", "subagent", "system" (agents only)
+	Model          string // current model preference, empty = none
+	Description    string // one-line purpose description, shown in TUI
+	BuiltIn        bool
+	Locked         bool     // true for built-in primary agents whose cycle order is fixed by OpenCode
+	Hidden         bool     // true when frontmatter sets hidden: true
+	FallbackModels []string // ordered fallback chain from agent.<name>.options.fallback_models
 }
 
 var unmappedMainAgents = map[string]bool{
@@ -197,6 +198,7 @@ func discoverTargets(configDir string, raw []byte) []Target {
 	// Built-in agents
 	for _, a := range builtinAgents {
 		a.Model = gjson.GetBytes(raw, "agent."+a.Name+".model").String()
+		a.FallbackModels = readFallbackChain(raw, a.Name)
 		targets = append(targets, a)
 		seen[a.Name] = true
 	}
@@ -220,18 +222,38 @@ func discoverTargets(configDir string, raw []byte) []Target {
 		}
 		hidden := val.Get("hidden").Bool()
 		targets = append(targets, Target{
-			Name:        n,
-			Kind:        KindAgent,
-			Mode:        mode,
-			Model:       val.Get("model").String(),
-			Description: val.Get("description").String(),
-			Hidden:      hidden,
+			Name:           n,
+			Kind:           KindAgent,
+			Mode:           mode,
+			Model:          val.Get("model").String(),
+			Description:    val.Get("description").String(),
+			Hidden:         hidden,
+			FallbackModels: readFallbackChain(raw, n),
 		})
 		seen[n] = true
 		return true
 	})
 
 	return targets
+}
+
+// readFallbackChain extracts agent.<name>.options.fallback_models from the
+// raw config as a []string. Returns nil when the path is absent or the value
+// is not an array. The path constant lives in fallback.go.
+func readFallbackChain(raw []byte, agentName string) []string {
+	res := gjson.GetBytes(raw, "agent."+agentName+"."+FallbackJSONPath)
+	if !res.Exists() || !res.IsArray() {
+		return nil
+	}
+	arr := res.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, r := range arr {
+		out = append(out, r.String())
+	}
+	return out
 }
 
 func discoverProjectOpencodeDir() string {
@@ -298,18 +320,71 @@ func discoverMarkdownAgents(dir string, raw []byte, seen map[string]bool, allowP
 
 		description := parseFrontmatterField(agentPath, "description")
 
+		// Fallback chain: JSON wins over frontmatter (matches existing
+		// model-override precedence on the line above).
+		fallback := readFallbackChain(raw, name)
+		if len(fallback) == 0 {
+			fallback = parseFrontmatterList(agentPath, "fallback_models")
+		}
+
 		targets = append(targets, Target{
-			Name:        name,
-			Kind:        KindAgent,
-			Mode:        mode,
-			Model:       model,
-			Description: description,
-			Hidden:      hidden,
+			Name:           name,
+			Kind:           KindAgent,
+			Mode:           mode,
+			Model:          model,
+			Description:    description,
+			Hidden:         hidden,
+			FallbackModels: fallback,
 		})
 		seen[name] = true
 	}
 
 	return targets
+}
+
+// parseFrontmatterList parses a single inline-array YAML frontmatter field of
+// the form `field: ["a", "b", "c"]`. Multi-line list form (`- a\n- b`) is not
+// supported in v1 — the existing frontmatter parser is intentionally minimal
+// and inline-array covers the only case we currently write/read. Returns
+// nil when the field is missing or malformed.
+func parseFrontmatterList(path, field string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	content := string(data)
+	if !strings.HasPrefix(content, "---") {
+		return nil
+	}
+	end := strings.Index(content[3:], "---")
+	if end < 0 {
+		return nil
+	}
+	frontmatter := content[3 : 3+end]
+	for _, line := range strings.Split(frontmatter, "\n") {
+		line = strings.TrimSpace(line)
+		prefix := field + ":"
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		val := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		// Expect bracketed inline array.
+		if !strings.HasPrefix(val, "[") || !strings.HasSuffix(val, "]") {
+			return nil
+		}
+		inner := strings.TrimSuffix(strings.TrimPrefix(val, "["), "]")
+		var out []string
+		for _, raw := range strings.Split(inner, ",") {
+			s := strings.TrimSpace(raw)
+			// Strip surrounding quotes (single or double).
+			s = strings.Trim(s, `"'`)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // parseFrontmatterField does a minimal parse of YAML frontmatter for a single field.

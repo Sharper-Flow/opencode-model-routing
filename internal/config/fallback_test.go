@@ -1,6 +1,9 @@
 package config
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -149,5 +152,227 @@ func TestSanitizePreferences_DropsUnmappableTargetFallbacks(t *testing.T) {
 	}
 	if _, ok := out.TargetFallbacks["adv"]; ok {
 		t.Error("adv (unmapped main agent) should be dropped")
+	}
+}
+
+// -- Target.FallbackModels + discoverTargets fallback read -------------------
+
+// withNoopCommandRunner stubs out the opencode CLI so model discovery falls
+// back to provider.*.models in the config under test.
+func withNoopCommandRunner(t *testing.T) {
+	t.Helper()
+	orig := CommandRunner
+	CommandRunner = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return nil, &os.PathError{Op: "exec", Path: "opencode", Err: os.ErrNotExist}
+	}
+	t.Cleanup(func() { CommandRunner = orig })
+}
+
+// findTargetByName returns the Target with the given name, or nil if absent.
+func findTargetByName(targets []Target, name string) *Target {
+	for i := range targets {
+		if targets[i].Name == name {
+			return &targets[i]
+		}
+	}
+	return nil
+}
+
+func TestDiscoverTargets_ReadsFallbackChainFromJSONOptionsPath(t *testing.T) {
+	withNoopCommandRunner(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	configJSON := `{
+  "agent": {
+    "scout": {
+      "model": "anthropic/claude-opus-4",
+      "options": {
+        "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"]
+      }
+    }
+  }
+}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(configJSON), 0644)
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	scout := findTargetByName(state.Targets, "scout")
+	if scout == nil {
+		t.Fatal("scout target should be discovered")
+	}
+	want := []string{"openai/gpt-5", "google/gemini-2.5-pro"}
+	if len(scout.FallbackModels) != len(want) {
+		t.Fatalf("FallbackModels length = %d, want %d (chain: %v)",
+			len(scout.FallbackModels), len(want), scout.FallbackModels)
+	}
+	for i, m := range want {
+		if scout.FallbackModels[i] != m {
+			t.Errorf("FallbackModels[%d] = %q, want %q", i, scout.FallbackModels[i], m)
+		}
+	}
+}
+
+func TestDiscoverTargets_EmptyChainWhenAbsent(t *testing.T) {
+	withNoopCommandRunner(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"),
+		[]byte(`{"agent": {"scout": {"model": "anthropic/claude-opus-4"}}}`), 0644)
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	scout := findTargetByName(state.Targets, "scout")
+	if scout == nil {
+		t.Fatal("scout should be discovered")
+	}
+	if len(scout.FallbackModels) != 0 {
+		t.Errorf("FallbackModels = %v, want empty (no chain configured)", scout.FallbackModels)
+	}
+}
+
+func TestDiscoverTargets_BuiltInAgentFallbackChain(t *testing.T) {
+	// Verify the read path also picks up chains on built-in agents like
+	// "general" / "explore" which are seeded by builtinAgents before the
+	// JSON-loop iteration.
+	withNoopCommandRunner(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	configJSON := `{
+  "agent": {
+    "general": {
+      "model": "anthropic/claude-opus-4",
+      "options": {
+        "fallback_models": ["openai/gpt-5"]
+      }
+    }
+  }
+}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(configJSON), 0644)
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	gen := findTargetByName(state.Targets, "general")
+	if gen == nil {
+		t.Fatal("general (built-in) should be present")
+	}
+	if len(gen.FallbackModels) != 1 || gen.FallbackModels[0] != "openai/gpt-5" {
+		t.Errorf("FallbackModels = %v, want [openai/gpt-5]", gen.FallbackModels)
+	}
+}
+
+func TestDiscoverTargets_MarkdownFrontmatterFallback(t *testing.T) {
+	withNoopCommandRunner(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(`{}`), 0644)
+
+	agentsDir := filepath.Join(dir, "agents")
+	mustMkdirAll(t, agentsDir, 0755)
+	mdContent := `---
+mode: subagent
+model: anthropic/claude-opus-4
+fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"]
+---
+Custom agent prompt.
+`
+	mustWriteFile(t, filepath.Join(agentsDir, "custom.md"), []byte(mdContent), 0644)
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	custom := findTargetByName(state.Targets, "custom")
+	if custom == nil {
+		t.Fatal("custom (markdown) should be discovered")
+	}
+	want := []string{"openai/gpt-5", "google/gemini-2.5-pro"}
+	if len(custom.FallbackModels) != len(want) {
+		t.Fatalf("FallbackModels = %v, want %v", custom.FallbackModels, want)
+	}
+	for i, m := range want {
+		if custom.FallbackModels[i] != m {
+			t.Errorf("FallbackModels[%d] = %q, want %q", i, custom.FallbackModels[i], m)
+		}
+	}
+}
+
+func TestDiscoverTargets_JSONOverridesMarkdownFallback(t *testing.T) {
+	withNoopCommandRunner(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	configJSON := `{
+  "agent": {
+    "custom": {
+      "options": {
+        "fallback_models": ["json/winner"]
+      }
+    }
+  }
+}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(configJSON), 0644)
+
+	agentsDir := filepath.Join(dir, "agents")
+	mustMkdirAll(t, agentsDir, 0755)
+	mdContent := `---
+mode: subagent
+fallback_models: ["md/loser"]
+---
+Body.
+`
+	mustWriteFile(t, filepath.Join(agentsDir, "custom.md"), []byte(mdContent), 0644)
+
+	state, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	custom := findTargetByName(state.Targets, "custom")
+	if custom == nil {
+		t.Fatal("custom should be discovered")
+	}
+	if len(custom.FallbackModels) != 1 || custom.FallbackModels[0] != "json/winner" {
+		t.Errorf("FallbackModels = %v, want [json/winner] (JSON should override markdown)",
+			custom.FallbackModels)
+	}
+}
+
+func TestParseFrontmatterList_InlineArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+	mustWriteFile(t, path,
+		[]byte(`---
+fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"]
+---
+Body.`),
+		0644)
+
+	got := parseFrontmatterList(path, "fallback_models")
+	want := []string{"openai/gpt-5", "google/gemini-2.5-pro"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], v)
+		}
+	}
+}
+
+func TestParseFrontmatterList_Missing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.md")
+	mustWriteFile(t, path,
+		[]byte("---\nmode: subagent\n---\nBody."), 0644)
+
+	got := parseFrontmatterList(path, "fallback_models")
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
 	}
 }
