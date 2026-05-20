@@ -1,0 +1,21 @@
+opencode-model-routing
+Copyright 2026 Jon Redeker
+
+This product includes software developed by Jon Redeker (https://github.com/JRedeker)
+and contributors to Sharper-Flow (https://github.com/Sharper-Flow).
+
+This product is derived in part from:
+
+  opencode-model-preferences
+  Copyright 2026 Jon Redeker
+  Originally hosted at https://github.com/JRedeker/opencode-model-preferences
+
+  opencode-model-fallback
+  Copyright 2026 Smart-Coders-HQ
+  Licensed under the Apache License, Version 2.0
+  https://github.com/Smart-Coders-HQ/opencode-model-fallback
+
+  The runtime fallback plugin (plugin/ directory) borrows architecture, naming
+  conventions, and selected implementation patterns from Smart-Coders-HQ's
+  opencode-model-fallback. Modifications include schema integration with the
+  omp configuration TUI, conservative TTFT defaults, and monorepo packaging.
