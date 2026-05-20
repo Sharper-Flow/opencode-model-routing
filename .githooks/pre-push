@@ -1,8 +1,10 @@
 #!/bin/sh
+# Pre-push hook: build and run tests before allowing push.
+# Installed by `make install-hooks` (NOT by `make install`).
 set -eu
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$repo_root"
 
-echo "omp: pre-push rebuild and install..."
-make install
+echo "omp: pre-push build and test..."
+make build && make test

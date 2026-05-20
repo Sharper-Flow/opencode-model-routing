@@ -15,6 +15,20 @@ OpenCode model routing: per-agent model preferences and runtime fallback chains.
 > Documentation, install instructions, and usage will be written as part of
 > the active ADV change.
 
+## Installation
+
+```sh
+make build       # builds the omp binary
+make install     # copies omp to ~/.local/bin/ (no git hook side-effects)
+```
+
+`make install` no longer touches `.git/hooks/`. To enable the optional pre-push
+hook that runs `make build && make test` before each push, run:
+
+```sh
+make install-hooks
+```
+
 ## License
 
 Apache License 2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE).

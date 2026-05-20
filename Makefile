@@ -9,10 +9,11 @@ PRE_PUSH_HOOK := $(HOOK_TEMPLATE_DIR)/pre-push
 build:
 	go build -o $(BINARY) ./cmd/omp/
 
-install: build install-hooks
+install: build
 	mkdir -p $(INSTALL_DIR)
 	cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@echo "Installed $(BINARY) to $(INSTALL_DIR)/$(BINARY)"
+	@echo "(To enable the optional pre-push rebuild+test hook, run: make install-hooks)"
 
 install-hooks:
 	mkdir -p $(HOOKS_DIR)
