@@ -1429,9 +1429,9 @@ func TestSavePreferences_SanitizesAdvProviders(t *testing.T) {
 	pc := PreferencesConfig{
 		AdvProviders: map[string]AdvProviderConfig{
 			"adv-claude": {Enabled: true},
-			"adv":        {Enabled: true},        // invalid — should be stripped
-			"build":      {Enabled: true},        // invalid — should be stripped
-			"custom":     {Enabled: true},        // invalid — not a provider variant
+			"adv":        {Enabled: true}, // invalid — should be stripped
+			"build":      {Enabled: true}, // invalid — should be stripped
+			"custom":     {Enabled: true}, // invalid — not a provider variant
 		},
 	}
 	if err := SavePreferences(pc); err != nil {
@@ -1454,5 +1454,129 @@ func TestSavePreferences_SanitizesAdvProviders(t *testing.T) {
 	}
 	if _, ok := loaded.AdvProviders["custom"]; ok {
 		t.Error("custom should be stripped from AdvProviders")
+	}
+}
+
+// -- ApplyPreferences backup + atomic-write tests ----------------------------
+
+// findBackups returns the list of .omp-backup.* files in dir.
+func findBackups(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir %s: %v", dir, err)
+	}
+	var backups []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.Contains(e.Name(), ".omp-backup.") {
+			backups = append(backups, e.Name())
+		}
+	}
+	return backups
+}
+
+// findTempFiles returns the list of .omp-*.tmp files in dir (used to verify
+// atomic write cleanup).
+func findTempFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir %s: %v", dir, err)
+	}
+	var tmps []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), ".omp-") && strings.HasSuffix(e.Name(), ".tmp") {
+			tmps = append(tmps, e.Name())
+		}
+	}
+	return tmps
+}
+
+func TestApplyPreferences_CreatesBackup(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	initial := `{"agent": {"scout": {"mode": "primary"}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	backups := findBackups(t, dir)
+	if len(backups) == 0 {
+		t.Fatalf("expected at least one .omp-backup.* file, found none")
+	}
+}
+
+func TestApplyPreferences_BackupContainsOriginal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	original := `{"agent": {"scout": {"mode": "primary", "model": "old/model"}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(original), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	backups := findBackups(t, dir)
+	if len(backups) == 0 {
+		t.Fatalf("expected backup file, found none")
+	}
+	backupData, err := os.ReadFile(filepath.Join(dir, backups[0]))
+	if err != nil {
+		t.Fatalf("read backup %s: %v", backups[0], err)
+	}
+	if string(backupData) != original {
+		t.Errorf("backup content = %q, want %q", string(backupData), original)
+	}
+}
+
+func TestApplyPreferences_AtomicWriteLeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	initial := `{"agent": {"scout": {"mode": "primary"}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	tmps := findTempFiles(t, dir)
+	if len(tmps) > 0 {
+		t.Errorf("expected no leftover .omp-*.tmp files, found: %v", tmps)
+	}
+}
+
+func TestApplyPreferences_MissingConfigErrorsAndNoBackup(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	// Do NOT write opencode.json — should error on read.
+
+	pc := PreferencesConfig{
+		TargetModels: map[string]string{"scout": "anthropic/claude-opus-4"},
+	}
+	err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}})
+	if err == nil {
+		t.Fatalf("ApplyPreferences() expected error for missing config, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading config") {
+		t.Errorf("error = %q, want one containing 'reading config'", err.Error())
+	}
+
+	backups := findBackups(t, dir)
+	if len(backups) > 0 {
+		t.Errorf("expected no backup files when config missing, found: %v", backups)
 	}
 }

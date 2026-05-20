@@ -139,6 +139,12 @@ func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
 		return fmt.Errorf("reading config: %w", err)
 	}
 
+	// Pre-mutation backup. Errors propagated — a missing backup is a missing
+	// rollback path, not an acceptable failure mode.
+	if err := writeBackup(configPath); err != nil {
+		return fmt.Errorf("writing backup: %w", err)
+	}
+
 	updated := raw
 	for _, t := range targets {
 		existsInConfig := gjson.GetBytes(raw, "agent."+t.Name).Exists()
@@ -201,5 +207,5 @@ func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
 		}
 	}
 
-	return os.WriteFile(configPath, updated, 0644)
+	return writeFileAtomic(configPath, updated, 0644)
 }
