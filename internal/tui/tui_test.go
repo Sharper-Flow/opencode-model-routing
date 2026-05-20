@@ -540,3 +540,146 @@ func TestView_AssignmentsView_ShowsMissingProviderFilesWarning(t *testing.T) {
 		t.Fatalf("expected missing provider files warning, got:\n%s", rendered)
 	}
 }
+
+// -- Fallback chain editor tests --------------------------------------------
+
+// scoutWithChain builds a 1-target test state with optional chain.
+func scoutWithChain(chain []string) (*config.State, config.PreferencesConfig) {
+	state := &config.State{
+		Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary"}},
+		Models: []config.Model{
+			{Provider: "openai", ID: "openai/gpt-5", Name: "gpt-5"},
+			{Provider: "google", ID: "google/gemini-2.5-pro", Name: "gemini-2.5-pro"},
+			{Provider: "anthropic", ID: "anthropic/claude-sonnet-4-5", Name: "claude-sonnet-4-5"},
+		},
+	}
+	prefs := config.PreferencesConfig{
+		TargetModels:    map[string]string{},
+		TargetFallbacks: map[string][]string{},
+	}
+	if len(chain) > 0 {
+		prefs.TargetFallbacks["scout"] = chain
+	}
+	return state, prefs
+}
+
+func TestView_AssignmentsView_ShowsChainCountSuffix(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5", "google/gemini-2.5-pro"})
+	m := New(state, prefs)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	rendered := updated.(Model).View()
+	if !strings.Contains(rendered, "+2 fallbacks") {
+		t.Fatalf("expected '+2 fallbacks' chain count suffix, got:\n%s", rendered)
+	}
+}
+
+func TestView_AssignmentsView_NoChainNoSuffix(t *testing.T) {
+	state, prefs := scoutWithChain(nil)
+	m := New(state, prefs)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	rendered := updated.(Model).View()
+	if strings.Contains(rendered, "fallbacks") {
+		t.Fatalf("did not expect 'fallbacks' for empty chain, got:\n%s", rendered)
+	}
+}
+
+// advanceToFirstTarget moves the assignmentList cursor past the
+// section header (Agents/Sub-agents) to the first selectable target.
+// buildTargetItems prepends a sectionItem before each section.
+func advanceToFirstTarget(model tea.Model) tea.Model {
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyDown})
+	return model
+}
+
+func TestTUI_FKey_OpensFallbackEditor(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	mm := model.(Model)
+	if mm.view != viewFallbackEditor {
+		t.Fatalf("expected view to be viewFallbackEditor, got %v", mm.view)
+	}
+	if mm.fallbackEditorTargetName != "scout" {
+		t.Errorf("editor target = %q, want scout", mm.fallbackEditorTargetName)
+	}
+}
+
+func TestTUI_FallbackEditor_RemoveSelectedEntry(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5", "google/gemini-2.5-pro", "anthropic/claude-sonnet-4-5"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	// Cursor starts at 0 (openai). Remove it.
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	mm := model.(Model)
+	chain := mm.prefs.TargetFallbacks["scout"]
+	want := []string{"google/gemini-2.5-pro", "anthropic/claude-sonnet-4-5"}
+	if len(chain) != len(want) {
+		t.Fatalf("chain after remove = %v, want %v", chain, want)
+	}
+	for i, v := range want {
+		if chain[i] != v {
+			t.Errorf("chain[%d] = %q, want %q", i, chain[i], v)
+		}
+	}
+}
+
+func TestTUI_FallbackEditor_ReorderUp(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"a/one", "b/two", "c/three"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	// Move cursor down to index 1 (b/two)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyDown})
+	// Shift-up to swap b/two up
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	mm := model.(Model)
+	chain := mm.prefs.TargetFallbacks["scout"]
+	want := []string{"b/two", "a/one", "c/three"}
+	if len(chain) != len(want) {
+		t.Fatalf("chain after reorder = %v, want %v", chain, want)
+	}
+	for i, v := range want {
+		if chain[i] != v {
+			t.Errorf("chain[%d] = %q, want %q", i, chain[i], v)
+		}
+	}
+}
+
+func TestTUI_FallbackEditor_ReorderDown(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"a/one", "b/two", "c/three"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	// Cursor at 0 (a/one). Shift-down to push it past b/two.
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'J'}})
+	mm := model.(Model)
+	chain := mm.prefs.TargetFallbacks["scout"]
+	want := []string{"b/two", "a/one", "c/three"}
+	if len(chain) != len(want) {
+		t.Fatalf("chain after reorder = %v, want %v", chain, want)
+	}
+	for i, v := range want {
+		if chain[i] != v {
+			t.Errorf("chain[%d] = %q, want %q", i, chain[i], v)
+		}
+	}
+}
+
+func TestTUI_FallbackEditor_EscReturnsToAssignments(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5"})
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mm := model.(Model)
+	if mm.view != viewAssignments {
+		t.Errorf("expected view to return to viewAssignments after esc, got %v", mm.view)
+	}
+}

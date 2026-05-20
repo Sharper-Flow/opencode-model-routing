@@ -55,9 +55,10 @@ func (s sectionItem) FilterValue() string { return "" }
 // targetItem wraps a config.Target for the assignments list.
 type targetItem struct {
 	target      config.Target
-	prefModel   string // model from preferences, or ""
-	hasChanged  bool   // true if prefModel differs from target.Model
+	prefModel   string                    // model from preferences, or ""
+	hasChanged  bool                      // true if prefModel differs from target.Model
 	advProvider *config.AdvProviderConfig // non-nil for provider ADV variants
+	chainCount  int                       // count of configured fallback chain entries (preferences-only; 0 = none)
 }
 
 func (t targetItem) Title() string { return t.target.Name }
@@ -86,23 +87,27 @@ func (t targetItem) Description() string {
 		}
 	}
 
-	if t.prefModel != "" {
-		if t.prefModel != t.target.Model {
-			prefix := "current"
-			if t.target.IsSubagent() {
-				prefix = "sticky override"
-			}
-			return fmt.Sprintf("%s: %s  → pending: %s", prefix, current, t.prefModel)
-		}
+	var base string
+	switch {
+	case t.prefModel != "" && t.prefModel != t.target.Model:
+		prefix := "current"
 		if t.target.IsSubagent() {
-			return fmt.Sprintf("sticky override: %s", t.prefModel)
+			prefix = "sticky override"
 		}
-		return fmt.Sprintf("model: %s", t.prefModel)
+		base = fmt.Sprintf("%s: %s  → pending: %s", prefix, current, t.prefModel)
+	case t.prefModel != "" && t.target.IsSubagent():
+		base = fmt.Sprintf("sticky override: %s", t.prefModel)
+	case t.prefModel != "":
+		base = fmt.Sprintf("model: %s", t.prefModel)
+	case t.target.IsSubagent() && t.target.Model != "":
+		base = fmt.Sprintf("sticky override: %s", current)
+	default:
+		base = fmt.Sprintf("model: %s", current)
 	}
-	if t.target.IsSubagent() && t.target.Model != "" {
-		return fmt.Sprintf("sticky override: %s", current)
+	if t.chainCount > 0 {
+		base = fmt.Sprintf("%s  → +%d fallbacks", base, t.chainCount)
 	}
-	return fmt.Sprintf("model: %s", current)
+	return base
 }
 func (t targetItem) FilterValue() string {
 	return t.target.Name + " " + t.target.Model + " " + t.prefModel
@@ -117,6 +122,24 @@ type pickItem struct {
 func (p pickItem) Title() string       { return p.label }
 func (p pickItem) Description() string { return "" }
 func (p pickItem) FilterValue() string { return p.label }
+
+// chainItem is one entry in the fallback chain editor list.
+type chainItem struct {
+	model string
+	pos   int // 1-based display position
+}
+
+func (c chainItem) Title() string       { return fmt.Sprintf("%d. %s", c.pos, c.model) }
+func (c chainItem) Description() string { return "" }
+func (c chainItem) FilterValue() string { return c.model }
+
+func buildChainItems(chain []string) []list.Item {
+	items := make([]list.Item, 0, len(chain))
+	for i, m := range chain {
+		items = append(items, chainItem{model: m, pos: i + 1})
+	}
+	return items
+}
 
 // -- Item builders -----------------------------------------------------------
 
@@ -140,7 +163,18 @@ func buildTargetItems(targets []config.Target, prefs config.PreferencesConfig) [
 
 		prefModel := prefs.TargetModels[t.Name]
 		hasChanged := prefModel != "" && prefModel != t.Model
-		item := targetItem{target: t, prefModel: prefModel, hasChanged: hasChanged}
+		// Chain count comes from preferences (the pending/applied chain),
+		// falling back to the target's discovered chain when prefs is empty.
+		chainCount := len(prefs.TargetFallbacks[t.Name])
+		if chainCount == 0 {
+			chainCount = len(t.FallbackModels)
+		}
+		item := targetItem{
+			target:     t,
+			prefModel:  prefModel,
+			hasChanged: hasChanged,
+			chainCount: chainCount,
+		}
 		if t.IsSubagent() {
 			subagents = append(subagents, item)
 		} else {
@@ -235,8 +269,9 @@ func (d pickDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 type viewState int
 
 const (
-	viewAssignments viewState = iota // agent list with model assignments
-	viewPicker                       // model picker
+	viewAssignments    viewState = iota // agent list with model assignments
+	viewPicker                          // model picker
+	viewFallbackEditor                  // fallback chain editor for selected target
 )
 
 // -- Messages ----------------------------------------------------------------
@@ -248,6 +283,7 @@ type modelPickDoneMsg struct {
 	targetName string
 	model      string
 	cleared    bool
+	fromEditor bool // true when picker was opened from fallback chain editor
 }
 
 // -- Model -------------------------------------------------------------------
@@ -263,6 +299,11 @@ type Model struct {
 
 	// picker context
 	pickerTargetName string
+
+	// fallback chain editor state
+	fallbackEditorList       list.Model
+	fallbackEditorTargetName string
+	fallbackEditorFromEditor bool // true when picker opened from editor
 
 	status string
 	width  int
@@ -326,6 +367,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelPickDoneMsg:
+		// Picker opened from the fallback chain editor: append the chosen
+		// model to the chain (or no-op on cleared/clear-pick). Returning
+		// to viewFallbackEditor keeps the user inside the editor.
+		if msg.fromEditor {
+			if !msg.cleared && msg.model != "" {
+				if m.prefs.TargetFallbacks == nil {
+					m.prefs.TargetFallbacks = make(map[string][]string)
+				}
+				chain := append([]string{}, m.prefs.TargetFallbacks[msg.targetName]...)
+				chain = append(chain, msg.model)
+				m.prefs.TargetFallbacks[msg.targetName] = chain
+				m.fallbackEditorList.SetItems(buildChainItems(chain))
+				m.fallbackEditorList.Select(len(chain) - 1)
+				m.status = fmt.Sprintf("Added %s to %s fallback chain", msg.model, msg.targetName)
+			}
+			m.view = viewFallbackEditor
+			return m, m.savePrefsCmd()
+		}
 		if config.ValidAdvProvider(msg.targetName) {
 			if m.prefs.AdvProviders == nil {
 				m.prefs.AdvProviders = make(map[string]config.AdvProviderConfig)
@@ -372,11 +431,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				return m.handlePickerSelect()
 			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				m.view = viewAssignments
+				// If picker was opened from the chain editor, return to it
+				// rather than to assignments.
+				if m.fallbackEditorFromEditor {
+					m.fallbackEditorFromEditor = false
+					m.view = viewFallbackEditor
+				} else {
+					m.view = viewAssignments
+				}
 				m.status = ""
 				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
 				return m, tea.Quit
+			}
+			break
+		}
+
+		// Fallback chain editor view.
+		if m.view == viewFallbackEditor {
+			if m.fallbackEditorList.FilterState() == list.Filtering {
+				break
+			}
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
+				return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				return m.exitFallbackEditor()
+			case key.Matches(msg, key.NewBinding(key.WithKeys("d"))):
+				return m.removeFallbackEntry()
+			case key.Matches(msg, key.NewBinding(key.WithKeys("K"))):
+				return m.moveFallbackEntry(-1)
+			case key.Matches(msg, key.NewBinding(key.WithKeys("J"))):
+				return m.moveFallbackEntry(+1)
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				return m.openFallbackEntryPicker()
 			}
 			break
 		}
@@ -404,6 +492,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
 			return m.toggleProvider()
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
+			return m.openFallbackEditor()
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
 			return m.applyPreferences()
 		}
@@ -416,6 +507,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.assignmentList, cmd = m.assignmentList.Update(msg)
 	case viewPicker:
 		m.pickerList, cmd = m.pickerList.Update(msg)
+	case viewFallbackEditor:
+		m.fallbackEditorList, cmd = m.fallbackEditorList.Update(msg)
 	}
 	return m, cmd
 }
@@ -447,11 +540,15 @@ func (m Model) handlePickerSelect() (tea.Model, tea.Cmd) {
 
 	targetName := m.pickerTargetName
 	value := item.value
+	fromEditor := m.fallbackEditorFromEditor
+	// Consume the flag — handler decides what to do with it; subsequent
+	// pickers from assignments view should not be misclassified.
+	m.fallbackEditorFromEditor = false
 	return m, func() tea.Msg {
 		if value == "" {
-			return modelPickDoneMsg{targetName: targetName, cleared: true}
+			return modelPickDoneMsg{targetName: targetName, cleared: true, fromEditor: fromEditor}
 		}
-		return modelPickDoneMsg{targetName: targetName, model: value}
+		return modelPickDoneMsg{targetName: targetName, model: value, fromEditor: fromEditor}
 	}
 }
 
@@ -546,6 +643,97 @@ func (m Model) applyPreferences() (tea.Model, tea.Cmd) {
 	}
 }
 
+// -- Fallback chain editor handlers ------------------------------------------
+
+func (m Model) openFallbackEditor() (tea.Model, tea.Cmd) {
+	item, ok := m.assignmentList.SelectedItem().(targetItem)
+	if !ok {
+		return m, nil
+	}
+	if !item.target.IsModelMappable() {
+		m.status = fmt.Sprintf("Fallback chains are not applicable for %s", item.target.Name)
+		return m, nil
+	}
+
+	if m.prefs.TargetFallbacks == nil {
+		m.prefs.TargetFallbacks = make(map[string][]string)
+	}
+	chain := m.prefs.TargetFallbacks[item.target.Name]
+	if chain == nil {
+		// Seed from discovered chain if preferences have no entry.
+		chain = append([]string{}, item.target.FallbackModels...)
+	}
+
+	delegate := newDelegate()
+	editorList := list.New(buildChainItems(chain), delegate, 0, 0)
+	editorList.Title = fmt.Sprintf("Fallback chain for %s", item.target.Name)
+	editorList.Styles.Title = titleStyle
+	editorList.SetShowStatusBar(false)
+	editorList.SetFilteringEnabled(false)
+	if m.width > 0 && m.height > 0 {
+		h, v := appStyle.GetFrameSize()
+		editorList.SetSize(m.width-h, m.height-v)
+	}
+
+	m.fallbackEditorList = editorList
+	m.fallbackEditorTargetName = item.target.Name
+	m.prefs.TargetFallbacks[item.target.Name] = chain
+	m.view = viewFallbackEditor
+	m.status = ""
+	return m, nil
+}
+
+func (m Model) exitFallbackEditor() (tea.Model, tea.Cmd) {
+	m.view = viewAssignments
+	m.rebuildAssignmentList()
+	return m, m.savePrefsCmd()
+}
+
+func (m Model) removeFallbackEntry() (tea.Model, tea.Cmd) {
+	idx := m.fallbackEditorList.Index()
+	chain := m.prefs.TargetFallbacks[m.fallbackEditorTargetName]
+	if idx < 0 || idx >= len(chain) {
+		return m, nil
+	}
+	chain = append(chain[:idx], chain[idx+1:]...)
+	m.prefs.TargetFallbacks[m.fallbackEditorTargetName] = chain
+	m.fallbackEditorList.SetItems(buildChainItems(chain))
+	if len(chain) > 0 && idx >= len(chain) {
+		m.fallbackEditorList.Select(len(chain) - 1)
+	}
+	return m, m.savePrefsCmd()
+}
+
+func (m Model) moveFallbackEntry(delta int) (tea.Model, tea.Cmd) {
+	idx := m.fallbackEditorList.Index()
+	chain := m.prefs.TargetFallbacks[m.fallbackEditorTargetName]
+	newIdx := idx + delta
+	if idx < 0 || idx >= len(chain) || newIdx < 0 || newIdx >= len(chain) {
+		return m, nil
+	}
+	chain[idx], chain[newIdx] = chain[newIdx], chain[idx]
+	m.prefs.TargetFallbacks[m.fallbackEditorTargetName] = chain
+	m.fallbackEditorList.SetItems(buildChainItems(chain))
+	m.fallbackEditorList.Select(newIdx)
+	return m, m.savePrefsCmd()
+}
+
+func (m Model) openFallbackEntryPicker() (tea.Model, tea.Cmd) {
+	// Open the model picker scoped to the editor; result is appended to the
+	// chain on return (handled in handlePickerSelect via the
+	// fallbackEditorFromEditor flag).
+	items := buildModelPickItems(m.state.Models)
+	m.pickerList.SetItems(items)
+	m.pickerList.Title = fmt.Sprintf("Add to chain for %s", m.fallbackEditorTargetName)
+	m.pickerList.ResetFilter()
+	m.pickerList.Select(0)
+	m.pickerTargetName = m.fallbackEditorTargetName
+	m.fallbackEditorFromEditor = true
+	m.view = viewPicker
+	m.status = ""
+	return m, nil
+}
+
 func (m Model) savePrefsCmd() tea.Cmd {
 	prefs := m.prefs
 	return func() tea.Msg {
@@ -593,11 +781,18 @@ func (m Model) View() string {
 			content += "\n" + faintStyle.Render(warning)
 		}
 		content += "\n" + faintStyle.Render("Sub-agent models are sticky overrides; press D to clear all sub-agent overrides.")
-		content += "\n" + faintStyle.Render("enter/m: set model  d: clear  D: clear sub-agents  e: toggle enable/disable  a: apply to opencode.json  q: quit")
+		content += "\n" + faintStyle.Render("enter/m: set model  d: clear  D: clear sub-agents  e: toggle enable/disable  f: fallback chain  a: apply to opencode.json  q: quit")
 
 	case viewPicker:
 		content = m.pickerList.View()
 		content += "\n" + faintStyle.Render("enter: select  /: filter  esc: cancel")
+
+	case viewFallbackEditor:
+		content = m.fallbackEditorList.View()
+		if m.status != "" {
+			content += "\n" + statusStyle.Render(m.status)
+		}
+		content += "\n" + faintStyle.Render("enter: add model  d: remove  K: move up  J: move down  esc: back  q: quit")
 	}
 
 	return appStyle.Render(content)
