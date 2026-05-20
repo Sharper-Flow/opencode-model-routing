@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
 
 // -- ValidateFallbackChain ---------------------------------------------------
@@ -374,5 +376,164 @@ func TestParseFrontmatterList_Missing(t *testing.T) {
 	got := parseFrontmatterList(path, "fallback_models")
 	if len(got) != 0 {
 		t.Errorf("got %v, want empty", got)
+	}
+}
+
+// -- ApplyPreferences fallback chain writes ---------------------------------
+
+// readOpencodeJSON returns the gjson result for path in the current
+// OPENCODE_CONFIG_DIR's opencode.json.
+func readOpencodeJSON(t *testing.T) []byte {
+	t.Helper()
+	data, err := os.ReadFile(ConfigPath())
+	if err != nil {
+		t.Fatalf("read opencode.json: %v", err)
+	}
+	return data
+}
+
+func TestApplyPreferences_WritesFallbackChain(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"),
+		[]byte(`{"agent": {"scout": {"mode": "primary"}}}`), 0644)
+
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{
+			"scout": {"openai/gpt-5", "google/gemini-2.5-pro"},
+		},
+	}
+	err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}})
+	if err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	raw := readOpencodeJSON(t)
+	res := gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath)
+	if !res.IsArray() {
+		t.Fatalf("expected fallback_models to be an array, got %v", res)
+	}
+	got := []string{}
+	for _, r := range res.Array() {
+		got = append(got, r.String())
+	}
+	want := []string{"openai/gpt-5", "google/gemini-2.5-pro"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], v)
+		}
+	}
+}
+
+func TestApplyPreferences_WritesPrimaryModelAndChainTogether(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"),
+		[]byte(`{"agent": {"scout": {"mode": "primary"}}}`), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels:    map[string]string{"scout": "anthropic/claude-opus-4"},
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5"}},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	raw := readOpencodeJSON(t)
+	if got := gjson.GetBytes(raw, "agent.scout.model").String(); got != "anthropic/claude-opus-4" {
+		t.Errorf("primary model = %q, want anthropic/claude-opus-4", got)
+	}
+	chain := gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Array()
+	if len(chain) != 1 || chain[0].String() != "openai/gpt-5" {
+		t.Errorf("chain = %v, want [openai/gpt-5]", chain)
+	}
+}
+
+func TestApplyPreferences_ClearsEmptyChain(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	// Pre-existing chain at options.fallback_models.
+	initial := `{"agent": {"scout": {"options": {"fallback_models": ["openai/gpt-5"]}}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
+
+	// Empty chain in preferences should clear the field.
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{"scout": {}},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	raw := readOpencodeJSON(t)
+	if gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Exists() {
+		t.Errorf("expected fallback_models to be cleared, but path still exists: %s",
+			gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Raw)
+	}
+}
+
+func TestApplyPreferences_PreservesOtherOptionsSiblings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	initial := `{"agent": {"scout": {"options": {"existing_key": "keep_me", "fallback_models": []}}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
+
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5"}},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	raw := readOpencodeJSON(t)
+	if got := gjson.GetBytes(raw, "agent.scout.options.existing_key").String(); got != "keep_me" {
+		t.Errorf("existing_key = %q, want keep_me (sjson should preserve siblings)", got)
+	}
+}
+
+func TestApplyPreferences_RejectsInvalidChain(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	initial := `{"agent": {"scout": {}}}`
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
+
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{
+			"scout": {"INVALID"}, // bad pattern: uppercase + no slash
+		},
+	}
+	err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}})
+	if err == nil {
+		t.Fatal("expected error for invalid chain, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid fallback chain") &&
+		!strings.Contains(err.Error(), "fallback") {
+		t.Errorf("error = %q, want one mentioning fallback chain", err.Error())
+	}
+	// Verify nothing was written to fallback_models on error path.
+	raw := readOpencodeJSON(t)
+	if gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Exists() {
+		t.Errorf("invalid chain should NOT have been written")
+	}
+}
+
+func TestApplyPreferences_ChainWriteCreatesBackupToo(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	mustWriteFile(t, filepath.Join(dir, "opencode.json"),
+		[]byte(`{"agent": {"scout": {"mode": "primary"}}}`), 0644)
+
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5"}},
+	}
+	if err := ApplyPreferences(pc, []Target{{Name: "scout", Kind: KindAgent}}); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+
+	backups := findBackups(t, dir)
+	if len(backups) == 0 {
+		t.Errorf("expected backup file before chain write, found none")
 	}
 }

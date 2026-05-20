@@ -220,6 +220,42 @@ func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
 		}
 	}
 
+	// Write fallback chains for each target. Path is
+	// agent.<name>.options.fallback_models (canonical, per schema/fallback-schema.json).
+	// Empty/nil chain means "no fallback" — clear the path if it exists,
+	// no-op if absent. sjson.SetBytes auto-creates the intermediate
+	// options object and preserves any existing options siblings.
+	for _, t := range targets {
+		if !t.IsModelMappable() {
+			continue
+		}
+		chainPath := "agent." + t.Name + "." + FallbackJSONPath
+		chain := pc.TargetFallbacks[t.Name]
+		pathExists := gjson.GetBytes(updated, chainPath).Exists()
+
+		if len(chain) == 0 {
+			if !pathExists {
+				continue
+			}
+			updated, err = sjson.DeleteBytes(updated, chainPath)
+			if err != nil {
+				return fmt.Errorf("deleting %s: %w", chainPath, err)
+			}
+			continue
+		}
+
+		// Non-empty chain: validate against the schema contract before
+		// any write. Surface validation errors per agreement constraint
+		// "No silent fallback at apply time".
+		if err := ValidateFallbackChain(chain); err != nil {
+			return fmt.Errorf("invalid fallback chain for %s: %w", t.Name, err)
+		}
+		updated, err = sjson.SetBytes(updated, chainPath, chain)
+		if err != nil {
+			return fmt.Errorf("setting %s: %w", chainPath, err)
+		}
+	}
+
 	// Write AdvProviders configuration (disable + model) for provider ADV variants
 	for name, cfg := range pc.AdvProviders {
 		if !validAdvProviders[name] {
