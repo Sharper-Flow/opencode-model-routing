@@ -26,10 +26,15 @@ import (
 // ClearedModels tracks targets whose model was explicitly cleared by the user,
 // so ApplyPreferences can remove the model key from opencode.json.
 // AdvProviders holds provider-specific ADV variant configuration (enable/disable + model).
+// TargetFallbacks maps each target to its ordered fallback chain — written
+// at opencode.json path agent.<name>.options.fallback_models. See
+// schema/fallback-schema.json for the contract; empty/missing means no
+// fallback (single-model behavior).
 type PreferencesConfig struct {
-	TargetModels  map[string]string            `json:"target_models"`
-	ClearedModels map[string]bool              `json:"cleared_models,omitempty"`
-	AdvProviders  map[string]AdvProviderConfig `json:"adv_providers,omitempty"`
+	TargetModels    map[string]string            `json:"target_models"`
+	ClearedModels   map[string]bool              `json:"cleared_models,omitempty"`
+	AdvProviders    map[string]AdvProviderConfig `json:"adv_providers,omitempty"`
+	TargetFallbacks map[string][]string          `json:"target_fallbacks,omitempty"`
 }
 
 // AdvProviderConfig holds enable/disable and optional model for a provider ADV variant.
@@ -72,6 +77,10 @@ func sanitizePreferences(pc PreferencesConfig) (PreferencesConfig, bool) {
 		pc.AdvProviders = make(map[string]AdvProviderConfig)
 		changed = true
 	}
+	if pc.TargetFallbacks == nil {
+		pc.TargetFallbacks = make(map[string][]string)
+		changed = true
+	}
 
 	for name := range pc.TargetModels {
 		if !(Target{Name: name, Kind: KindAgent}).IsModelMappable() {
@@ -88,6 +97,22 @@ func sanitizePreferences(pc PreferencesConfig) (PreferencesConfig, bool) {
 	for name := range pc.AdvProviders {
 		if !validAdvProviders[name] {
 			delete(pc.AdvProviders, name)
+			changed = true
+		}
+	}
+	for name, chain := range pc.TargetFallbacks {
+		// Drop unmappable targets (main agents like build/plan/adv).
+		if !(Target{Name: name, Kind: KindAgent}).IsModelMappable() {
+			delete(pc.TargetFallbacks, name)
+			changed = true
+			continue
+		}
+		// Drop chains that violate the schema contract (bad pattern,
+		// over-length, or duplicate entries). Surfacing-at-apply is
+		// preserved by ApplyPreferences itself; sanitize here is
+		// belt-and-braces for malformed on-disk preferences.
+		if err := ValidateFallbackChain(chain); err != nil {
+			delete(pc.TargetFallbacks, name)
 			changed = true
 		}
 	}
