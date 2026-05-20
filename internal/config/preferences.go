@@ -119,6 +119,8 @@ func LoadPreferences() (PreferencesConfig, error) {
 // SavePreferences writes the preferences config to disk atomically
 // (temp file + rename).
 func SavePreferences(pc PreferencesConfig) error {
+	// Discard the `changed` flag — SavePreferences always writes, so whether
+	// sanitize made any structural changes is irrelevant to this code path.
 	pc, _ = sanitizePreferences(pc)
 	data, err := json.MarshalIndent(pc, "", "  ")
 	if err != nil {
