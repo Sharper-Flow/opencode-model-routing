@@ -2,7 +2,7 @@
 # Asserts make install does NOT touch git hooks. Hook install must be a
 # separate `make install-hooks` target invoked explicitly by the user.
 #
-# This is a contract enforced by the agreement for buildModelFallbackMonorepo:
+# This is a contract enforced by the build/install agreement:
 #   "make install does NOT touch .git/hooks/. Separate make install-hooks
 #    target exists with documentation explaining what the hook does."
 set -euo pipefail

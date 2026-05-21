@@ -20,7 +20,7 @@ inside OpenCode's global `opencode.json`. The shape, allowed value pattern,
 and length cap are defined in [`schema/fallback-schema.json`](./schema/fallback-schema.json).
 
 Both the Go writer (`internal/config/`) and the TypeScript plugin reader
-(`plugin/src/` — added in a later phase) reference the field name verbatim.
+(`plugin/src/`) reference the field name verbatim.
 The `schema-contract-check.sh` script (wired into `make lint`) enforces this
 cross-stack contract; renaming the field on one side without updating the
 other will fail CI.
@@ -29,8 +29,7 @@ Why `options.fallback_models` rather than a top-level sibling key: OpenCode's
 `AgentConfig` schema runs a `normalize()` transform that relocates any
 non-allow-listed sibling key into `options`. Writing directly to the `options`
 extension slot matches the documented contract rather than relying on the
-transform side-effect. See [`design.md`](./.adv/...) § D1 for the upstream
-source citation.
+transform side-effect.
 
 Example:
 
