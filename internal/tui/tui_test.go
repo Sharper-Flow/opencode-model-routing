@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -789,5 +791,74 @@ func TestTUI_FallbackEditor_EscReturnsToAssignments(t *testing.T) {
 	mm := model.(Model)
 	if mm.view != viewAssignments {
 		t.Errorf("expected view to return to viewAssignments after esc, got %v", mm.view)
+	}
+}
+
+func TestTUI_ApplyKeyShowsPreviewWithoutWritingConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"scout":{"model":"anthropic/claude-opus-4"}}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	state := &config.State{Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"}}}
+	prefs := config.PreferencesConfig{TargetModels: map[string]string{"scout": "openai/gpt-5"}}
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if cmd != nil {
+		t.Fatal("preview should not apply config or return an apply command")
+	}
+
+	mm := model.(Model)
+	if mm.view != viewPreview {
+		t.Fatalf("view = %v, want viewPreview", mm.view)
+	}
+	rendered := mm.View()
+	for _, want := range []string{"Preview config changes", "SET agent.scout.model", "openai/gpt-5"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("preview render missing %q:\n%s", want, rendered)
+		}
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(raw), "openai/gpt-5") {
+		t.Fatalf("preview wrote config before confirmation: %s", raw)
+	}
+}
+
+func TestTUI_PreviewConfirmAppliesConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"scout":{"model":"anthropic/claude-opus-4"}}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	state := &config.State{Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"}}}
+	prefs := config.PreferencesConfig{TargetModels: map[string]string{"scout": "openai/gpt-5"}}
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if cmd == nil {
+		t.Fatal("expected confirm command to apply config")
+	}
+	model, _ = model.(Model).Update(cmd())
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(raw), "openai/gpt-5") {
+		t.Fatalf("confirm did not apply config: %s", raw)
+	}
+	if !strings.Contains(model.(Model).status, "Preferences applied") {
+		t.Fatalf("status = %q, want apply success", model.(Model).status)
 	}
 }

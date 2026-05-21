@@ -287,6 +287,7 @@ const (
 	viewAssignments    viewState = iota // agent list with model assignments
 	viewPicker                          // model picker
 	viewFallbackEditor                  // fallback chain editor for selected target
+	viewPreview                         // preview config mutations before apply
 )
 
 // -- Messages ----------------------------------------------------------------
@@ -320,6 +321,10 @@ type Model struct {
 	fallbackEditorTargetName string
 	fallbackEditorPrimary    string
 	fallbackEditorFromEditor bool // true when picker opened from editor
+
+	// preview-before-apply state
+	previewPlan config.ApplyPlan
+	previewText string
 
 	status string
 	width  int
@@ -455,6 +460,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.savePrefsCmd()
 
 	case tea.KeyMsg:
+		// Preview view: confirm applies, esc returns to routing stacks.
+		if m.view == viewPreview {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
+				return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				m.view = viewAssignments
+				m.status = ""
+				return m, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "c"))):
+				return m.confirmApplyPreferences()
+			}
+			return m, nil
+		}
+
 		// Picker view: enter selects, esc goes back
 		if m.view == viewPicker {
 			if m.pickerList.FilterState() == list.Filtering {
@@ -542,6 +562,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pickerList, cmd = m.pickerList.Update(msg)
 	case viewFallbackEditor:
 		m.fallbackEditorList, cmd = m.fallbackEditorList.Update(msg)
+	case viewPreview:
+		return m, nil
 	}
 	return m, cmd
 }
@@ -668,6 +690,19 @@ func (m Model) toggleProvider() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyPreferences() (tea.Model, tea.Cmd) {
+	plan, err := config.BuildPreferencesApplyPlan(m.prefs, m.state.Targets)
+	if err != nil {
+		m.status = fmt.Sprintf("Error building preview: %v", err)
+		return m, nil
+	}
+	m.previewPlan = plan
+	m.previewText = plan.Preview()
+	m.view = viewPreview
+	m.status = ""
+	return m, nil
+}
+
+func (m Model) confirmApplyPreferences() (tea.Model, tea.Cmd) {
 	prefs := m.prefs
 	targets := m.state.Targets
 	return m, func() tea.Msg {
@@ -835,6 +870,14 @@ func (m Model) View() string {
 			content += "\n" + statusStyle.Render(m.status)
 		}
 		content += "\n" + faintStyle.Render("enter: add model  d: remove  K: move up  J: move down  esc: back  q: quit")
+
+	case viewPreview:
+		content = titleStyle.Render("Preview config changes")
+		content += "\n" + m.previewText
+		if m.status != "" {
+			content += "\n" + statusStyle.Render(m.status)
+		}
+		content += "\n" + faintStyle.Render("enter/c: confirm apply  esc: back  q: quit")
 	}
 
 	return appStyle.Render(content)
