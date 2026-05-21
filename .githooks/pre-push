@@ -6,5 +6,5 @@ set -eu
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$repo_root"
 
-echo "omp: pre-push build and test..."
+echo "omr: pre-push build and test..."
 make build && make test
