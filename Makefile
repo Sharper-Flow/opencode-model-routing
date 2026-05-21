@@ -1,13 +1,17 @@
-.PHONY: build install install-hooks build-plugin test test-go test-plugin lint lint-go lint-plugin clean
+.PHONY: build build-omp install install-hooks build-plugin test test-go test-plugin lint lint-go lint-plugin clean
 
-BINARY := omp
+BINARY := omr
+COMPAT_BINARY := omp
 INSTALL_DIR := $(HOME)/.local/bin
 HOOKS_DIR := .git/hooks
 HOOK_TEMPLATE_DIR := .githooks
 PRE_PUSH_HOOK := $(HOOK_TEMPLATE_DIR)/pre-push
 
 build:
-	go build -o $(BINARY) ./cmd/omp/
+	go build -o $(BINARY) ./cmd/omr/
+
+build-omp:
+	go build -o $(COMPAT_BINARY) ./cmd/omp/
 
 install: build
 	mkdir -p $(INSTALL_DIR)
@@ -41,5 +45,5 @@ lint-plugin:
 lint: lint-go lint-plugin
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(COMPAT_BINARY)
 	rm -rf plugin/node_modules plugin/dist
