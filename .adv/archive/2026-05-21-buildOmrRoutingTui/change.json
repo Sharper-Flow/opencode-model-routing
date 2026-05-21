@@ -1,0 +1,271 @@
+{
+  "id": "buildOmrRoutingTui",
+  "title": "Build OMR routing TUI",
+  "status": "archived",
+  "created_at": "2026-05-21T00:27:45.435Z",
+  "tasks": [
+    {
+      "id": "tk-8e0cc543801b",
+      "title": "Extract apply planning and preview-safe config mutation path",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-21T01:10:25.454Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T01:58:02.986Z",
+      "verification": "Completed apply planning extraction with checkpoint commit ad32a4fe8b2d3102a82f726ec13774c5aaa405dc.",
+      "summary": "Added `internal/config/apply_plan.go` with `ApplyPlan`, `ConfigMutation`, `BuildApplyPlan`, `BuildPreferencesApplyPlan`, and `Preview`. Refactored `ApplyPreferences` to build a plan first, then perform the existing backup, atomic write, owner-only permission write, and backup pruning. Added tests proving planning does not write/back up, plan output matches `ApplyPreferences`, and invalid chains fail without updated bytes.",
+      "implementation_summary": "Added `internal/config/apply_plan.go` with `ApplyPlan`, `ConfigMutation`, `BuildApplyPlan`, `BuildPreferencesApplyPlan`, and `Preview`. Refactored `ApplyPreferences` to build a plan first, then perform the existing backup, atomic write, owner-only permission write, and backup pruning. Added tests proving planning does not write/back up, plan output matches `ApplyPreferences`, and invalid chains fail without updated bytes.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:01:32.347Z",
+      "completed_at": "2026-05-21T02:01:32.347Z"
+    },
+    {
+      "id": "tk-51babbde5112",
+      "title": "Add routing-stack domain/view-model helpers",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-21T01:10:39.953Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T02:02:13.002Z",
+      "verification": "Completed routing-stack helpers with checkpoint commit fcb99efd8a905ab36818ac8d195f5b8ddda79e89.",
+      "summary": "Added `RoutingStack`, `RoutingValidationFinding`, `BuildRoutingStacks`, and `ValidateRoutingStack` in `internal/tui/routing_stack.go`. Helpers normalize config state and preferences into primary+fallback view models, skip unmappable main agents, prefer pending prefs over discovered state, reuse `config.ValidateFallbackChain`, and optionally report unavailable models when registry data is provided. Added tests for preference override, discovered fallback chain, unmappable main-agent skip, structural validation, and availability findings.",
+      "implementation_summary": "Added `RoutingStack`, `RoutingValidationFinding`, `BuildRoutingStacks`, and `ValidateRoutingStack` in `internal/tui/routing_stack.go`. Helpers normalize config state and preferences into primary+fallback view models, skip unmappable main agents, prefer pending prefs over discovered state, reuse `config.ValidateFallbackChain`, and optionally report unavailable models when registry data is provided. Added tests for preference override, discovered fallback chain, unmappable main-agent skip, structural validation, and availability findings.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:03:59.708Z",
+      "completed_at": "2026-05-21T02:03:59.708Z"
+    },
+    {
+      "id": "tk-0f88577dce55",
+      "title": "Add OMR-native `omr` command and build/install path",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-21T01:10:52.117Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T02:04:19.830Z",
+      "verification": "Added OMR-native `cmd/omr` entry point, switched default Makefile build/install to `omr`, kept `build-omp` compatibility, and extended Makefile contract checks.",
+      "summary": "Implemented `cmd/omr/main.go` with OMR-prefixed refresh/load/no-model/TUI errors and graceful interrupt handling. Added `cmd/omr/main_test.go` covering startup refresh and OMR-native no-model error. Updated Makefile default `build`/`install` to produce/install `omr`, added `build-omp` compatibility target, and cleaned both binaries. Extended `scripts/test-makefile-targets.sh` to assert default build/install path targets `omr`. Checkpoint commit: 5c8c7223a2007c15857f522b58194b7e122548a0.",
+      "implementation_summary": "Implemented `cmd/omr/main.go` with OMR-prefixed refresh/load/no-model/TUI errors and graceful interrupt handling. Added `cmd/omr/main_test.go` covering startup refresh and OMR-native no-model error. Updated Makefile default `build`/`install` to produce/install `omr`, added `build-omp` compatibility target, and cleaned both binaries. Extended `scripts/test-makefile-targets.sh` to assert default build/install path targets `omr`. Checkpoint commit: 5c8c7223a2007c15857f522b58194b7e122548a0.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:07:30.505Z",
+      "completed_at": "2026-05-21T02:07:30.505Z"
+    },
+    {
+      "id": "tk-ead66a926be8",
+      "title": "Refactor TUI around routing-stack target browser and detail/chain editing",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-05-21T01:11:13.742Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-51babbde5112"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T02:08:05.103Z",
+      "verification": "Refactored the TUI target browser and fallback editor to present routing stacks around primary model plus fallback chain.",
+      "summary": "Updated target list rendering to use `BuildRoutingStacks`, show `Routing Stacks` as the primary browser title, render primary/pending primary and fallback counts from routing-stack state, and keep ADV provider items separate. Added routing-stack detail context to the fallback chain editor with target and primary model before the editable fallback list. Preserved existing add/remove/reorder behavior and legacy key-hint expectations. Added tests for routing-stack title, primary/fallback description, and primary detail in the chain editor. Checkpoint commit: 9e223117287be804302268880cac772d44ea6eef.",
+      "implementation_summary": "Updated target list rendering to use `BuildRoutingStacks`, show `Routing Stacks` as the primary browser title, render primary/pending primary and fallback counts from routing-stack state, and keep ADV provider items separate. Added routing-stack detail context to the fallback chain editor with target and primary model before the editable fallback list. Preserved existing add/remove/reorder behavior and legacy key-hint expectations. Added tests for routing-stack title, primary/fallback description, and primary detail in the chain editor. Checkpoint commit: 9e223117287be804302268880cac772d44ea6eef.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:12:19.029Z",
+      "completed_at": "2026-05-21T02:12:19.029Z"
+    },
+    {
+      "id": "tk-cd4cd44699e6",
+      "title": "Wire preview-before-apply into the routing UI",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-05-21T01:11:24.495Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-8e0cc543801b"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-ead66a926be8"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T02:12:53.670Z",
+      "verification": "Post-acceptance-review fix added: preview confirmation now applies the stored preview plan, not recomputed preferences. Checkpoint commit 38e6bc3512d554b6121d2aef0a3e869ac65a7ac7.",
+      "summary": "Added `viewPreview` earlier. Post-review remediation extracted `config.ApplyPreparedPlan(plan)` and changed preview confirmation to call it with `m.previewPlan`, preserving exact preview/apply bytes. Added regression test proving confirmation writes the previewed model even if in-memory preferences drift after preview. Checkpoint commits: 43bef7418b6f732441362f331872c733a04b86a3 and 38e6bc3512d554b6121d2aef0a3e869ac65a7ac7.",
+      "implementation_summary": "Added `viewPreview` earlier. Post-review remediation extracted `config.ApplyPreparedPlan(plan)` and changed preview confirmation to call it with `m.previewPlan`, preserving exact preview/apply bytes. Added regression test proving confirmation writes the previewed model even if in-memory preferences drift after preview. Checkpoint commits: 43bef7418b6f732441362f331872c733a04b86a3 and 38e6bc3512d554b6121d2aef0a3e869ac65a7ac7.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:36:35.122Z",
+      "completed_at": "2026-05-21T02:36:35.122Z"
+    },
+    {
+      "id": "tk-0c38ddfcbb53",
+      "title": "Update OMR-native docs and run cross-stack verification",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 5,
+      "created_at": "2026-05-21T01:11:36.066Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-0f88577dce55"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-cd4cd44699e6"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "delegate_allowed"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-21T02:16:08.255Z",
+      "verification": "Release hardening fixes added and verified. Checkpoint commit a7c29ee4d0219ec546bdd9ec9149002989b5b9a2.",
+      "summary": "Updated OMR docs and verification earlier. Post-hardening remediation removed stale README future-phase wording and placeholder `.adv` link, and replaced an old change-specific comment in `scripts/test-makefile-targets.sh` with generic build/install contract wording. Verification: `make build`, `make build-omp`, `scripts/test-makefile-targets.sh`, `scripts/e2e-smoke.sh`, `make test`, `make build-plugin`, `make lint`, and post-hardening `make test` + `make lint` passed. Checkpoint commits: c779cadb5ee1edd0214841236d89928af7f16140 and a7c29ee4d0219ec546bdd9ec9149002989b5b9a2.",
+      "implementation_summary": "Updated OMR docs and verification earlier. Post-hardening remediation removed stale README future-phase wording and placeholder `.adv` link, and replaced an old change-specific comment in `scripts/test-makefile-targets.sh` with generic build/install contract wording. Verification: `make build`, `make build-omp`, `scripts/test-makefile-targets.sh`, `scripts/e2e-smoke.sh`, `make test`, `make build-plugin`, `make lint`, and post-hardening `make test` + `make lint` passed. Checkpoint commits: c779cadb5ee1edd0214841236d89928af7f16140 and a7c29ee4d0219ec546bdd9ec9149002989b5b9a2.",
+      "filesTouched": [],
+      "touched_files": [],
+      "completedAt": "2026-05-21T02:40:50.711Z",
+      "completed_at": "2026-05-21T02:40:50.711Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [
+    {
+      "id": "ws-P9exIV",
+      "type": "gotcha",
+      "content": "`adv_change_update` treats empty string fields as writes, not omissions. When updating one artifact, omit unrelated fields rather than passing `\"\"`, or proposal/agreement/design can be overwritten with empty content.",
+      "source_task": "tk-8e0cc543801b",
+      "recorded_at": "2026-05-21T02:01:50.685Z"
+    },
+    {
+      "id": "ws-mRQpf9",
+      "type": "success",
+      "content": "Makefile dry-run contract tests are a cheap structural guard for binary rename/build-install expectations: assert `make -n build` targets `cmd/omr` and `make -n install` copies `omr`, while preserving hook side-effect checks.",
+      "source_task": "tk-0f88577dce55",
+      "recorded_at": "2026-05-21T02:07:37.731Z"
+    },
+    {
+      "id": "ws-i4fM7q",
+      "type": "pattern",
+      "content": "For Bubbletea refactors, keep the root Model flat but make list items carry domain view models (`RoutingStack`) instead of recomputing UI-only state. This preserves current key handling while shifting correctness to tested domain helpers.",
+      "source_task": "tk-ead66a926be8",
+      "recorded_at": "2026-05-21T02:12:25.393Z"
+    },
+    {
+      "id": "ws-g4I_CO",
+      "type": "pattern",
+      "content": "Preview-before-apply is safest as a normal Bubbletea view: build the same pure ApplyPlan used by apply, render `plan.Preview()`, and only call the mutation path from an explicit confirm key in that view.",
+      "source_task": "tk-cd4cd44699e6",
+      "recorded_at": "2026-05-21T02:15:39.850Z"
+    },
+    {
+      "id": "ws-WDvzbi",
+      "type": "gotcha",
+      "content": "`make lint` requires plugin dependencies to exist. In a fresh worktree, run `make build-plugin` (frozen Bun install + typecheck) before `make lint`, or lint can fail with missing `bun-types` even though source is valid.",
+      "source_task": "tk-0c38ddfcbb53",
+      "recorded_at": "2026-05-21T02:19:07.420Z"
+    }
+  ],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-21T00:40:56.685Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved proposal via inline Tier A reply: 'continue'. B/F/S scan pass; Coverage: B:C F:C S:C. Scope sections present. Discovery agenda captured."
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-05-21T01:01:39.456Z",
+      "completed_by": "agent",
+      "approval_evidence": "Discovery complete. Findings persisted. Agreement and acceptance criteria approved by user via inline reply: approve. User decisions: add omr binary, manual one-time legacy migration only/no supported OMP migration, manual-only routing chains with add/move/reorder support."
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-21T01:09:49.169Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design recorded and independently validated. Validator verdict VALIDATED with one simplicity caution: keep flat root Bubbletea Model with view-specific files/methods; avoid independent root submodels. No unresolved conflict or contract-compromise risk."
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-21T01:57:38.346Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved prep via inline reply: approve. Task graph has 6 tasks: 3 ready, 3 blocked. Validation passed with expected no-deltas warning."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-21T02:19:27.484Z",
+      "completed_by": "agent",
+      "approval_evidence": "All six planned tasks completed with checkpoint commits. Final verification passed: make build, make build-omp, scripts/test-makefile-targets.sh, scripts/e2e-smoke.sh, make test, make build-plugin, and make lint."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-21T02:36:50.573Z",
+      "completed_by": "agent",
+      "approval_evidence": "User accepted via inline reply: approve. Independent acceptance review verdict PASS_WITH_FIXES; one in-scope preview/apply drift issue fixed and checkpointed at 38e6bc3512d554b6121d2aef0a3e869ac65a7ac7. Post-fix verification passed: make test and make lint."
+    },
+    "release": {
+      "status": "done",
+      "completed_at": "2026-05-21T02:41:35.224Z",
+      "completed_by": "agent",
+      "approval_evidence": "User provided archive sign-off via inline Tier B whitelist reply: sign off. Release hardening passed with in-scope fixes checkpointed at a7c29ee4d0219ec546bdd9ec9149002989b5b9a2; final make test and make lint passed."
+    }
+  },
+  "reentry_history": [],
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_ASSUMPTION_HEAVY",
+      "severity": "warning",
+      "message": "Proposal references authentication/authorization without specifying the model. What auth mechanism will be used?",
+      "recorded_at": "2026-05-21T00:28:01.302Z",
+      "resolved": true,
+      "resolved_at": "2026-05-21T01:01:53.782Z"
+    },
+    {
+      "code": "CLARIFY_UNCLEAR_SCOPE",
+      "severity": "warning",
+      "message": "Scope section is empty or placeholder. What specific files/modules will change?",
+      "recorded_at": "2026-05-21T01:01:53.782Z",
+      "resolved": true,
+      "resolved_at": "2026-05-21T01:09:40.089Z"
+    }
+  ]
+}
