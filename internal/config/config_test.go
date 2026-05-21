@@ -1727,3 +1727,84 @@ func TestApplyPreferences_MissingConfigErrorsAndNoBackup(t *testing.T) {
 		t.Errorf("expected no backup files when config missing, found: %v", backups)
 	}
 }
+
+// -- Apply plan / preview tests ---------------------------------------------
+
+func TestBuildApplyPlan_DoesNotWriteOrBackup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	original := `{"agent": {"scout": {"mode": "primary", "model": "old/model"}}}`
+	mustWriteFile(t, configPath, []byte(original), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels:    map[string]string{"scout": "anthropic/claude-opus-4"},
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5"}},
+	}
+	plan, err := BuildApplyPlan([]byte(original), configPath, pc, []Target{{Name: "scout", Kind: KindAgent}})
+	if err != nil {
+		t.Fatalf("BuildApplyPlan() error: %v", err)
+	}
+
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config after plan: %v", err)
+	}
+	if string(after) != original {
+		t.Fatalf("BuildApplyPlan mutated config; got %q want %q", string(after), original)
+	}
+	if backups := findBackups(t, dir); len(backups) != 0 {
+		t.Fatalf("BuildApplyPlan created backups: %v", backups)
+	}
+	if !gjson.GetBytes(plan.Updated, "agent.scout."+FallbackJSONPath).IsArray() {
+		t.Fatalf("plan updated bytes missing fallback chain: %s", string(plan.Updated))
+	}
+	preview := plan.Preview()
+	if !strings.Contains(preview, configPath) || !strings.Contains(preview, "agent.scout.model") || !strings.Contains(preview, "agent.scout."+FallbackJSONPath) {
+		t.Fatalf("preview missing expected paths; preview=\n%s", preview)
+	}
+}
+
+func TestBuildApplyPlan_OutputMatchesApplyPreferences(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	configPath := filepath.Join(dir, "opencode.json")
+	original := `{"agent": {"scout": {"mode": "primary", "model": "old/model", "options": {"existing_key": "keep"}}}}`
+	mustWriteFile(t, configPath, []byte(original), 0644)
+
+	pc := PreferencesConfig{
+		TargetModels:    map[string]string{"scout": "anthropic/claude-opus-4"},
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5", "google/gemini-2.5-pro"}},
+	}
+	targets := []Target{{Name: "scout", Kind: KindAgent}}
+	plan, err := BuildApplyPlan([]byte(original), configPath, pc, targets)
+	if err != nil {
+		t.Fatalf("BuildApplyPlan() error: %v", err)
+	}
+	if err := ApplyPreferences(pc, targets); err != nil {
+		t.Fatalf("ApplyPreferences() error: %v", err)
+	}
+	applied, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read applied config: %v", err)
+	}
+	if string(applied) != string(plan.Updated) {
+		t.Fatalf("applied config differs from plan\nplan=%s\napplied=%s", string(plan.Updated), string(applied))
+	}
+}
+
+func TestBuildApplyPlan_InvalidChainReturnsErrorBeforeUpdatedBytes(t *testing.T) {
+	raw := []byte(`{"agent": {"scout": {}}}`)
+	pc := PreferencesConfig{
+		TargetFallbacks: map[string][]string{"scout": {"INVALID"}},
+	}
+	plan, err := BuildApplyPlan(raw, "/tmp/opencode.json", pc, []Target{{Name: "scout", Kind: KindAgent}})
+	if err == nil {
+		t.Fatal("expected invalid fallback chain error, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid fallback chain") {
+		t.Fatalf("error = %q, want invalid fallback chain", err.Error())
+	}
+	if len(plan.Updated) != 0 {
+		t.Fatalf("invalid plan should not expose updated bytes: %s", string(plan.Updated))
+	}
+}

@@ -55,10 +55,12 @@ func (s sectionItem) FilterValue() string { return "" }
 // targetItem wraps a config.Target for the assignments list.
 type targetItem struct {
 	target      config.Target
-	prefModel   string                    // model from preferences, or ""
+	stack       RoutingStack              // routing-first primary + fallback view model
+	prefModel   string                    // primary model from preferences/routing stack, or ""
 	hasChanged  bool                      // true if prefModel differs from target.Model
+	cleared     bool                      // true when the pending primary is explicitly cleared
 	advProvider *config.AdvProviderConfig // non-nil for provider ADV variants
-	chainCount  int                       // count of configured fallback chain entries (preferences-only; 0 = none)
+	chainCount  int                       // count of configured fallback chain entries
 }
 
 func (t targetItem) Title() string { return t.target.Name }
@@ -87,22 +89,29 @@ func (t targetItem) Description() string {
 		}
 	}
 
+	pendingPrimary := t.stack.PrimaryModel
+	if pendingPrimary == "" && t.prefModel != "" {
+		pendingPrimary = t.prefModel
+	}
+
 	var base string
 	switch {
-	case t.prefModel != "" && t.prefModel != t.target.Model:
-		prefix := "current"
+	case t.cleared:
+		base = fmt.Sprintf("primary current: %s  → pending: (cleared)", current)
+	case pendingPrimary != "" && pendingPrimary != t.target.Model:
+		prefix := "primary current"
 		if t.target.IsSubagent() {
-			prefix = "sticky override"
+			prefix = "sticky override current"
 		}
-		base = fmt.Sprintf("%s: %s  → pending: %s", prefix, current, t.prefModel)
-	case t.prefModel != "" && t.target.IsSubagent():
-		base = fmt.Sprintf("sticky override: %s", t.prefModel)
-	case t.prefModel != "":
-		base = fmt.Sprintf("model: %s", t.prefModel)
+		base = fmt.Sprintf("%s: %s  → pending: %s", prefix, current, pendingPrimary)
+	case pendingPrimary != "" && t.target.IsSubagent():
+		base = fmt.Sprintf("sticky override: %s", pendingPrimary)
+	case pendingPrimary != "":
+		base = fmt.Sprintf("primary: %s", pendingPrimary)
 	case t.target.IsSubagent() && t.target.Model != "":
 		base = fmt.Sprintf("sticky override: %s", current)
 	default:
-		base = fmt.Sprintf("model: %s", current)
+		base = fmt.Sprintf("primary: %s", current)
 	}
 	if t.chainCount > 0 {
 		base = fmt.Sprintf("%s  → +%d fallbacks", base, t.chainCount)
@@ -110,7 +119,7 @@ func (t targetItem) Description() string {
 	return base
 }
 func (t targetItem) FilterValue() string {
-	return t.target.Name + " " + t.target.Model + " " + t.prefModel
+	return t.target.Name + " " + t.target.Model + " " + t.prefModel + " " + fmt.Sprint(t.stack.FallbackModels)
 }
 
 // pickItem is a selectable option in the model picker.
@@ -145,6 +154,12 @@ func buildChainItems(chain []string) []list.Item {
 
 func buildTargetItems(targets []config.Target, prefs config.PreferencesConfig) []list.Item {
 	var agents, subagents, providers []list.Item
+	stacks := BuildRoutingStacks(&config.State{Targets: targets}, prefs)
+	stacksByName := make(map[string]RoutingStack, len(stacks))
+	for _, stack := range stacks {
+		stacksByName[stack.TargetName] = stack
+	}
+
 	for _, t := range targets {
 		if t.Kind != config.KindAgent || !t.IsModelMappable() {
 			continue
@@ -161,19 +176,19 @@ func buildTargetItems(targets []config.Target, prefs config.PreferencesConfig) [
 			continue
 		}
 
-		prefModel := prefs.TargetModels[t.Name]
-		hasChanged := prefModel != "" && prefModel != t.Model
-		// Chain count comes from preferences (the pending/applied chain),
-		// falling back to the target's discovered chain when prefs is empty.
-		chainCount := len(prefs.TargetFallbacks[t.Name])
-		if chainCount == 0 {
-			chainCount = len(t.FallbackModels)
+		stack, ok := stacksByName[t.Name]
+		if !ok {
+			continue
 		}
+		prefModel := stack.PrimaryModel
+		hasChanged := prefModel != "" && prefModel != t.Model
 		item := targetItem{
 			target:     t,
+			stack:      stack,
 			prefModel:  prefModel,
 			hasChanged: hasChanged,
-			chainCount: chainCount,
+			cleared:    prefs.ClearedModels[t.Name],
+			chainCount: len(stack.FallbackModels),
 		}
 		if t.IsSubagent() {
 			subagents = append(subagents, item)
@@ -272,6 +287,7 @@ const (
 	viewAssignments    viewState = iota // agent list with model assignments
 	viewPicker                          // model picker
 	viewFallbackEditor                  // fallback chain editor for selected target
+	viewPreview                         // preview config mutations before apply
 )
 
 // -- Messages ----------------------------------------------------------------
@@ -303,7 +319,12 @@ type Model struct {
 	// fallback chain editor state
 	fallbackEditorList       list.Model
 	fallbackEditorTargetName string
+	fallbackEditorPrimary    string
 	fallbackEditorFromEditor bool // true when picker opened from editor
+
+	// preview-before-apply state
+	previewPlan config.ApplyPlan
+	previewText string
 
 	status string
 	width  int
@@ -316,7 +337,7 @@ func New(state *config.State, prefs config.PreferencesConfig) Model {
 
 	assignmentItems := buildTargetItems(state.Targets, prefs)
 	al := list.New(assignmentItems, delegate, 0, 0)
-	al.Title = "Model Preferences"
+	al.Title = "Routing Stacks"
 	al.Styles.Title = titleStyle
 	al.SetShowStatusBar(true)
 	al.SetFilteringEnabled(true)
@@ -439,6 +460,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.savePrefsCmd()
 
 	case tea.KeyMsg:
+		// Preview view: confirm applies, esc returns to routing stacks.
+		if m.view == viewPreview {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
+				return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				m.view = viewAssignments
+				m.status = ""
+				return m, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "c"))):
+				return m.confirmApplyPreferences()
+			}
+			return m, nil
+		}
+
 		// Picker view: enter selects, esc goes back
 		if m.view == viewPicker {
 			if m.pickerList.FilterState() == list.Filtering {
@@ -526,6 +562,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pickerList, cmd = m.pickerList.Update(msg)
 	case viewFallbackEditor:
 		m.fallbackEditorList, cmd = m.fallbackEditorList.Update(msg)
+	case viewPreview:
+		return m, nil
 	}
 	return m, cmd
 }
@@ -652,10 +690,22 @@ func (m Model) toggleProvider() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyPreferences() (tea.Model, tea.Cmd) {
-	prefs := m.prefs
-	targets := m.state.Targets
+	plan, err := config.BuildPreferencesApplyPlan(m.prefs, m.state.Targets)
+	if err != nil {
+		m.status = fmt.Sprintf("Error building preview: %v", err)
+		return m, nil
+	}
+	m.previewPlan = plan
+	m.previewText = plan.Preview()
+	m.view = viewPreview
+	m.status = ""
+	return m, nil
+}
+
+func (m Model) confirmApplyPreferences() (tea.Model, tea.Cmd) {
+	plan := m.previewPlan
 	return m, func() tea.Msg {
-		err := config.ApplyPreferences(prefs, targets)
+		err := config.ApplyPreparedPlan(plan)
 		return applyResultMsg{err: err}
 	}
 }
@@ -694,6 +744,10 @@ func (m Model) openFallbackEditor() (tea.Model, tea.Cmd) {
 
 	m.fallbackEditorList = editorList
 	m.fallbackEditorTargetName = item.target.Name
+	m.fallbackEditorPrimary = item.stack.PrimaryModel
+	if m.fallbackEditorPrimary == "" {
+		m.fallbackEditorPrimary = item.target.Model
+	}
 	m.prefs.TargetFallbacks[item.target.Name] = chain
 	m.view = viewFallbackEditor
 	m.status = ""
@@ -798,18 +852,31 @@ func (m Model) View() string {
 			content += "\n" + faintStyle.Render(warning)
 		}
 		content += "\n" + faintStyle.Render("Sub-agent models are sticky overrides; press D to clear all sub-agent overrides.")
-		content += "\n" + faintStyle.Render("enter/m: set model  d: clear  D: clear sub-agents  e: toggle enable/disable  f: fallback chain  a: apply to opencode.json  q: quit")
+		content += "\n" + faintStyle.Render("enter/m: set model/primary  d: clear primary  D: clear sub-agents  e: toggle enable/disable  f: edit fallback chain  a: apply to opencode.json  q: quit")
 
 	case viewPicker:
 		content = m.pickerList.View()
 		content += "\n" + faintStyle.Render("enter: select  /: filter  esc: cancel")
 
 	case viewFallbackEditor:
-		content = m.fallbackEditorList.View()
+		primary := m.fallbackEditorPrimary
+		if primary == "" {
+			primary = "(no model)"
+		}
+		content = fmt.Sprintf("Routing stack: %s\nPrimary: %s\n", m.fallbackEditorTargetName, primary)
+		content += m.fallbackEditorList.View()
 		if m.status != "" {
 			content += "\n" + statusStyle.Render(m.status)
 		}
 		content += "\n" + faintStyle.Render("enter: add model  d: remove  K: move up  J: move down  esc: back  q: quit")
+
+	case viewPreview:
+		content = titleStyle.Render("Preview config changes")
+		content += "\n" + m.previewText
+		if m.status != "" {
+			content += "\n" + statusStyle.Render(m.status)
+		}
+		content += "\n" + faintStyle.Render("enter/c: confirm apply  esc: back  q: quit")
 	}
 
 	return appStyle.Render(content)

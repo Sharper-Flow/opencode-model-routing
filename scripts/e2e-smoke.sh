@@ -26,7 +26,7 @@ ok() {
 }
 
 # 1. Build the helper.
-go build -o /tmp/omp-e2e-helper ./cmd/e2e-helper/
+go build -o /tmp/omr-e2e-helper ./cmd/e2e-helper/
 ok "built e2e-helper"
 
 # 2. Seed tempdir.
@@ -43,7 +43,7 @@ cat >"$TMPDIR/opencode.json" <<'JSON'
 JSON
 
 # 3. Run the helper.
-OPENCODE_CONFIG_DIR="$TMPDIR" /tmp/omp-e2e-helper >"$TMPDIR/helper.out" 2>"$TMPDIR/helper.err"
+OPENCODE_CONFIG_DIR="$TMPDIR" /tmp/omr-e2e-helper >"$TMPDIR/helper.out" 2>"$TMPDIR/helper.err"
 helper_out=$(cat "$TMPDIR/helper.out")
 [ "$helper_out" = "OK" ] || fail "helper printed: $helper_out (stderr: $(cat "$TMPDIR/helper.err"))"
 ok "helper applied preferences"

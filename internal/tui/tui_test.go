@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,6 +40,22 @@ func TestView_AssignmentsView_ShowsTitle(t *testing.T) {
 
 	if !strings.Contains(rendered, "Agents") {
 		t.Fatalf("expected 'Agents' in render, got:\n%s", rendered)
+	}
+}
+
+func TestView_AssignmentsView_ShowsRoutingStackTitle(t *testing.T) {
+	state := &config.State{
+		Targets: []config.Target{
+			{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"},
+		},
+	}
+	m := New(state, config.PreferencesConfig{TargetModels: map[string]string{}})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 80})
+	rendered := updated.(Model).View()
+
+	if !strings.Contains(rendered, "Routing Stacks") {
+		t.Fatalf("expected routing-stack title in render, got:\n%s", rendered)
 	}
 }
 
@@ -208,6 +226,35 @@ func TestBuildTargetItems_PendingChangeShown(t *testing.T) {
 		// Should show pending change since pref differs from current
 		if !strings.Contains(desc, "pending") {
 			t.Fatalf("expected 'pending' in description when model differs, got: %s", desc)
+		}
+		return
+	}
+	t.Fatal("target item not found")
+}
+
+func TestBuildTargetItems_RoutingStackDescriptionShowsPrimaryAndFallbacks(t *testing.T) {
+	targets := []config.Target{{
+		Name:           "scout",
+		Kind:           config.KindAgent,
+		Model:          "anthropic/claude-opus-4",
+		FallbackModels: []string{"openai/gpt-5"},
+	}}
+	prefs := config.PreferencesConfig{
+		TargetModels:    map[string]string{"scout": "google/gemini-2.5-pro"},
+		TargetFallbacks: map[string][]string{"scout": {"openai/gpt-5", "anthropic/claude-sonnet-4-5"}},
+	}
+
+	items := buildTargetItems(targets, prefs)
+	for _, item := range items {
+		ti, ok := item.(targetItem)
+		if !ok {
+			continue
+		}
+		desc := ti.Description()
+		for _, want := range []string{"primary", "pending: google/gemini-2.5-pro", "+2 fallbacks"} {
+			if !strings.Contains(desc, want) {
+				t.Fatalf("description = %q, want substring %q", desc, want)
+			}
 		}
 		return
 	}
@@ -607,6 +654,20 @@ func TestTUI_FKey_OpensFallbackEditor(t *testing.T) {
 	}
 }
 
+func TestTUI_FallbackEditor_ShowsRoutingStackPrimaryDetail(t *testing.T) {
+	state, prefs := scoutWithChain([]string{"openai/gpt-5"})
+	state.Targets[0].Model = "anthropic/claude-sonnet-4-5"
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+
+	rendered := model.(Model).View()
+	if !strings.Contains(rendered, "Primary: anthropic/claude-sonnet-4-5") {
+		t.Fatalf("expected primary model detail in fallback editor, got:\n%s", rendered)
+	}
+}
+
 func TestTUI_FallbackEditor_RemoveSelectedEntry(t *testing.T) {
 	state, prefs := scoutWithChain([]string{"openai/gpt-5", "google/gemini-2.5-pro", "anthropic/claude-sonnet-4-5"})
 	m := New(state, prefs)
@@ -730,5 +791,111 @@ func TestTUI_FallbackEditor_EscReturnsToAssignments(t *testing.T) {
 	mm := model.(Model)
 	if mm.view != viewAssignments {
 		t.Errorf("expected view to return to viewAssignments after esc, got %v", mm.view)
+	}
+}
+
+func TestTUI_ApplyKeyShowsPreviewWithoutWritingConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"scout":{"model":"anthropic/claude-opus-4"}}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	state := &config.State{Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"}}}
+	prefs := config.PreferencesConfig{TargetModels: map[string]string{"scout": "openai/gpt-5"}}
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if cmd != nil {
+		t.Fatal("preview should not apply config or return an apply command")
+	}
+
+	mm := model.(Model)
+	if mm.view != viewPreview {
+		t.Fatalf("view = %v, want viewPreview", mm.view)
+	}
+	rendered := mm.View()
+	for _, want := range []string{"Preview config changes", "SET agent.scout.model", "openai/gpt-5"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("preview render missing %q:\n%s", want, rendered)
+		}
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(raw), "openai/gpt-5") {
+		t.Fatalf("preview wrote config before confirmation: %s", raw)
+	}
+}
+
+func TestTUI_PreviewConfirmAppliesConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"scout":{"model":"anthropic/claude-opus-4"}}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	state := &config.State{Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"}}}
+	prefs := config.PreferencesConfig{TargetModels: map[string]string{"scout": "openai/gpt-5"}}
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model, cmd := model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if cmd == nil {
+		t.Fatal("expected confirm command to apply config")
+	}
+	model, _ = model.(Model).Update(cmd())
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(raw), "openai/gpt-5") {
+		t.Fatalf("confirm did not apply config: %s", raw)
+	}
+	if !strings.Contains(model.(Model).status, "Preferences applied") {
+		t.Fatalf("status = %q, want apply success", model.(Model).status)
+	}
+}
+
+func TestTUI_PreviewConfirmAppliesPreviewedPlanWithoutRecomputing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"scout":{"model":"anthropic/claude-opus-4"}}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+
+	state := &config.State{Targets: []config.Target{{Name: "scout", Kind: config.KindAgent, Mode: "primary", Model: "anthropic/claude-opus-4"}}}
+	prefs := config.PreferencesConfig{TargetModels: map[string]string{"scout": "openai/gpt-5"}}
+	m := New(state, prefs)
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = advanceToFirstTarget(model)
+	model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	// Simulate in-memory preference drift after preview. Confirmation must commit
+	// the previewed plan, not recompute from changed preferences.
+	mm := model.(Model)
+	mm.prefs.TargetModels["scout"] = "google/gemini-2.5-pro"
+	model, cmd := mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if cmd == nil {
+		t.Fatal("expected confirm command to apply config")
+	}
+	model, _ = model.(Model).Update(cmd())
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(raw), "openai/gpt-5") {
+		t.Fatalf("confirm did not apply previewed model: %s", raw)
+	}
+	if strings.Contains(string(raw), "google/gemini-2.5-pro") {
+		t.Fatalf("confirm recomputed from mutated prefs instead of preview plan: %s", raw)
 	}
 }

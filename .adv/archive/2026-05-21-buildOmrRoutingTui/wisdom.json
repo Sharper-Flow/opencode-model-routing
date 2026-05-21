@@ -1,0 +1,40 @@
+{
+  "entries": [
+    {
+      "id": "ws-P9exIV",
+      "type": "gotcha",
+      "content": "`adv_change_update` treats empty string fields as writes, not omissions. When updating one artifact, omit unrelated fields rather than passing `\"\"`, or proposal/agreement/design can be overwritten with empty content.",
+      "source_task": "tk-8e0cc543801b",
+      "recorded_at": "2026-05-21T02:01:50.685Z"
+    },
+    {
+      "id": "ws-mRQpf9",
+      "type": "success",
+      "content": "Makefile dry-run contract tests are a cheap structural guard for binary rename/build-install expectations: assert `make -n build` targets `cmd/omr` and `make -n install` copies `omr`, while preserving hook side-effect checks.",
+      "source_task": "tk-0f88577dce55",
+      "recorded_at": "2026-05-21T02:07:37.731Z"
+    },
+    {
+      "id": "ws-i4fM7q",
+      "type": "pattern",
+      "content": "For Bubbletea refactors, keep the root Model flat but make list items carry domain view models (`RoutingStack`) instead of recomputing UI-only state. This preserves current key handling while shifting correctness to tested domain helpers.",
+      "source_task": "tk-ead66a926be8",
+      "recorded_at": "2026-05-21T02:12:25.393Z"
+    },
+    {
+      "id": "ws-g4I_CO",
+      "type": "pattern",
+      "content": "Preview-before-apply is safest as a normal Bubbletea view: build the same pure ApplyPlan used by apply, render `plan.Preview()`, and only call the mutation path from an explicit confirm key in that view.",
+      "source_task": "tk-cd4cd44699e6",
+      "recorded_at": "2026-05-21T02:15:39.850Z"
+    },
+    {
+      "id": "ws-WDvzbi",
+      "type": "gotcha",
+      "content": "`make lint` requires plugin dependencies to exist. In a fresh worktree, run `make build-plugin` (frozen Bun install + typecheck) before `make lint`, or lint can fail with missing `bun-types` even though source is valid.",
+      "source_task": "tk-0c38ddfcbb53",
+      "recorded_at": "2026-05-21T02:19:07.420Z"
+    }
+  ],
+  "count": 5
+}

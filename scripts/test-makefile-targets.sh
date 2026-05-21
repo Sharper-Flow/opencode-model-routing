@@ -2,7 +2,7 @@
 # Asserts make install does NOT touch git hooks. Hook install must be a
 # separate `make install-hooks` target invoked explicitly by the user.
 #
-# This is a contract enforced by the agreement for buildModelFallbackMonorepo:
+# This is a contract enforced by the build/install agreement:
 #   "make install does NOT touch .git/hooks/. Separate make install-hooks
 #    target exists with documentation explaining what the hook does."
 set -euo pipefail
@@ -29,6 +29,18 @@ if echo "$install_dryrun" | grep -qE '(^|[[:space:]])install-hooks([[:space:]]|$
 	fail "make install dry-run invokes install-hooks target — install must not depend on hooks"
 fi
 ok "make install does not touch .git/hooks"
+
+# 1b. Default build/install path must be OMR-native.
+build_dryrun="$(make -n build 2>&1)"
+if ! echo "$build_dryrun" | grep -q 'go build -o omr ./cmd/omr/'; then
+	echo "$build_dryrun" >&2
+	fail "make build must build the OMR-native cmd/omr binary"
+fi
+if ! echo "$install_dryrun" | grep -q 'cp omr '; then
+	echo "$install_dryrun" >&2
+	fail "make install must install the omr binary by default"
+fi
+ok "make build/install target omr by default"
 
 # 2. The .githooks/pre-push template must run build+test and deploy-local,
 #    not install.

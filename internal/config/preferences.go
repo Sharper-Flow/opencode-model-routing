@@ -16,9 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // PreferencesConfig holds per-target model assignments.
@@ -165,120 +162,36 @@ func SavePreferences(pc PreferencesConfig) error {
 // in opencode.json when a target has a model to set but no existing entry.
 // Also writes AdvProviders configuration (disable + model) for provider ADV variants.
 func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
-	configPath := ConfigPath()
-	raw, err := os.ReadFile(configPath)
+	plan, err := BuildPreferencesApplyPlan(pc, targets)
 	if err != nil {
-		return fmt.Errorf("reading config: %w", err)
+		return err
+	}
+	return ApplyPreparedPlan(plan)
+}
+
+// ApplyPreparedPlan commits an already-previewed apply plan to disk using the
+// same backup, atomic-write, owner-only permission, and retention safeguards as
+// ApplyPreferences. Keeping this separate from BuildPreferencesApplyPlan lets
+// callers show users the exact bytes/mutations that will be written, then
+// confirm that prepared plan without recomputing a different one.
+func ApplyPreparedPlan(plan ApplyPlan) error {
+	if plan.ConfigPath == "" {
+		return fmt.Errorf("apply plan missing config path")
+	}
+	if len(plan.Updated) == 0 {
+		return fmt.Errorf("apply plan missing updated config bytes")
 	}
 
 	// Pre-mutation backup. Errors propagated — a missing backup is a missing
 	// rollback path, not an acceptable failure mode.
-	if err := writeBackup(configPath); err != nil {
+	if err := writeBackup(plan.ConfigPath); err != nil {
 		return fmt.Errorf("writing backup: %w", err)
 	}
 
-	updated := raw
-	for _, t := range targets {
-		existsInConfig := gjson.GetBytes(raw, "agent."+t.Name).Exists()
-		jsonPath := "agent." + t.Name + ".model"
-
-		if !t.IsModelMappable() {
-			if !existsInConfig {
-				continue
-			}
-			updated, err = sjson.DeleteBytes(updated, jsonPath)
-			if err != nil {
-				return fmt.Errorf("deleting %s: %w", jsonPath, err)
-			}
-			continue
-		}
-
-		// Explicitly cleared: remove the model key from opencode.json.
-		// Skip if the target doesn't exist in config — nothing to clear.
-		if pc.ClearedModels[t.Name] {
-			if !existsInConfig {
-				continue
-			}
-			updated, err = sjson.DeleteBytes(updated, jsonPath)
-			if err != nil {
-				return fmt.Errorf("deleting %s: %w", jsonPath, err)
-			}
-			continue
-		}
-
-		// Set model if assigned. sjson.SetBytes creates intermediate
-		// objects automatically, so targets not yet in opencode.json
-		// get a new entry with just the model field.
-		model, ok := pc.TargetModels[t.Name]
-		if !ok || model == "" {
-			continue
-		}
-
-		updated, err = sjson.SetBytes(updated, jsonPath, model)
-		if err != nil {
-			return fmt.Errorf("setting %s: %w", jsonPath, err)
-		}
-	}
-
-	// Write fallback chains for each target. Path is
-	// agent.<name>.options.fallback_models (canonical, per schema/fallback-schema.json).
-	// Empty/nil chain means "no fallback" — clear the path if it exists,
-	// no-op if absent. sjson.SetBytes auto-creates the intermediate
-	// options object and preserves any existing options siblings.
-	for _, t := range targets {
-		if !t.IsModelMappable() {
-			continue
-		}
-		chainPath := "agent." + t.Name + "." + FallbackJSONPath
-		chain := pc.TargetFallbacks[t.Name]
-		pathExists := gjson.GetBytes(updated, chainPath).Exists()
-
-		if len(chain) == 0 {
-			if !pathExists {
-				continue
-			}
-			updated, err = sjson.DeleteBytes(updated, chainPath)
-			if err != nil {
-				return fmt.Errorf("deleting %s: %w", chainPath, err)
-			}
-			continue
-		}
-
-		// Non-empty chain: validate against the schema contract before
-		// any write. Surface validation errors per agreement constraint
-		// "No silent fallback at apply time".
-		if err := ValidateFallbackChain(chain); err != nil {
-			return fmt.Errorf("invalid fallback chain for %s: %w", t.Name, err)
-		}
-		updated, err = sjson.SetBytes(updated, chainPath, chain)
-		if err != nil {
-			return fmt.Errorf("setting %s: %w", chainPath, err)
-		}
-	}
-
-	// Write AdvProviders configuration (disable + model) for provider ADV variants
-	for name, cfg := range pc.AdvProviders {
-		if !validAdvProviders[name] {
-			continue
-		}
-		disablePath := "agent." + name + ".disable"
-		updated, err = sjson.SetBytes(updated, disablePath, !cfg.Enabled)
-		if err != nil {
-			return fmt.Errorf("setting %s: %w", disablePath, err)
-		}
-		if cfg.Model != "" {
-			modelPath := "agent." + name + ".model"
-			updated, err = sjson.SetBytes(updated, modelPath, cfg.Model)
-			if err != nil {
-				return fmt.Errorf("setting %s: %w", modelPath, err)
-			}
-		}
-	}
-
-	if err := writeFileAtomic(configPath, updated, 0600); err != nil {
+	if err := writeFileAtomic(plan.ConfigPath, plan.Updated, 0600); err != nil {
 		return err
 	}
-	if err := pruneBackups(configPath, maxOpencodeBackups); err != nil {
+	if err := pruneBackups(plan.ConfigPath, maxOpencodeBackups); err != nil {
 		return fmt.Errorf("pruning backups: %w", err)
 	}
 	return nil

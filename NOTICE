@@ -18,4 +18,4 @@ This product is derived in part from:
   The runtime fallback plugin (plugin/ directory) borrows architecture, naming
   conventions, and selected implementation patterns from Smart-Coders-HQ's
   opencode-model-fallback. Modifications include schema integration with the
-  omp configuration TUI, conservative TTFT defaults, and monorepo packaging.
+  omr configuration TUI, conservative TTFT defaults, and monorepo packaging.

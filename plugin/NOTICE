@@ -11,7 +11,7 @@ orchestrator semantics borrow heavily from:
 
 Net-new contributions on top of that reference:
   - TTFT (time-to-first-token) timer layer
-  - Integration with the omp Go authoring TUI via the shared
+  - Integration with the omr Go authoring TUI via the shared
     schema/fallback-schema.json contract
   - Canonical config path `agent.<name>.options.fallback_models`
     aligned with OpenCode's documented `AgentConfig.normalize()` slot
