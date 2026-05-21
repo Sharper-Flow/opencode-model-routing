@@ -166,6 +166,21 @@ func ApplyPreferences(pc PreferencesConfig, targets []Target) error {
 	if err != nil {
 		return err
 	}
+	return ApplyPreparedPlan(plan)
+}
+
+// ApplyPreparedPlan commits an already-previewed apply plan to disk using the
+// same backup, atomic-write, owner-only permission, and retention safeguards as
+// ApplyPreferences. Keeping this separate from BuildPreferencesApplyPlan lets
+// callers show users the exact bytes/mutations that will be written, then
+// confirm that prepared plan without recomputing a different one.
+func ApplyPreparedPlan(plan ApplyPlan) error {
+	if plan.ConfigPath == "" {
+		return fmt.Errorf("apply plan missing config path")
+	}
+	if len(plan.Updated) == 0 {
+		return fmt.Errorf("apply plan missing updated config bytes")
+	}
 
 	// Pre-mutation backup. Errors propagated — a missing backup is a missing
 	// rollback path, not an acceptable failure mode.

@@ -703,10 +703,9 @@ func (m Model) applyPreferences() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) confirmApplyPreferences() (tea.Model, tea.Cmd) {
-	prefs := m.prefs
-	targets := m.state.Targets
+	plan := m.previewPlan
 	return m, func() tea.Msg {
-		err := config.ApplyPreferences(prefs, targets)
+		err := config.ApplyPreparedPlan(plan)
 		return applyResultMsg{err: err}
 	}
 }
