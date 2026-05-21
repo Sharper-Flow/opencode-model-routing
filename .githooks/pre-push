@@ -8,3 +8,6 @@ cd "$repo_root"
 
 echo "omp: pre-push build and test..."
 make build && make test
+
+echo "omp: deploying local runtime plugin..."
+./scripts/deploy-local.sh --fix

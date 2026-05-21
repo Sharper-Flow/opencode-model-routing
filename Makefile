@@ -1,4 +1,4 @@
-.PHONY: build install install-hooks build-plugin test test-go test-plugin lint lint-go lint-plugin clean
+.PHONY: build install install-hooks build-plugin deploy-local test test-go test-plugin lint lint-go lint-plugin clean
 
 BINARY := omp
 INSTALL_DIR := $(HOME)/.local/bin
@@ -22,6 +22,9 @@ install-hooks:
 
 build-plugin:
 	cd plugin && bun install --frozen-lockfile && bun run typecheck
+
+deploy-local: build-plugin
+	./scripts/deploy-local.sh --fix
 
 test-go:
 	go test ./... -count=1

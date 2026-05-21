@@ -30,7 +30,8 @@ if echo "$install_dryrun" | grep -qE '(^|[[:space:]])install-hooks([[:space:]]|$
 fi
 ok "make install does not touch .git/hooks"
 
-# 2. The .githooks/pre-push template must run build+test, not install.
+# 2. The .githooks/pre-push template must run build+test and deploy-local,
+#    not install.
 hook_path=".githooks/pre-push"
 [ -f "$hook_path" ] || fail "$hook_path not found"
 if grep -qE '^[[:space:]]*make[[:space:]]+install[[:space:]]*$' "$hook_path"; then
@@ -39,7 +40,10 @@ fi
 if ! grep -qE 'make[[:space:]]+build[[:space:]]*&&[[:space:]]*make[[:space:]]+test' "$hook_path"; then
 	fail "$hook_path does not run 'make build && make test'"
 fi
-ok ".githooks/pre-push runs make build && make test"
+if ! grep -q 'scripts/deploy-local.sh' "$hook_path"; then
+	fail "$hook_path does not run scripts/deploy-local.sh"
+fi
+ok ".githooks/pre-push runs make build && make test, then deploy-local"
 
 # 3. `make install-hooks` target still exists for explicit opt-in.
 hooks_dryrun="$(make -n install-hooks 2>&1)"
@@ -47,5 +51,20 @@ if ! echo "$hooks_dryrun" | grep -q '.git/hooks'; then
 	fail "make install-hooks dry-run does not mention .git/hooks"
 fi
 ok "make install-hooks exists and installs to .git/hooks"
+
+# 4. Local plugin deployment script must install to stable ~/.local/share path
+#    and register that deployed path, not the dev checkout plugin path.
+deploy_script="scripts/deploy-local.sh"
+[ -x "$deploy_script" ] || fail "$deploy_script not found or not executable"
+if ! grep -q 'LOCAL_DEPLOY_ROOT="${OMR_LOCAL_DEPLOY_ROOT:-$HOME/.local/share/opencode-model-routing}"' "$deploy_script"; then
+	fail "$deploy_script does not define the stable local deployment root"
+fi
+if ! grep -q 'PLUGIN_CONFIG_PATH="$RUNTIME_PLUGIN_PATH"' "$deploy_script"; then
+	fail "$deploy_script does not register the runtime plugin path"
+fi
+if grep -q 'PLUGIN_CONFIG_PATH="$REPO_ROOT/plugin"' "$deploy_script"; then
+	fail "$deploy_script registers the dev checkout plugin path"
+fi
+ok "deploy-local uses stable local-share plugin path"
 
 echo "All Makefile contract checks passed."
