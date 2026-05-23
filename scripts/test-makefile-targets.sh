@@ -91,4 +91,13 @@ if ! echo "$build_plugin_dryrun" | grep -q 'bun run build'; then
 fi
 ok "make build-plugin typechecks and bundles plugin"
 
+# 6. deploy-local must deploy the bundled runtime shape, not the raw source tree.
+if ! grep -q 'dist/index.js' "$deploy_script"; then
+	fail "$deploy_script must verify dist/index.js before deploy"
+fi
+if grep -q 'rsync -a --delete "\$SOURCE_PLUGIN_PATH/" "\$RUNTIME_PLUGIN_PATH/"' "$deploy_script"; then
+	fail "$deploy_script must not rsync the whole raw plugin source tree"
+fi
+ok "deploy-local verifies and deploys bundled runtime shape"
+
 echo "All Makefile contract checks passed."

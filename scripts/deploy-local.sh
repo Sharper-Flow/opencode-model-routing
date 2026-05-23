@@ -61,6 +61,8 @@ LOCAL_DEPLOY_ROOT="${OMR_LOCAL_DEPLOY_ROOT:-$HOME/.local/share/opencode-model-ro
 SOURCE_PLUGIN_PATH="$REPO_ROOT/plugin"
 RUNTIME_PLUGIN_PATH="$LOCAL_DEPLOY_ROOT/plugin"
 PLUGIN_CONFIG_PATH="$RUNTIME_PLUGIN_PATH"
+RUNTIME_ENTRY="dist/index.js"
+RUNTIME_TYPES="dist/index.d.ts"
 
 echo "==> opencode-model-routing deploy-local ($MODE)"
 echo "    plugin: $SOURCE_PLUGIN_PATH -> $RUNTIME_PLUGIN_PATH"
@@ -158,13 +160,64 @@ deploy_plugin() {
 		echo "    ✗ source plugin missing: $SOURCE_PLUGIN_PATH" >&2
 		return 1
 	fi
+	verify_runtime_bundle
 	if [ "$DRY_RUN" = true ]; then
-		echo "    dry-run sync: $SOURCE_PLUGIN_PATH/ -> $RUNTIME_PLUGIN_PATH/"
+		echo "    dry-run verify: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY"
+		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
 		return 0
 	fi
-	mkdir -p "$RUNTIME_PLUGIN_PATH"
-	rsync -a --delete "$SOURCE_PLUGIN_PATH/" "$RUNTIME_PLUGIN_PATH/"
+	local tmp_path
+	tmp_path="$RUNTIME_PLUGIN_PATH.tmp.$$"
+	rm -rf "$tmp_path"
+	mkdir -p "$tmp_path/dist" "$(dirname "$RUNTIME_PLUGIN_PATH")"
+	cp "$SOURCE_PLUGIN_PATH/package.json" "$tmp_path/package.json"
+	if [ -f "$SOURCE_PLUGIN_PATH/NOTICE" ]; then
+		cp "$SOURCE_PLUGIN_PATH/NOTICE" "$tmp_path/NOTICE"
+	fi
+	rsync -a --delete "$SOURCE_PLUGIN_PATH/dist/" "$tmp_path/dist/"
+	rm -rf "$RUNTIME_PLUGIN_PATH"
+	mv "$tmp_path" "$RUNTIME_PLUGIN_PATH"
 	echo "    ✓ deployed plugin: $RUNTIME_PLUGIN_PATH"
+}
+
+verify_runtime_bundle() {
+	if [ ! -f "$SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY" ]; then
+		echo "    ✗ runtime bundle missing: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY" >&2
+		echo "      Run: cd $SOURCE_PLUGIN_PATH && bun run build" >&2
+		return 1
+	fi
+	if [ ! -f "$SOURCE_PLUGIN_PATH/$RUNTIME_TYPES" ]; then
+		echo "    ✗ runtime types missing: $SOURCE_PLUGIN_PATH/$RUNTIME_TYPES" >&2
+		echo "      Run: cd $SOURCE_PLUGIN_PATH && bun run build" >&2
+		return 1
+	fi
+	(
+		cd "$SOURCE_PLUGIN_PATH"
+		bun -e '
+const fs = require("fs");
+const path = require("path");
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const expected = "./dist/index.js";
+const expectedTypes = "./dist/index.d.ts";
+function fail(message) {
+  console.error(`    ✗ ${message}`);
+  process.exit(1);
+}
+if (pkg.main !== expected) fail(`package.json main must be ${expected}`);
+if (pkg.types !== expectedTypes) fail(`package.json types must be ${expectedTypes}`);
+for (const key of [".", "./server"]) {
+  if (pkg.exports?.[key]?.import !== expected) fail(`exports[${key}].import must be ${expected}`);
+  if (pkg.exports?.[key]?.types !== expectedTypes) fail(`exports[${key}].types must be ${expectedTypes}`);
+}
+for (const rel of [pkg.main, pkg.types]) {
+  if (!rel.startsWith("./")) fail(`${rel} must be package-relative with ./ prefix`);
+  const resolved = path.resolve(process.cwd(), rel);
+  if (!resolved.startsWith(process.cwd() + path.sep)) fail(`${rel} resolves outside plugin directory`);
+  if (!fs.existsSync(resolved)) fail(`${rel} does not exist`);
+}
+'
+	)
+	echo "    ✓ runtime bundle verified: $RUNTIME_ENTRY"
 }
 
 if [ "$MODE" = "check" ]; then
