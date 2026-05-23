@@ -1,0 +1,1 @@
+OMR does not trigger fallback when OpenAI returns an insufficient_quota / usage-cap 429. The error surfaces as a chat warning but OMR never rotates to the next model in the chain, leaving the agent stuck on the capped primary model.

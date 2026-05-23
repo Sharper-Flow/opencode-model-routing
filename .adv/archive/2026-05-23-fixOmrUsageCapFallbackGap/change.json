@@ -1,0 +1,674 @@
+{
+  "id": "fixOmrUsageCapFallbackGap",
+  "title": "Fix OMR usage cap fallback gap",
+  "status": "archived",
+  "created_at": "2026-05-23T18:16:42.283Z",
+  "tasks": [
+    {
+      "id": "tk-6816e656a477",
+      "title": "Rewrite SessionErrorLike + classifySessionError for real {name, data:{...}} shape",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T18:37:06.645Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2"
+        ],
+        "respects": [
+          "C1",
+          "C5"
+        ]
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T18:41:28.529Z",
+      "verification": "RED: 4 nested-shape tests failed against old flat classifier (data.statusCode/data.message/data.responseBody not extracted). GREEN: SessionErrorLike rewritten to {name, data:{...}} matching @opencode-ai/sdk EventSessionError union; classifier reads data.statusCode/message/responseBody with retry-pattern scan on responseBody. Existing 11 flat-shape detection.test.ts fixtures migrated to nested. All 22 detection tests pass; full plugin suite 95/95 pass; tsc clean. AC1 (429 nested) + AC2 (insufficient_quota responseBody) covered.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/detection/classifier.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/detection/classifier.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "checkpointSha": "45f691a72b87efe8def5c5e8c543efbe1b7c076e",
+      "completedAt": "2026-05-23T18:44:07.997Z",
+      "completed_at": "2026-05-23T18:44:07.997Z"
+    },
+    {
+      "id": "tk-96d0a0976ea1",
+      "title": "Add usage-cap patterns to retryPatterns[] (above last-resort)",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T18:37:15.908Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC5",
+          "AC6"
+        ],
+        "verifies": [
+          "AC5",
+          "AC6"
+        ],
+        "respects": [
+          "C4",
+          "C6"
+        ]
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T18:44:14.225Z",
+      "verification": "RED: 5 pattern tests failed (insufficient_quota literal, usage limit reached, generic usage limit/cap phrasing, 5-hour regression guard). GREEN: added 4 patterns under Quota exhaustion section above the \\\\bretrying\\\\b last-resort: insufficient_quota literal, \"usage limit reached\", generic usage[ _-](limit|cap|maxed|exceeded), free[_ ]usage exceeded/exhausted. Full plugin suite 101/101 pass; tsc clean. AC5 + AC6 covered. \"5 hour\" does not falsely match 5xx server-error pattern (verified by dedicated regression test).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/detection/patterns.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/detection/patterns.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "checkpointSha": "243221056000c9605f0967d670c98a76bfdbdd25",
+      "completedAt": "2026-05-23T18:45:02.196Z",
+      "completed_at": "2026-05-23T18:45:02.196Z"
+    },
+    {
+      "id": "tk-d9d3e0c33774",
+      "title": "Wire structural action.reason in handleEvent session.status case",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-23T18:37:24.396Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC3",
+          "AC4"
+        ],
+        "verifies": [
+          "AC3",
+          "AC4"
+        ],
+        "respects": [
+          "C5"
+        ]
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T18:45:07.431Z",
+      "verification": "RED: 2 tests failed (account_rate_limit + free_tier_limit with non-matching message text). GREEN: handleEvent session.status now reads status.action.reason structurally first (P33) — account_rate_limit→rate_limit, free_tier_limit→quota_exhausted, future reasons fall through to text patterns. EventInputShape updated for nested error {name,data:{}} + status.action typing. isEventInputShape narrowing extended. Absorbed T4: migrated 3 flat-shape session.error fixtures in plugin.test.ts (lines 141, 197, 221) to nested {name, data:{statusCode, isRetryable}}. Full plugin suite 105/105 pass; tsc clean; reason=\"rate_limit\" logged (was \"unknown\" before migration — confirms classifier now reads data correctly end-to-end). AC3 + AC4 + AC7 covered.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "668983f559d4e5fc97aab902a48c6bb675fa9bb1",
+      "completedAt": "2026-05-23T18:47:30.246Z",
+      "completed_at": "2026-05-23T18:47:30.246Z"
+    },
+    {
+      "id": "tk-dc98d6338289",
+      "title": "Migrate existing session.error test fixtures from flat to nested shape",
+      "type": "code",
+      "section": "Tests",
+      "status": "cancelled",
+      "priority": 3,
+      "created_at": "2026-05-23T18:37:46.134Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-6816e656a477"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-d9d3e0c33774"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC7"
+        ],
+        "respects": [
+          "C5"
+        ]
+      },
+      "cancelApproval": "User replied 'approve all' to Tier B inline cancellation prompt for tk-dc98d6338289.",
+      "cancelledAt": "2026-05-23T18:48:12.871Z",
+      "completed_at": "2026-05-23T18:48:12.871Z",
+      "cancellation": {
+        "reason": "Absorbed into tk-6816e656a477 (T1 migrated detection.test.ts fixtures) and tk-d9d3e0c33774 (T3 migrated plugin.test.ts session.error fixtures); AC7 already verified with 105/105 tests green + tsc clean.",
+        "approved_by_user": true,
+        "approval_evidence": "User replied 'approve all' to Tier B inline cancellation prompt for tk-dc98d6338289.",
+        "approved_at": "2026-05-23T18:48:12.871Z"
+      }
+    },
+    {
+      "id": "tk-975c9ad85d8b",
+      "title": "Build plugin + sync to deployed location + verify dist updated",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-05-23T18:37:52.859Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-6816e656a477"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-96d0a0976ea1"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-d9d3e0c33774"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC8"
+        ],
+        "not_applicable_reason": "Build/deploy task; no TDD applicable. Verification is dist file equality + full test suite green."
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T18:48:19.286Z",
+      "verification": "Build: bun run build → ESM dist/index.js 22.90 KB + DTS dist/index.d.ts 145B (success). Synced to ~/.local/share/opencode-model-routing/plugin/dist/ — diff clean. Deployed bundle contains new pattern /\\\\busage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])/ (grep-verified). Pattern fix during log-coverage check: changed trailing \\\\b to (?![a-z]) so ChatGPT Pro's snake-case type literal \"usage_limit_reached\" matches — \\\\b after \"limit\" required non-word char but \"_\" is a word char. Added optional 's' for plural form. Added regression tests using verbatim user-observed strings from ~/.local/share/opencode/log/2026-05-23T180338.log @ 18:04:02 ses_1a9fdfb70ffeExYV11DljnFqU0: (1) message \"The usage limit has been reached\" → quota_exhausted; (2) responseBody type literal {\"type\":\"usage_limit_reached\"} → quota_exhausted; (3) full ChatGPT Pro 429 APIError payload with statusCode → rate_limit. Final suite: 109/109 pass, tsc clean. AC8 satisfied.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/detection/patterns.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/detection/patterns.ts",
+        "plugin/test/detection.test.ts"
+      ],
+      "checkpointSha": "2c7292fef242e974e52b9eb4b21bc7897ca16cd7",
+      "completedAt": "2026-05-23T18:56:16.387Z",
+      "completed_at": "2026-05-23T18:56:16.387Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T18:21:46.732Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved via 'approve'",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/proposal.md",
+        "content_hash": "268d85dcb8a4c5b3ba61beff0f5975dae39696caf6328694794872b70ce6b371",
+        "non_whitespace_chars": 1896,
+        "checked_at": "2026-05-23T18:21:46.781Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "started_at": "2026-05-23T18:27:49.424Z",
+      "completed_at": "2026-05-23T18:28:23.658Z",
+      "completed_by": "agent",
+      "approval_evidence": "Schema mismatch (Bug A) + structural-action.reason + pattern coverage (Bug B) confirmed via sst/opencode SDK type defs.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/agreement.md",
+        "content_hash": "18535a42f9a6736f373754f7b510917735d1da371ff249aa6ac4a9a7bc180397",
+        "non_whitespace_chars": 2009,
+        "checked_at": "2026-05-23T18:28:23.721Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T18:36:43.093Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design validated by adv-researcher: APPROVE. Refinements absorbed: (1) drop SessionErrorLike flat back-compat, rewrite tests to real {name,data:{}} shape; (2) insert new patterns above \\\\bretrying\\\\b last-resort; (3) action.reason structural-first mapping; (4) responseBody JSON scan retained.",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/design.md",
+        "content_hash": "69ec00671ea4c9ad90da7a58ebe2db7973b04a2bfae0272f47b73b142c60c102",
+        "non_whitespace_chars": 5868,
+        "checked_at": "2026-05-23T18:36:43.148Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T18:40:59.908Z",
+      "completed_by": "agent",
+      "approval_evidence": "User invoked /adv-apply fixOmrUsageCapFallbackGap — counts as command-as-approval per rq-inlineApproval01.7."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T18:56:58.252Z",
+      "completed_by": "agent",
+      "approval_evidence": "All tasks done or cancelled-with-approval. Final loop: 109/109 plugin tests, Go tests pass (cmd/omr + internal/config + internal/tui), tsc clean, build success, schema-contract-check PASS. Deployed plugin synced to ~/.local/share/opencode-model-routing/plugin/dist/."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T19:18:40.864Z",
+      "completed_by": "user",
+      "approval_evidence": "User replied 'accept' to Tier A inline acceptance prompt. Contract review matrix: 19/19 required rows pass/respected, 0 failures.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/acceptance.md",
+        "content_hash": "20f02056658cbff7bba890309990851fc550667430c1508e1f907f8a4697778c",
+        "non_whitespace_chars": 4479,
+        "checked_at": "2026-05-23T19:18:40.998Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "origin": {
+    "kind": "discovery",
+    "source_artifact": "user-report-omr-usage-cap"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+      "approvedAt": "2026-05-23T18:28:03.337Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`classifySessionError({ name: \"APIError\", data: { statusCode: 429, message: \"Quota exceeded...\" } })` returns `\"rate_limit\"`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "`classifySessionError({ name: \"APIError\", data: { message: \"Quota exceeded.\", isRetryable: false, responseBody: '{\"error\":{\"code\":\"insufficient_quota\"}}' } })` returns `\"quota_exhausted\"`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "`handleEvent` on `session.status` retry with `action.reason: \"account_rate_limit\"` triggers fallback with `reason: \"rate_limit\"` — no reliance on message text.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "`handleEvent` on `session.status` retry with `action.reason: \"free_tier_limit\"` triggers fallback with `reason: \"quota_exhausted\"`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "`classifyRetryStatusText(\"5 hour usage limit reached. It will reset in 5 hours 23 minutes...\")` returns `\"quota_exhausted\"` (pattern fallback).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "`classifyRetryStatusText(\"Free usage exceeded, subscribe to Go\")` returns `\"quota_exhausted\"`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "All other existing classifications in `plugin/test/detection.test.ts` still pass after fixture migration to real shapes.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "Plugin rebuilt (`bun run build`) + full test suite green; deployed plugin at `~/.local/share/opencode-model-routing/plugin/dist/` updated to match.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Do NOT modify OpenCode core / upstream event emission.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Do NOT add streaming chat-text scanning — confirmed unnecessary.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Do NOT add retry/backoff logic to OMR.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Keep patterns anchored (use `\\b` word boundaries) to avoid false positives.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Structural classification (action.reason) MUST take precedence over text patterns (P33).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "New patterns inserted before the `\\bretrying\\b` last-resort entry in retryPatterns[].",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Fixing OpenCode upstream event emission.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "Adding retry/backoff to OMR.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Changing agent model configurations.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "Adding new providers or chain features.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS5",
+        "kind": "out_of_scope",
+        "text": "ContextOverflowError handling (OpenCode marks it non-retryable; fallback doesn't help).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a82fa87829449b02673c0f2a8ca1ffc0f96ae9ee2ff6dbba60752145ec479715",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-05-23T19:16:31.285Z",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/detection.test.ts:8 'APIError data.statusCode 429 → rate_limit' passes; classifier.ts:50-55 returns rate_limit on data.statusCode === 429"
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/detection.test.ts:73 'APIError data.responseBody insufficient_quota JSON → quota_exhausted' passes via responseBody scan fallback in classifier.ts:71-77"
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:271 'account_rate_limit → fallback fires (rate_limit)' passes; plugin-internal.ts handleEvent reads status.action.reason structurally first"
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:298 'free_tier_limit → fallback fires (quota_exhausted)' passes; same code path as AC3"
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/detection.test.ts:140 'OpenCode Go usage-limit retry → quota_exhausted' passes; matches via patterns.ts 'usage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])'"
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/detection.test.ts:149 'Free usage exceeded (Go upsell) → quota_exhausted' passes; matches via patterns.ts 'free[_ ]?usage[_ ]?(exceeded|exhausted)'"
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Full suite 110/110 pass; all 11 pre-existing flat-shape fixtures migrated to nested {name, data:{}} in detection.test.ts + plugin.test.ts with original classifications preserved"
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "bun run build success (22.9KB dist/index.js); copied to ~/.local/share/opencode-model-routing/plugin/dist/; diff -q clean; deployed bundle contains new regex (grep-verified) + DRY refactor"
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "git diff main..HEAD shows zero changes outside plugin/ subtree; no OpenCode core files touched"
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No new chat-text scanning added; classifier only scans event payloads (session.error.data, session.status retry text) — not chat message parts"
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No retry/backoff logic added; only classification + attemptFallback dispatch, both pre-existing"
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "All new patterns use \\b prefix; usage[ _-]?(...) uses (?![a-z]) suffix instead of \\b — explicit deviation documented in patterns.ts:33-35 with rationale (\\b would fail on snake_case usage_limit_reached because '_' is a word char). All other patterns retain \\b on both ends."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin-internal.ts handleEvent session.status case: structural status.action.reason mapping runs BEFORE classifyRetryStatusText text fallback (lines verified by test/plugin.test.ts:271-356 four tests)"
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "All 4 new quota patterns inserted under '// Quota exhaustion' section at patterns.ts lines 29-37; \\bretrying\\b last-resort remains as final entry"
+        },
+        {
+          "contractId": "OOS1",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no OpenCode upstream changes; respected"
+        },
+        {
+          "contractId": "OOS2",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no retry/backoff added; respected"
+        },
+        {
+          "contractId": "OOS3",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no agent config changes; respected"
+        },
+        {
+          "contractId": "OOS4",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no new providers; respected"
+        },
+        {
+          "contractId": "OOS5",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: ContextOverflowError handling deliberately untouched"
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`classifySessionError({ name: \"APIError\", data: { statusCode: 429, message: \"Quota exceeded...\" } })` returns `\"rate_limit\"`.",
+    "`classifySessionError({ name: \"APIError\", data: { message: \"Quota exceeded.\", isRetryable: false, responseBody: '{\"error\":{\"code\":\"insufficient_quota\"}}' } })` returns `\"quota_exhausted\"`.",
+    "`handleEvent` on `session.status` retry with `action.reason: \"account_rate_limit\"` triggers fallback with `reason: \"rate_limit\"` — no reliance on message text.",
+    "`handleEvent` on `session.status` retry with `action.reason: \"free_tier_limit\"` triggers fallback with `reason: \"quota_exhausted\"`.",
+    "`classifyRetryStatusText(\"5 hour usage limit reached. It will reset in 5 hours 23 minutes...\")` returns `\"quota_exhausted\"` (pattern fallback).",
+    "`classifyRetryStatusText(\"Free usage exceeded, subscribe to Go\")` returns `\"quota_exhausted\"`.",
+    "All other existing classifications in `plugin/test/detection.test.ts` still pass after fixture migration to real shapes.",
+    "Plugin rebuilt (`bun run build`) + full test suite green; deployed plugin at `~/.local/share/opencode-model-routing/plugin/dist/` updated to match."
+  ],
+  "documents": {},
+  "artifacts": {
+    "proposal": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/proposal.md",
+      "updatedAt": "2026-05-23T18:17:02.883Z"
+    },
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/agreement.md",
+      "updatedAt": "2026-05-23T18:36:29.188Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/design.md",
+      "updatedAt": "2026-05-23T18:36:29.252Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrUsageCapFallbackGap/executive-summary.md",
+      "updatedAt": "2026-05-23T19:16:57.656Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T19:18:40.864Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "worktree_auto_managed": true
+}
