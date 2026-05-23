@@ -67,7 +67,7 @@ print('chain+model OK')
 ok "options.fallback_models written at canonical path"
 
 # 5. Assert a backup file was created.
-backups=$(ls "$TMPDIR"/opencode.json.omp-backup.* 2>/dev/null | wc -l)
+backups=$(ls "$TMPDIR"/opencode.json.omr-backup.* 2>/dev/null | wc -l)
 [ "$backups" -ge 1 ] || fail "no backup file created"
 ok "backup file created ($backups)"
 

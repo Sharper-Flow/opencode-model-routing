@@ -42,6 +42,21 @@ if ! echo "$install_dryrun" | grep -q 'cp omr '; then
 fi
 ok "make build/install target omr by default"
 
+# 1c. OMP compatibility target/source must be gone. OMR is the only supported
+#     local binary after OMP removal.
+if make -n build-omp >/tmp/omr-build-omp.out 2>&1; then
+	cat /tmp/omr-build-omp.out >&2
+	fail "make build-omp must not exist after OMP compatibility removal"
+fi
+if grep -q 'COMPAT_BINARY\|./cmd/omp/' Makefile; then
+	grep -n 'COMPAT_BINARY\|./cmd/omp/' Makefile >&2
+	fail "Makefile must not reference OMP compatibility binary or ./cmd/omp/"
+fi
+if [ -d cmd/omp ]; then
+	fail "cmd/omp must not exist after OMP compatibility removal"
+fi
+ok "OMP compatibility build target and source are absent"
+
 # 2. The .githooks/pre-push template must run build+test and deploy-local,
 #    not install.
 hook_path=".githooks/pre-push"
