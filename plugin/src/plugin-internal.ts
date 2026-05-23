@@ -20,7 +20,7 @@ import { attemptFallback, type OrchestratorClient } from "./replay/orchestrator.
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
-import { defaultConfig, type ModelKey, type PluginConfig } from "./types.ts";
+import { defaultConfig, type ErrorCategory, type ModelKey, type PluginConfig } from "./types.ts";
 
 // PluginInput is intentionally typed loosely — the @opencode-ai/plugin
 // signature varies across versions; we accept what we need defensively.
@@ -195,6 +195,29 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
+// Structural action.reason → ErrorCategory mapping. Keys mirror the OpenCode
+// RetryReason union (packages/opencode/src/session/retry.ts) — the
+// `(string & {})` open-ended form means unknown reasons gracefully fall
+// through to text-pattern classification. Co-locating the map here keeps
+// the single source of truth next to the EventInputShape definition.
+const REASON_TO_CATEGORY: Record<string, ErrorCategory> = {
+  account_rate_limit: "rate_limit",
+  free_tier_limit: "quota_exhausted",
+};
+
+function isActionShape(action: unknown): boolean {
+  if (!isRecord(action)) return false;
+  const a = action as Record<string, unknown>;
+  return (
+    isOptionalString(a.reason) &&
+    isOptionalString(a.provider) &&
+    isOptionalString(a.title) &&
+    isOptionalString(a.message) &&
+    isOptionalString(a.label) &&
+    isOptionalString(a.link)
+  );
+}
+
 function isEventInputShape(event: unknown): event is EventInputShape {
   if (!isRecord(event)) return false;
   if (!isOptionalString(event.type)) return false;
@@ -213,16 +236,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     if (!isRecord(props.status)) return false;
     if (!isOptionalString(props.status.type)) return false;
     if (!isOptionalString(props.status.message)) return false;
-    if (props.status.action !== undefined) {
-      if (!isRecord(props.status.action)) return false;
-      const action = props.status.action as Record<string, unknown>;
-      if (!isOptionalString(action.reason)) return false;
-      if (!isOptionalString(action.provider)) return false;
-      if (!isOptionalString(action.title)) return false;
-      if (!isOptionalString(action.message)) return false;
-      if (!isOptionalString(action.label)) return false;
-      if (!isOptionalString(action.link)) return false;
-    }
+    if (props.status.action !== undefined && !isActionShape(props.status.action)) return false;
   }
   if (props.part !== undefined) {
     if (!isRecord(props.part)) return false;
@@ -273,14 +287,13 @@ export async function handleEvent(
     case "session.status": {
       // Structural first (P33): typed action.reason on retry status events is
       // an Effect Schema field; prefer it over lossy text-pattern matching.
-      // Mapping per packages/opencode/src/session/retry.ts RetryReason union.
+      // Map definition lives at REASON_TO_CATEGORY near the top of this file.
       const status = props.status;
       let category: ReturnType<typeof classifyRetryStatusText> = null;
       const reason = status?.action?.reason;
       if (status?.type === "retry" && reason) {
-        if (reason === "account_rate_limit") category = "rate_limit";
-        else if (reason === "free_tier_limit") category = "quota_exhausted";
         // Open-ended (string & {}) future reasons fall through to text scan.
+        category = REASON_TO_CATEGORY[reason] ?? null;
       }
       if (!category) {
         category = classifyRetryStatusText(status?.message);
