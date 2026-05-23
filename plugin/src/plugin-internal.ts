@@ -23,6 +23,7 @@ import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import { defaultConfig, type ErrorCategory, type ModelKey, type PluginConfig } from "./types.ts";
+import { isRecord } from "./utils/type-guards.ts";
 
 // Real OpenCode PluginInput shape per @opencode-ai/plugin@1.15.5 PluginInput
 // + packages/opencode/src/plugin/index.ts:134-150 source. NO `config` field —
@@ -91,10 +92,6 @@ interface ChatMessageInputShape {
 }
 interface ChatMessageOutputShape {
   message: { model?: { providerID: string; modelID: string } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function hasFunction(record: Record<string, unknown>, key: string): boolean {

@@ -9,6 +9,7 @@ import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { FallbackStore } from "../state/store.ts";
 import type { ErrorCategory, ModelKey, PluginConfig, ReplayResult } from "../types.ts";
+import { isRecord } from "../utils/type-guards.ts";
 import { convertPartsForPrompt, type Part } from "./message-converter.ts";
 
 // Narrow client surface used here. Tests stub via MockClient.
@@ -66,10 +67,6 @@ function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
     };
   }
   return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 // Walks messages array AFTER lastUserMessageID and returns the latest
@@ -229,10 +226,13 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
       reason,
       depth: state.fallbackDepth,
     };
-    // Only attach orphan_message_id when actually detected — avoids fabricating
+    // Only attach orphanMessageId when actually detected — avoids fabricating
     // IDs and keeps the log payload clean for operators searching for orphans.
+    // Field name uses camelCase to match existing fallback.success keys
+    // (sessionId, from, to, reason, depth) per repo convention; doctor SQL
+    // correlation uses message-row shape (role + parts) not the log field name.
     if (orphanMessageId !== undefined) {
-      successPayload.orphan_message_id = orphanMessageId;
+      successPayload.orphanMessageId = orphanMessageId;
     }
     logger.info("fallback.success", successPayload);
 

@@ -246,7 +246,7 @@ describe("attemptFallback — sequence failures", () => {
   });
 });
 
-// Capture log emissions for orphan_message_id assertions. The default
+// Capture log emissions for orphanMessageId assertions. The default
 // silentLogger writes nothing; we need a recording logger here.
 function makeCapturingLogger() {
   const events: Array<{ level: string; event: string; data: Record<string, unknown> }> = [];
@@ -264,7 +264,7 @@ function makeCapturingLogger() {
   return { logger, events };
 }
 
-describe("attemptFallback — orphan_message_id logging", () => {
+describe("attemptFallback — orphanMessageId logging", () => {
   test("orphan present (assistant after user with empty parts) → field in fallback.success", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
@@ -286,7 +286,7 @@ describe("attemptFallback — orphan_message_id logging", () => {
 
     const success = events.find((e) => e.event === "fallback.success");
     expect(success).toBeDefined();
-    expect(success?.data.orphan_message_id).toBe("asst-orphan");
+    expect(success?.data.orphanMessageId).toBe("asst-orphan");
   });
 
   test("no orphan (assistant has parts → LLM completed) → field omitted", async () => {
@@ -313,7 +313,7 @@ describe("attemptFallback — orphan_message_id logging", () => {
 
     const success = events.find((e) => e.event === "fallback.success");
     expect(success).toBeDefined();
-    expect(success?.data.orphan_message_id).toBeUndefined();
+    expect(success?.data.orphanMessageId).toBeUndefined();
   });
 
   test("multiple assistants after user (all empty) → latest wins", async () => {
@@ -340,10 +340,10 @@ describe("attemptFallback — orphan_message_id logging", () => {
     });
 
     const success = events.find((e) => e.event === "fallback.success");
-    expect(success?.data.orphan_message_id).toBe("asst-newest");
+    expect(success?.data.orphanMessageId).toBe("asst-newest");
   });
 
-  test("malformed messages array (non-record items mixed in) → field omitted, fallback succeeds", async () => {
+  test("malformed messages array (garbage entries mixed in) → valid orphan still found, fallback succeeds", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
@@ -374,7 +374,7 @@ describe("attemptFallback — orphan_message_id logging", () => {
     const success = events.find((e) => e.event === "fallback.success");
     expect(success).toBeDefined();
     // The valid orphan IS found because helper defensively skips garbage.
-    expect(success?.data.orphan_message_id).toBe("asst-orphan");
+    expect(success?.data.orphanMessageId).toBe("asst-orphan");
   });
 
   test("assistant before user (out-of-order) → does NOT match", async () => {
@@ -400,7 +400,35 @@ describe("attemptFallback — orphan_message_id logging", () => {
     });
 
     const success = events.find((e) => e.event === "fallback.success");
-    expect(success?.data.orphan_message_id).toBeUndefined();
+    expect(success?.data.orphanMessageId).toBeUndefined();
+  });
+
+  test("nested OpenCode shape {info: {id, role}, parts} → orphan found via info-branch", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [
+        // user message in flat shape (helper supports both at any position)
+        userMsg("user-1"),
+        // assistant in NESTED shape — id/role on info, parts at top level
+        { info: { id: "asst-nested-orphan", role: "assistant" }, parts: [] },
+      ],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success?.data.orphanMessageId).toBe("asst-nested-orphan");
   });
 
   test("only user message (no assistants at all) → field omitted", async () => {
@@ -421,6 +449,6 @@ describe("attemptFallback — orphan_message_id logging", () => {
     });
 
     const success = events.find((e) => e.event === "fallback.success");
-    expect(success?.data.orphan_message_id).toBeUndefined();
+    expect(success?.data.orphanMessageId).toBeUndefined();
   });
 });
