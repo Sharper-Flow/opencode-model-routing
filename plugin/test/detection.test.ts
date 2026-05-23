@@ -155,5 +155,55 @@ describe("classifyRetryStatusText", () => {
         classifyRetryStatusText("5 hour usage limit reached. Reset in 5 hours."),
       ).toBe("quota_exhausted");
     });
+
+    // Verbatim strings observed in user's real session
+    // (~/.local/share/opencode/log/2026-05-23T180338.log @ 18:04:02). ChatGPT
+    // Pro `x-codex-plan-type: pro` HTTP 429 from chatgpt.com auth path:
+    // responseBody: {"error":{"type":"usage_limit_reached","message":"The usage limit has been reached",...}}
+    test("verbatim user-observed message → quota_exhausted", () => {
+      expect(classifyRetryStatusText("The usage limit has been reached")).toBe(
+        "quota_exhausted",
+      );
+    });
+    test("verbatim ChatGPT Pro responseBody type literal → quota_exhausted", () => {
+      // ChatGPT Pro 429 returns error.type:"usage_limit_reached" — the
+      // underscore-snake form must match \busage[ _-]?(limit|cap|...)\b.
+      expect(classifyRetryStatusText('{"type":"usage_limit_reached"}')).toBe(
+        "quota_exhausted",
+      );
+    });
+  });
+});
+
+describe("classifySessionError — verbatim ChatGPT Pro 429 payload", () => {
+  // Real session.error payload shape constructed from observed AI_APICallError
+  // (after OpenCode wraps via parseAPICallError → APIError NamedError).
+  // Observed in log 2026-05-23T180338.log @ 18:04:02 ses_1a9fdfb70ffeExYV11DljnFqU0.
+  test("APIError APIError with usage_limit_reached responseBody → rate_limit (statusCode precedence)", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: {
+          message: "The usage limit has been reached",
+          statusCode: 429,
+          isRetryable: true,
+          responseBody:
+            '{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1779820400,"eligible_promo":null,"resets_in_seconds":260964}}',
+        },
+      }),
+    ).toBe("rate_limit");
+  });
+  test("APIError with usage_limit_reached responseBody and NO statusCode → quota_exhausted (responseBody scan fallback)", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: {
+          message: "The usage limit has been reached",
+          isRetryable: true,
+          responseBody:
+            '{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached"}}',
+        },
+      }),
+    ).toBe("quota_exhausted");
   });
 });

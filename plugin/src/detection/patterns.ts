@@ -30,7 +30,10 @@ export const retryPatterns: Pattern[] = [
   // OpenCode Go / Zen / free-tier "Usage limit reached" wording — see
   // packages/opencode/src/session/retry.ts:106 + GO_UPSELL_MESSAGE:9.
   { re: /\busage limit reached\b/, category: "quota_exhausted" },
-  { re: /\busage[ _-]?(limit|cap|maxed|exceeded)\b/, category: "quota_exhausted" },
+  // Trailing `(?![a-z])` (not standard \b) so "usage_limit_reached" matches
+  // — \b would require non-word char after "limit", but "_" is a word char.
+  // Allows optional `s` for "usage limits" plural.
+  { re: /\busage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])/, category: "quota_exhausted" },
   { re: /\bfree[_ ]?usage[_ ]?(exceeded|exhausted)\b/, category: "quota_exhausted" },
 
   // Model not found / unknown
