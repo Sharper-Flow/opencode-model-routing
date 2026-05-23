@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Define how `omp` resolves and applies model preferences for OpenCode targets.
+Define how `omr` resolves and applies model preferences for OpenCode targets.
 
 ## Config
 
-Preferences are stored in `omp-preferences.json`:
+Preferences are stored in `omr-preferences.json`:
 
 ```json
 {
@@ -31,7 +31,7 @@ Preferences are stored in `omp-preferences.json`:
 
 Main agents/overlays `build`, `adv`, and `plan` are intentionally excluded from direct mapping. They should follow current session model instead of getting pinned in `opencode.json`.
 
-If stale `build`, `adv`, or `plan` entries already exist in `omp-preferences.json`, `omp` removes them automatically on load/save.
+If stale `build`, `adv`, or `plan` entries already exist in `omr-preferences.json`, `omr` removes them automatically on load/save.
 
 ## Resolution
 

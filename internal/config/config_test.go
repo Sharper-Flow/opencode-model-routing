@@ -892,7 +892,7 @@ func TestPreferencesPath_RespectsOPENCODE_CONFIG_DIR(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
 	got := PreferencesPath()
-	want := filepath.Join(dir, "omp-preferences.json")
+	want := filepath.Join(dir, "omr-preferences.json")
 	if got != want {
 		t.Errorf("PreferencesPath() = %q, want %q", got, want)
 	}
@@ -919,7 +919,7 @@ func TestLoadPreferences_ExistingFile(t *testing.T) {
 			"general": "openai/gpt-5"
 		}
 	}`
-	mustWriteFile(t, filepath.Join(dir, "omp-preferences.json"), []byte(content), 0644)
+	mustWriteFile(t, filepath.Join(dir, "omr-preferences.json"), []byte(content), 0644)
 
 	pc, err := LoadPreferences()
 	if err != nil {
@@ -949,7 +949,7 @@ func TestLoadPreferences_SanitizesAndRewritesUnmappedMainAgents(t *testing.T) {
 			"general": true
 		}
 	}`
-	path := filepath.Join(dir, "omp-preferences.json")
+	path := filepath.Join(dir, "omr-preferences.json")
 	mustWriteFile(t, path, []byte(content), 0644)
 
 	pc, err := LoadPreferences()
@@ -990,7 +990,7 @@ func TestLoadPreferences_SanitizesAndRewritesUnmappedMainAgents(t *testing.T) {
 func TestLoadPreferences_NilMapInitialized(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
-	mustWriteFile(t, filepath.Join(dir, "omp-preferences.json"), []byte(`{}`), 0644)
+	mustWriteFile(t, filepath.Join(dir, "omr-preferences.json"), []byte(`{}`), 0644)
 
 	pc, err := LoadPreferences()
 	if err != nil {
@@ -1004,7 +1004,7 @@ func TestLoadPreferences_NilMapInitialized(t *testing.T) {
 func TestLoadPreferences_CorruptJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
-	mustWriteFile(t, filepath.Join(dir, "omp-preferences.json"), []byte(`{not valid`), 0644)
+	mustWriteFile(t, filepath.Join(dir, "omr-preferences.json"), []byte(`{not valid`), 0644)
 
 	_, err := LoadPreferences()
 	if err == nil {
@@ -1095,7 +1095,7 @@ func TestSavePreferences_AtomicWrite(t *testing.T) {
 
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".omp-") && strings.Contains(e.Name(), ".tmp") {
+		if strings.HasPrefix(e.Name(), ".omr-") && strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("temp file left behind after SavePreferences: %s", e.Name())
 		}
 	}

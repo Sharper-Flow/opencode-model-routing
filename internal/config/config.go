@@ -50,7 +50,7 @@ func (t Target) IsSubagent() bool {
 	return t.Kind == KindAgent && (t.Mode == "subagent" || t.Hidden)
 }
 
-// IsModelMappable reports whether omp should manage a direct model override for
+// IsModelMappable reports whether omr should manage a direct model override for
 // this target. Main agents/overlays like build, adv, and plan should follow the
 // current session model instead of being pinned here.
 // Provider ADV variants (adv-claude, adv-gpt, adv-glm, adv-kimi) are explicitly
@@ -164,9 +164,9 @@ func discoverModelsWithFallback(raw []byte) []Model {
 	}
 	// CLI unavailable or returned no parseable models — fall back to config.
 	if err != nil {
-		log.Printf("omp: CLI model discovery failed, falling back to config: %v", err)
+		log.Printf("omr: CLI model discovery failed, falling back to config: %v", err)
 	} else {
-		log.Printf("omp: CLI returned no models, falling back to config parsing")
+		log.Printf("omr: CLI returned no models, falling back to config parsing")
 	}
 	return discoverModels(raw)
 }
@@ -357,7 +357,7 @@ func discoverMarkdownAgents(dir string, raw []byte, seen map[string]bool, allowP
 }
 
 // parseFrontmatterList parses a minimal YAML frontmatter list field. It
-// supports the two forms omp documents for fallback_models:
+// supports the two forms omr documents for fallback_models:
 //
 //	field: ["a", "b", "c"]
 //	field:

@@ -2,7 +2,7 @@
 //
 // Direct per-target model preferences. Each agent or sub-agent maps directly to
 // a model ID with no intermediate abstraction. Config is stored in
-// ~/.config/opencode/omp-preferences.json (separate from opencode.json which
+// ~/.config/opencode/omr-preferences.json (separate from opencode.json which
 // uses additionalProperties:false).
 //
 // Fallback chains: the canonical JSON path in opencode.json is
@@ -40,10 +40,10 @@ type AdvProviderConfig struct {
 	Model   string `json:"model,omitempty"`
 }
 
-// PreferencesPath returns the path to omp-preferences.json, respecting
+// PreferencesPath returns the path to omr-preferences.json, respecting
 // OPENCODE_CONFIG_DIR.
 func PreferencesPath() string {
-	return filepath.Join(ConfigDir(), "omp-preferences.json")
+	return filepath.Join(ConfigDir(), "omr-preferences.json")
 }
 
 // validAdvProviders is the whitelist of allowed provider ADV variant names.
