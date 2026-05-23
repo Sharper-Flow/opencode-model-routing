@@ -41,11 +41,15 @@ describe("package runtime contract", () => {
     });
     expect(build.exitCode, new TextDecoder().decode(build.stderr)).toBe(0);
 
-    const mod = await import("../dist/index.js");
+    const mod = (await import(new URL("../dist/index.js", import.meta.url).href)) as Record<
+      string,
+      unknown
+    >;
     expect(Object.keys(mod)).toEqual(["default"]);
     expect(typeof mod.default).toBe("object");
-    expect(Object.keys(mod.default).sort()).toEqual(["id", "server"]);
-    expect(mod.default.id).toBe("@sharper-flow/opencode-model-routing-plugin");
-    expect(typeof mod.default.server).toBe("function");
-  });
+    const pluginModule = mod.default as Record<string, unknown>;
+    expect(Object.keys(pluginModule).sort()).toEqual(["id", "server"]);
+    expect(pluginModule.id).toBe("@sharper-flow/opencode-model-routing-plugin");
+    expect(typeof pluginModule.server).toBe("function");
+  }, 20_000);
 });

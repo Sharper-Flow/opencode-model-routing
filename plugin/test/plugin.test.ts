@@ -4,8 +4,8 @@ import {
   createPluginContext,
   handleChatMessage,
   handleEvent,
-} from "../src/plugin.ts";
-import plugin from "../src/plugin.ts";
+} from "../src/plugin-internal.ts";
+import pluginModule from "../src/plugin.ts";
 import type { ModelKey } from "../src/types.ts";
 import { MockClient } from "./helpers/mock-client.ts";
 
@@ -20,6 +20,26 @@ function ctxWithChain(chain: ModelKey[]) {
     },
     logger: silentLogger,
   });
+}
+
+async function createRuntimeHooks(client: MockClient, config: unknown) {
+  return pluginModule.server({ client, config } as unknown as Parameters<typeof pluginModule.server>[0]);
+}
+
+async function callRuntimeChatMessage(
+  hooks: Awaited<ReturnType<typeof createRuntimeHooks>>,
+  input: unknown,
+  output: unknown,
+) {
+  const hook = hooks["chat.message"] as
+    | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+    | undefined;
+  await hook?.(input, output);
+}
+
+async function callRuntimeEvent(hooks: Awaited<ReturnType<typeof createRuntimeHooks>>, input: unknown) {
+  const hook = hooks.event as ((input: unknown) => unknown | Promise<unknown>) | undefined;
+  await hook?.(input);
 }
 
 describe("plugin entry — config loading", () => {
@@ -130,7 +150,7 @@ describe("handleEvent — session.error", () => {
 
 describe("plugin event hook boundary", () => {
   test("returns chat.message and event hook functions", async () => {
-    const hooks = await plugin({ client: new MockClient(), config: {} });
+    const hooks = await createRuntimeHooks(new MockClient(), {});
 
     expect(typeof hooks["chat.message"]).toBe("function");
     expect(typeof hooks.event).toBe("function");
@@ -138,16 +158,17 @@ describe("plugin event hook boundary", () => {
 
   test("malformed chat hook payload is a no-op", async () => {
     const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
-    const hooks = await plugin({
+    const hooks = await createRuntimeHooks(
       client,
-      config: {
+      {
         agent: {
           scout: { options: { fallback_models: ["a/one", "b/two"] } },
         },
       },
-    });
+    );
 
-    await hooks["chat.message"]?.(
+    await callRuntimeChatMessage(
+      hooks,
       { sessionID: "s1" },
       { message: { model: { providerID: 7, modelID: "one" } } },
     );
@@ -159,16 +180,16 @@ describe("plugin event hook boundary", () => {
     const client = new MockClient({
       messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
     });
-    const hooks = await plugin({
+    const hooks = await createRuntimeHooks(
       client,
-      config: {
+      {
         agent: {
           scout: { options: { fallback_models: ["a/one", "b/two"] } },
         },
       },
-    });
+    );
 
-    await hooks.event?.({
+    await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",
         properties: {
@@ -185,16 +206,16 @@ describe("plugin event hook boundary", () => {
     const client = new MockClient({
       messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
     });
-    const hooks = await plugin({
+    const hooks = await createRuntimeHooks(
       client,
-      config: {
+      {
         agent: {
           scout: { options: { fallback_models: ["a/one", "b/two"] } },
         },
       },
-    });
+    );
 
-    await hooks.event?.({
+    await callRuntimeEvent(hooks, {
       event: {
         type: 7,
         properties: { sessionID: "s1", error: { statusCode: 429 } },
@@ -206,9 +227,9 @@ describe("plugin event hook boundary", () => {
 
   test("undefined event hook payload is a no-op", async () => {
     const client = new MockClient();
-    const hooks = await plugin({ client, config: {} });
+    const hooks = await createRuntimeHooks(client, {});
 
-    await hooks.event?.(undefined);
+    await callRuntimeEvent(hooks, undefined);
 
     expect(client.callsTo("session.prompt").length).toBe(0);
   });
