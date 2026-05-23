@@ -79,4 +79,16 @@ if grep -q 'PLUGIN_CONFIG_PATH="$REPO_ROOT/plugin"' "$deploy_script"; then
 fi
 ok "deploy-local uses stable local-share plugin path"
 
+# 5. `make build-plugin` must typecheck and produce the bundled runtime.
+build_plugin_dryrun="$(make -n build-plugin 2>&1)"
+if ! echo "$build_plugin_dryrun" | grep -q 'bun run typecheck'; then
+	echo "$build_plugin_dryrun" >&2
+	fail "make build-plugin must run plugin typecheck"
+fi
+if ! echo "$build_plugin_dryrun" | grep -q 'bun run build'; then
+	echo "$build_plugin_dryrun" >&2
+	fail "make build-plugin must run plugin bundle build"
+fi
+ok "make build-plugin typechecks and bundles plugin"
+
 echo "All Makefile contract checks passed."

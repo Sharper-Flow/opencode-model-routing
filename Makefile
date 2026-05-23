@@ -25,7 +25,7 @@ install-hooks:
 	@echo "Installed git hook to $(HOOKS_DIR)/pre-push"
 
 build-plugin:
-	cd plugin && bun install --frozen-lockfile && bun run typecheck
+	cd plugin && bun install --frozen-lockfile && bun run typecheck && bun run build
 
 deploy-local: build-plugin
 	./scripts/deploy-local.sh --fix
