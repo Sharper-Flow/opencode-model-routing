@@ -125,4 +125,35 @@ describe("classifyRetryStatusText", () => {
   test("unrecognized text → null", () => {
     expect(classifyRetryStatusText("hello world")).toBeNull();
   });
+
+  // Usage-cap pattern coverage — OpenCode Go/free-tier/Zen + raw OpenAI
+  // insufficient_quota strings. See packages/opencode/src/session/retry.ts
+  // for canonical message wording.
+  describe("usage-cap patterns", () => {
+    test("OpenCode Go usage-limit retry → quota_exhausted", () => {
+      expect(
+        classifyRetryStatusText(
+          "5 hour usage limit reached. It will reset in 5 hours 23 minutes. To continue using this model now, enable usage from your available balance",
+        ),
+      ).toBe("quota_exhausted");
+    });
+    test("Free usage exceeded (Go upsell) → quota_exhausted", () => {
+      expect(classifyRetryStatusText("Free usage exceeded, subscribe to Go")).toBe("quota_exhausted");
+    });
+    test("OpenAI insufficient_quota literal → quota_exhausted", () => {
+      expect(classifyRetryStatusText('Error: {"code":"insufficient_quota"}')).toBe("quota_exhausted");
+    });
+    test("generic 'usage limit' phrasing → quota_exhausted", () => {
+      expect(classifyRetryStatusText("Daily usage limit hit")).toBe("quota_exhausted");
+    });
+    test("'usage cap' phrasing → quota_exhausted", () => {
+      expect(classifyRetryStatusText("You have hit your usage cap")).toBe("quota_exhausted");
+    });
+    test("does NOT misclassify '5 hour' as server-error 5xx", () => {
+      // Regression guard for \b(5\d{2})\b — must not match "5 hour"
+      expect(
+        classifyRetryStatusText("5 hour usage limit reached. Reset in 5 hours."),
+      ).toBe("quota_exhausted");
+    });
+  });
 });

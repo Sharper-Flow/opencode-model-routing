@@ -25,6 +25,13 @@ export const retryPatterns: Pattern[] = [
   // Quota exhaustion
   { re: /\bquota.*(exhaust|exceed)/, category: "quota_exhausted" },
   { re: /\binsufficient.+(credit|quota)/, category: "quota_exhausted" },
+  // OpenAI raw error code (no separator between insufficient + quota).
+  { re: /\binsufficient[_-]?quota\b/, category: "quota_exhausted" },
+  // OpenCode Go / Zen / free-tier "Usage limit reached" wording — see
+  // packages/opencode/src/session/retry.ts:106 + GO_UPSELL_MESSAGE:9.
+  { re: /\busage limit reached\b/, category: "quota_exhausted" },
+  { re: /\busage[ _-]?(limit|cap|maxed|exceeded)\b/, category: "quota_exhausted" },
+  { re: /\bfree[_ ]?usage[_ ]?(exceeded|exhausted)\b/, category: "quota_exhausted" },
 
   // Model not found / unknown
   { re: /\bmodel[ _-]?not[ _-]?found/, category: "unknown_model" },
