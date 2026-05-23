@@ -11,6 +11,12 @@ import { MockClient } from "./helpers/mock-client.ts";
 
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 
+// Shared type for hook-introspection assertions in test helpers. Mirrors
+// the optional Hooks.config shape from @opencode-ai/plugin SDK.
+type HooksWithConfig = {
+  config?: (input: unknown) => unknown | Promise<unknown>;
+};
+
 function ctxWithChain(chain: ModelKey[]) {
   // Production chain population happens via the Hooks.config callback (see
   // createPluginHooks). For unit tests that exercise handler behavior with a
@@ -28,7 +34,7 @@ async function createRuntimeHooks(client: MockClient, config: unknown) {
   // call the Hooks.config callback to deliver the synthetic config — matching
   // the real lifecycle (init → config → events).
   const hooks = await pluginModule.server({ client } as unknown as Parameters<typeof pluginModule.server>[0]);
-  const configHook = (hooks as { config?: (input: unknown) => unknown | Promise<unknown> }).config;
+  const configHook = (hooks as HooksWithConfig).config;
   if (configHook) await configHook(config);
   return hooks;
 }
@@ -445,7 +451,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
   }
 
   async function callConfig(hooks: Awaited<ReturnType<typeof makeHooks>>, cfg: unknown) {
-    const hook = (hooks as { config?: (input: unknown) => unknown | Promise<unknown> }).config;
+    const hook = (hooks as HooksWithConfig).config;
     if (!hook) throw new Error("config hook not registered on plugin hooks");
     await hook(cfg);
   }
@@ -467,7 +473,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
   test("config hook is registered on returned hooks", async () => {
     const hooks = await makeHooks(new MockClient());
-    expect(typeof (hooks as { config?: unknown }).config).toBe("function");
+    expect(typeof (hooks as HooksWithConfig).config).toBe("function");
   });
 
   test("init → config → event triggers fallback with chain from cfg", async () => {
