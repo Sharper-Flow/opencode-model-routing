@@ -245,3 +245,182 @@ describe("attemptFallback — sequence failures", () => {
     expect(result.error).toBe("no user message");
   });
 });
+
+// Capture log emissions for orphan_message_id assertions. The default
+// silentLogger writes nothing; we need a recording logger here.
+function makeCapturingLogger() {
+  const events: Array<{ level: string; event: string; data: Record<string, unknown> }> = [];
+  const logger = createLogger({
+    minLevel: "debug",
+    write: (line: string) => {
+      try {
+        const parsed = JSON.parse(line);
+        events.push({ level: parsed.level, event: parsed.event, data: parsed });
+      } catch {
+        // ignore non-JSON lines
+      }
+    },
+  });
+  return { logger, events };
+}
+
+describe("attemptFallback — orphan_message_id logging", () => {
+  test("orphan present (assistant after user with empty parts) → field in fallback.success", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg("user-1"), { id: "asst-orphan", role: "assistant", parts: [] }],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success).toBeDefined();
+    expect(success?.data.orphan_message_id).toBe("asst-orphan");
+  });
+
+  test("no orphan (assistant has parts → LLM completed) → field omitted", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [
+        userMsg("user-1"),
+        { id: "asst-done", role: "assistant", parts: [{ type: "text", text: "response" }] },
+      ],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success).toBeDefined();
+    expect(success?.data.orphan_message_id).toBeUndefined();
+  });
+
+  test("multiple assistants after user (all empty) → latest wins", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [
+        userMsg("user-1"),
+        { id: "asst-old", role: "assistant", parts: [] },
+        { id: "asst-newest", role: "assistant", parts: [] },
+      ],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success?.data.orphan_message_id).toBe("asst-newest");
+  });
+
+  test("malformed messages array (non-record items mixed in) → field omitted, fallback succeeds", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      // Mix valid user message with garbage; helper must not crash.
+      messages: [
+        userMsg("user-1"),
+        null,
+        "string-not-record",
+        42,
+        { id: "asst-orphan", role: "assistant", parts: [] },
+      ],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    // Fallback still succeeds — orphan-find guarded; valid asst-orphan still found.
+    expect(result.success).toBe(true);
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success).toBeDefined();
+    // The valid orphan IS found because helper defensively skips garbage.
+    expect(success?.data.orphan_message_id).toBe("asst-orphan");
+  });
+
+  test("assistant before user (out-of-order) → does NOT match", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [
+        { id: "asst-pre-user", role: "assistant", parts: [] }, // BEFORE user — must be ignored
+        userMsg("user-1"),
+      ],
+    });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success?.data.orphan_message_id).toBeUndefined();
+  });
+
+  test("only user message (no assistants at all) → field omitted", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg("user-1")] });
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success?.data.orphan_message_id).toBeUndefined();
+  });
+});

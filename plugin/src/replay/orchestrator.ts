@@ -68,6 +68,51 @@ function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
   return null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+// Walks messages array AFTER lastUserMessageID and returns the latest
+// assistant message ID with empty parts — i.e., the blank assistant shell
+// OpenCode created before the LLM call failed. Used solely to enrich the
+// fallback.success log so operators can correlate fallback events with
+// `opencode-session-doctor`'s blank-row detection (SQL pattern: role=assistant
+// AND finish IS NULL AND 0 parts).
+//
+// Defensive: any unexpected shape or throw degrades to `undefined` — the
+// fallback flow must never block on log enrichment.
+//
+// Supports BOTH OpenCode message shapes:
+//   - flat:    { id, role, parts }
+//   - nested:  { info: { id, role }, parts }
+function findOrphanCandidate(messages: unknown[], lastUserMessageID: string): string | undefined {
+  try {
+    let sawLastUser = false;
+    let candidate: string | undefined;
+    for (const item of messages) {
+      if (!isRecord(item)) continue;
+      const info = isRecord(item.info) ? item.info : item;
+      const id = typeof info.id === "string" ? info.id : undefined;
+      const role = typeof info.role === "string" ? info.role : undefined;
+      const parts = Array.isArray(item.parts)
+        ? item.parts
+        : Array.isArray(info.parts)
+          ? info.parts
+          : [];
+      if (!sawLastUser) {
+        if (id === lastUserMessageID) sawLastUser = true;
+        continue;
+      }
+      if (role === "assistant" && parts.length === 0 && id) {
+        candidate = id; // latest wins (highest index after lastUser)
+      }
+    }
+    return candidate;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseModelKey(key: ModelKey): { providerID: string; modelID: string } {
   const i = key.indexOf("/");
   return {
@@ -135,6 +180,11 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
       return { success: false, error: "no user message" };
     }
 
+    // Capture orphan candidate BEFORE abort/revert — the messages snapshot
+    // we already have reflects pre-revert state; subsequent fetches may show
+    // different visibility/ordering after revert sets its pointer.
+    const orphanMessageId = findOrphanCandidate(messages, lastUser.messageID);
+
     try {
       await client.session.abort({ sessionID: sessionId } as never);
     } catch (err) {
@@ -172,13 +222,19 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     state.lastFallbackAt = Date.now();
     if (!state.originalModel && current) state.originalModel = current;
 
-    logger.info("fallback.success", {
+    const successPayload: Record<string, unknown> = {
       sessionId,
       from: current,
       to: next,
       reason,
       depth: state.fallbackDepth,
-    });
+    };
+    // Only attach orphan_message_id when actually detected — avoids fabricating
+    // IDs and keeps the log payload clean for operators searching for orphans.
+    if (orphanMessageId !== undefined) {
+      successPayload.orphan_message_id = orphanMessageId;
+    }
+    logger.info("fallback.success", successPayload);
 
     return { success: true, fallbackModel: next, fromModel: current };
   } finally {
