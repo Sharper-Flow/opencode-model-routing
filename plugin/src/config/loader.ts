@@ -75,6 +75,10 @@ export function loadFallbackChains(cfg: ConfigShape | unknown, logger?: Logger):
   }
 
   for (const [name, agent] of Object.entries(agents)) {
+    // Skip empty/whitespace agent names. Handler call sites use
+    // `agentName ? chains.get(agentName) : []` so an entry keyed by "" would
+    // be created but unreachable. Skip at load-time to avoid the dead entry.
+    if (!name || !name.trim()) continue;
     if (!agent || typeof agent !== "object") continue;
 
     // Primary path: agent.<name>.options.fallback_models

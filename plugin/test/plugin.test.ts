@@ -484,7 +484,14 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     // Bus event arrives after config hook completed
     await callRuntimeEvent(hooks, { event: usageRetryEvent() });
     expect(client.callsTo("session.abort").length).toBe(1);
-    expect(client.callsTo("session.prompt").length).toBe(1);
+    const promptCalls = client.callsTo("session.prompt");
+    expect(promptCalls.length).toBe(1);
+    // Assert the SELECTED model is the first chain entry (resolver picks
+    // first non-cooled model). Without this, the test passes even if the
+    // resolver picked a different/wrong model.
+    expect(promptCalls[0].args).toMatchObject({
+      model: { providerID: "anthropic", modelID: "claude" },
+    });
   });
 
   test("ordering violation: event before config → no crash, no fallback; recovers after config", async () => {
@@ -517,7 +524,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     expect(client.callsTo("session.prompt").length).toBe(0);
   });
 
-  test("config hook re-invocation updates chain in-place (Map identity preserved)", async () => {
+  test("config hook re-invocation updates chain in-place (Map identity preserved + new chain used)", async () => {
     const client = new MockClient({
       messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
     });
@@ -530,7 +537,35 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
       agent: { adv: { options: { fallback_models: ["updated/model"] } } },
     });
     await callRuntimeEvent(hooks, { event: usageRetryEvent() });
-    // Fallback fires (chain non-empty) — second config delivery did not break handler closure references.
-    expect(client.callsTo("session.prompt").length).toBe(1);
+    // Fallback fires AND uses the UPDATED chain (not the initial one).
+    // Without the model assertion, the test would pass even if the
+    // in-place mutation accidentally retained the old chain entries.
+    const promptCalls = client.callsTo("session.prompt");
+    expect(promptCalls.length).toBe(1);
+    expect(promptCalls[0].args).toMatchObject({
+      model: { providerID: "updated", modelID: "model" },
+    });
+  });
+
+  test("config hook re-delivery removes stale agents (clear() before set())", async () => {
+    // Regression guard for the .clear() step in the config hook — if it were
+    // accidentally removed, agents from earlier config deliveries would leak
+    // and produce phantom fallback routes.
+    const advClient = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+    });
+    const hooks = await makeHooks(advClient);
+    // First delivery: agent "adv" has a chain
+    await callConfig(hooks, {
+      agent: { adv: { options: { fallback_models: ["x/y"] } } },
+    });
+    // Second delivery: only agent "scout" — "adv" must be removed
+    await callConfig(hooks, {
+      agent: { scout: { options: { fallback_models: ["a/b"] } } },
+    });
+    // Event for agent "adv" must NOT trigger fallback (chain removed)
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+    expect(advClient.callsTo("session.abort").length).toBe(0);
+    expect(advClient.callsTo("session.prompt").length).toBe(0);
   });
 });

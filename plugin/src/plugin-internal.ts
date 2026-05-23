@@ -3,10 +3,12 @@
 // Wires the hooks:
 //   - chat.message: preemptive skip + TTFT arm
 //   - event: session.error / session.status retry / session.idle / token arrival
+//   - config: receives merged OpenCode Config; rebuilds chains in-place
 //
 // Per-process state is held in a closure (FallbackStore + chains map + TTFT
-// registry). On each chat.message round, the chain map is rebuilt from the
-// current config — cheap and keeps reloads simple.
+// registry). The chains map is populated by the `config` hook (fires once
+// after plugin init and may re-fire on config reload) — see createPluginHooks
+// for the ordering guarantee against OpenCode's bus.subscribeAll().
 
 import { loadFallbackChains } from "./config/loader.ts";
 import {
