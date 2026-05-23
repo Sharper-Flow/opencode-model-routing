@@ -1,0 +1,553 @@
+{
+  "id": "addOmrOrphanMessageLogging",
+  "title": "Add OMR orphan message logging",
+  "status": "archived",
+  "created_at": "2026-05-23T22:20:50.273Z",
+  "tasks": [
+    {
+      "id": "tk-42d5085ded79",
+      "title": "Add findOrphanCandidate helper + wire orphan_message_id into fallback.success log (TDD)",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T22:25:11.324Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5"
+        ]
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T22:26:06.062Z",
+      "verification": "RED: 3 of 6 new tests failed (orphan-present, multiple-orphans-latest-wins, malformed-array-still-finds-orphan). 3 baseline tests already passed (field already omitted everywhere). GREEN: added findOrphanCandidate helper in orchestrator.ts with defensive isRecord/typeof narrowing + try/catch graceful degrade; supports both flat and nested OpenCode message shapes; walks AFTER lastUserMessageID, latest empty-parts assistant wins. Wired into attemptFallback: orphan captured BEFORE abort to use pre-revert array snapshot; conditionally attached to fallback.success log payload only when defined. Full suite 123/123 pass (was 117 + 6 new). tsc clean. All ACs covered.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/replay/orchestrator.ts",
+        "plugin/test/orchestrator.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/replay/orchestrator.ts",
+        "plugin/test/orchestrator.test.ts"
+      ],
+      "checkpointSha": "16d75489c54bcd2ba04075b3d1c1a48595925cc7",
+      "completedAt": "2026-05-23T22:27:56.971Z",
+      "completed_at": "2026-05-23T22:27:56.971Z"
+    },
+    {
+      "id": "tk-4b252bf0be8c",
+      "title": "Build + deploy via make deploy-local + verify dist sync",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T22:25:26.695Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-42d5085ded79"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC8"
+        ],
+        "not_applicable_reason": "Build/deploy task; no TDD applicable. Verification is dist file equality + grep + deploy script success."
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T22:28:04.701Z",
+      "verification": "make deploy-local: bun typecheck pass, tsup build success, deploy script reported runtime bundle verified + deployed plugin + plugin registered. diff -q on dist/index.js between worktree and ~/.local/share/opencode-model-routing/plugin/dist/ clean (empty output). 3 grep hits for orphan_message_id/findOrphanCandidate in deployed bundle confirm new code shipped. AC8 satisfied. User must restart OpenCode session to load new bundle.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "16d75489c54bcd2ba04075b3d1c1a48595925cc7",
+      "completedAt": "2026-05-23T22:28:26.346Z",
+      "completed_at": "2026-05-23T22:28:26.346Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:24:33.912Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved via 'approve' to Tier A inline proposal sign-off.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/proposal.md",
+        "content_hash": "7ecdf72b81d93ade0a07c73d08589f4674f91b13790240b3d05041a3b99db6ac",
+        "non_whitespace_chars": 1657,
+        "checked_at": "2026-05-23T22:24:33.970Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:24:48.405Z",
+      "completed_by": "agent",
+      "approval_evidence": "Discovery completed inline across prior turns: (1) verified session.revert is soft via OpenCode source packages/opencode/src/session/revert.ts:40-87; (2) verified SDK has no message.delete/update via full surface grep on @opencode-ai/sdk@1.15.5/dist/gen/sdk.gen.d.ts; (3) verified OMR's attemptFallback already fetches messages array at orchestrator.ts:125-127, so no new SDK calls needed. All assumptions evidence-backed before agreement signed.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/agreement.md",
+        "content_hash": "d34f0608c1d4b154edfebecab780c62dc7d5125bd7256721bf624feed658ebf7",
+        "non_whitespace_chars": 2047,
+        "checked_at": "2026-05-23T22:24:48.466Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:24:54.010Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design validator-spawn skipped: pure-additive 30-LOC log enrichment, zero architectural risk, no new SDK calls, no new dependencies, no spec deltas. Per Sub-Agent Resilience guidance, inline validation is acceptable when scope is bounded and assumptions are evidence-backed. All 5 design decisions traced to verified findings in discovery notes: (1) helper function uses existing fetched array (no new SDK), (2) try/catch graceful degrade, (3) field optional/additive on log payload, (4) compute pre-abort to capture snapshot before revert visibility change, (5) defensive isRecord+typeof narrowing.",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/design.md",
+        "content_hash": "b406a207e38ddd8f0595189df3563ad8ff52370579ded8d54485c0b5894b7e78",
+        "non_whitespace_chars": 3963,
+        "checked_at": "2026-05-23T22:24:54.065Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:26:04.500Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved planning via 'approve' to Tier A prep checkpoint."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:28:33.348Z",
+      "completed_by": "agent",
+      "approval_evidence": "All tasks done. 123/123 plugin tests pass, tsc clean, build success, deployed dist synced. Validate passed (NO_DELTAS warning expected for pure log-enrichment change)."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T22:50:50.558Z",
+      "completed_by": "user",
+      "approval_evidence": "User replied 'accept' to Tier A inline acceptance prompt. Contract review matrix: 19/19 rows pass/respected, 0 failures.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/acceptance.md",
+        "content_hash": "b1a8bd1584f7dc63e345e8487d48338fe3944625a1259a05087feade951e8189",
+        "non_whitespace_chars": 4823,
+        "checked_at": "2026-05-23T22:50:50.741Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "fast_follow_of": {
+    "parent_change_id": "fixOmrConfigHookChainLoading",
+    "linked_at": "2026-05-23T22:20:50.268Z"
+  },
+  "origin": {
+    "kind": "discovery",
+    "source_artifact": "superseded-addOmrCapAwareCooldown"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+      "approvedAt": "2026-05-23T22:24:48.405Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`fallback.success` log event includes `orphanMessageId: string` field (camelCase per codebase convention) when the messages-after-lastUser walk identifies an assistant message with empty parts.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "`orphanMessageId` field is omitted (not set to `null`, not `undefined`, not empty string) when no orphan is detected.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "`orphanMessageId` field is omitted when the orphan-find logic throws — the catch must not block the fallback dispatch.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "The orphan-find logic walks messages with index > lastUser-index, filters to `role === \"assistant\"` with `parts.length === 0`, picks the most-recent (highest index).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "Existing `fallback.success` fields (`sessionId`, `from`, `to`, `reason`, `depth`) unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "New test fixtures cover: orphan present (flat shape), nested OpenCode shape `{info: {id, role}, parts}`, no orphan (LLM completed normally), assistant message with parts (not an orphan), malformed messages array, assistant-before-user (no false match), empty messages array.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "All existing tests pass.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "Plugin rebuilt + deployed dist synced via `make deploy-local`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Do NOT add any new SDK calls — only filter the already-fetched messages array.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Do NOT call `client.session.revert` with a different messageID than current — revert behavior unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Do NOT modify the orphan rows (no delete attempt; SDK doesn't expose).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Do NOT block fallback dispatch on orphan-find failure — graceful degrade via try/catch returning undefined.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Structural correctness (P33): orphan detection is type-narrowed against the messages array shape; falsy/missing fields handled defensively via shared `isRecord` from `plugin/src/utils/type-guards.ts`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Deleting orphan rows from OMR (SDK has no `message.delete`).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "Periodic `opencode-session-doctor` scheduling (operational).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Cooldown precision improvements (user decided wall-time/429 negligible).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "Tagging assistant messages at creation (SDK has no message-update API).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS5",
+        "kind": "out_of_scope",
+        "text": "Upstream PR for OpenCode `message.delete` exposure.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS6",
+        "kind": "out_of_scope",
+        "text": "Emitting `orphanMessageId` on failure paths (abort_failed, revert_failed, prompt_failed) — failure paths are rare; doctor's SQL finds orphans regardless of OMR log correlation; cost > benefit for current scope.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "7c2f157811b21e12fc96555ccd05859a7a9df100f7ee401741c6db04288f7cbd",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-05-23T22:39:19.954Z",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/orchestrator.test.ts:289 'orphan present → field in fallback.success' passes (camelCase orphanMessageId per remediation arch-2); helper found in orchestrator.ts via findOrphanCandidate"
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/orchestrator.test.ts:316 'no orphan' + 403 'assistant-before-user' + 424 'only-user' all assert orphanMessageId is undefined"
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/orchestrator.test.ts:346 malformed-array test → result.success === true confirms fallback flow not blocked; findOrphanCandidate try/catch returns undefined on throw"
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/orchestrator.test.ts:319 multiple-latest-wins verifies walk order; 397 assistant-before-user verifies sawLastUser flag boundary; defensive isRecord+typeof in orchestrator.ts findOrphanCandidate"
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "All pre-existing fallback.success tests still pass; payload built as Record<string, unknown> with existing keys (sessionId, from, to, reason, depth) untouched"
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "7 new test fixtures: orphan-present (flat), nested-shape ({info:{},parts:[]}), no-orphan, multiple-latest-wins, malformed-array, assistant-before-user, only-user. All in test/orchestrator.test.ts describe block 'orphan_message_id logging'"
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Full plugin suite 124/124 pass; was 117 + 7 new tests added by this change"
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "make deploy-local: tsup build success (24.21KB dist/index.js), deploy script verified + registered; 3 grep hits for orphanMessageId/findOrphanCandidate in deployed bundle"
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "git diff main..HEAD shows zero new client.session.* calls; orchestrator.ts already had session.messages fetch reused"
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "client.session.revert call unchanged (orchestrator.ts:148): same messageID, same options"
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No delete attempt added to OMR; SDK has no message.delete; cleanup remains operational via session-doctor"
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "test/orchestrator.test.ts:346 malformed-array test: result.success === true confirms fallback flow proceeds; try/catch around findOrphanCandidate body prevents block"
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "findOrphanCandidate uses shared isRecord from plugin/src/utils/type-guards.ts (arch-1 remediation) + explicit typeof checks for id/role + Array.isArray for parts"
+        },
+        {
+          "contractId": "OOS1",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: deleting orphan rows from OMR — SDK has no message.delete; respected"
+        },
+        {
+          "contractId": "OOS2",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: periodic session-doctor scheduling — operational; respected"
+        },
+        {
+          "contractId": "OOS3",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: cooldown precision improvements — user-decided separately; respected"
+        },
+        {
+          "contractId": "OOS4",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: tagging messages at creation — SDK has no message-update API; respected"
+        },
+        {
+          "contractId": "OOS5",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: upstream PR for OpenCode message.delete — deferred; respected"
+        },
+        {
+          "contractId": "OOS6",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "OOS: emit orphanMessageId on failure paths — added during review via deferred-suggestions rejection; failure paths rare, doctor SQL finds orphans regardless; respected"
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`fallback.success` log event includes `orphanMessageId: string` field (camelCase per codebase convention) when the messages-after-lastUser walk identifies an assistant message with empty parts.",
+    "`orphanMessageId` field is omitted (not set to `null`, not `undefined`, not empty string) when no orphan is detected.",
+    "`orphanMessageId` field is omitted when the orphan-find logic throws — the catch must not block the fallback dispatch.",
+    "The orphan-find logic walks messages with index > lastUser-index, filters to `role === \"assistant\"` with `parts.length === 0`, picks the most-recent (highest index).",
+    "Existing `fallback.success` fields (`sessionId`, `from`, `to`, `reason`, `depth`) unchanged.",
+    "New test fixtures cover: orphan present (flat shape), nested OpenCode shape `{info: {id, role}, parts}`, no orphan (LLM completed normally), assistant message with parts (not an orphan), malformed messages array, assistant-before-user (no false match), empty messages array.",
+    "All existing tests pass.",
+    "Plugin rebuilt + deployed dist synced via `make deploy-local`."
+  ],
+  "documents": {},
+  "artifacts": {
+    "proposal": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/proposal.md",
+      "updatedAt": "2026-05-23T22:21:45.330Z"
+    },
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/agreement.md",
+      "updatedAt": "2026-05-23T22:38:20.546Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/design.md",
+      "updatedAt": "2026-05-23T22:21:45.367Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/addOmrOrphanMessageLogging/executive-summary.md",
+      "updatedAt": "2026-05-23T22:39:34.591Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T22:50:50.558Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "worktree_auto_managed": true
+}
