@@ -1,0 +1,30 @@
+# Acceptance
+
+Reviewed at: 2026-05-23T20:37:09.488Z
+
+## Contract Review Matrix
+
+| ID | Kind | Requirement | Status | Evidence |
+|---|---|---|---|---|
+| AC1 | acceptance_criterion | `createPluginHooks` registers a `config` hook typed as `(input: Config) => Promise<void>` per `@opencode-ai/plugin` SDK. | pass | test/plugin.test.ts:468 'config hook is registered on returned hooks' passes; plugin-internal.ts createPluginHooks returns config callback typed (input: unknown) => Promise<void> |
+| AC2 | acceptance_criterion | The `config` hook calls `loadFallbackChains(cfg, logger)` and updates `ctx.chains` via in-place `.clear() + .set()` so handler closures see updates. | pass | test/plugin.test.ts:520 'config hook re-invocation updates chain in-place + new chain used' passes; verifies clear()+set() mutation preserves Map identity AND new chain is used |
+| AC3 | acceptance_criterion | `createPluginContext` no longer reads `opts.rawConfig`/`opts.config`; chains starts as empty Map and is populated by the `config` hook. | pass | grep confirms zero rawConfig references in plugin/ tree; createPluginContext signature only accepts {config?: Partial<PluginConfig>, logger?: Logger} |
+| AC4 | acceptance_criterion | `PluginInput` interface no longer declares `config?: unknown`; documented as matching OpenCode's actual shape `{client, project?, worktree?, directory?, experimental_workspace?, serverUrl?, $?}`. | pass | plugin-internal.ts:31 PluginInput interface contains only {client, directory?, worktree?} — config field removed; documented match with @opencode-ai/plugin@1.15.5 SDK shape |
+| AC5 | acceptance_criterion | New lifecycle test: `createPluginHooks(realShapeInput)` (no config) → `hooks.config(syntheticCfg)` with `agent.adv.options.fallback_models: [...]` → `hooks.event({event: sessionStatusRetryWithUsageMessage})` → asserts `client.session.abort` + `client.session.prompt` called with next model in chain. | pass | test/plugin.test.ts:473 'init → config → event triggers fallback with chain from cfg' passes with model-args assertion (providerID:anthropic, modelID:claude) |
+| AC6 | acceptance_criterion | New ordering-violation test: fire `hooks.event` BEFORE `hooks.config`; assert handler does not crash, no fallback fires, log records empty-chain skip; then call `hooks.config` + fire event again; assert fallback now fires. | pass | test/plugin.test.ts:490 'ordering violation: event before config' passes — no crash, no fallback, recovers after config |
+| AC7 | acceptance_criterion | Code comment at the `config` hook registration site documents the OpenCode ordering dependency with source link. | pass | 117/117 tests pass; ctxWithChain helper migrated to direct chain mutation; createRuntimeHooks helper invokes config hook for legacy test call sites |
+| AC8 | acceptance_criterion | All existing tests still pass. | pass | make deploy-local: bun typecheck pass, tsup build success (dist/index.js 23.92KB → latest also clean), 117/117 tests pass |
+| AC9 | acceptance_criterion | Plugin rebuilt + deployed dist synced via `make deploy-local`. | pass | make deploy-local reports 'runtime bundle verified', 'deployed plugin', 'plugin registered'; diff -q on dist/index.js clean |
+| C1 | constraint | Do NOT change `loadFallbackChains` function signature or internal logic (already correctly handles the Config shape, including AgentConfig.options field promotion). | respected | loadFallbackChains function signature unchanged: (cfg: ConfigShape | unknown, logger?: Logger) => LoaderResult |
+| C2 | constraint | Do NOT add a disk-read fallback unless the `config` hook proves insufficient — keep dependency surface narrow. | respected | No disk-read added; loadFallbackChains called only from createPluginHooks config callback |
+| C3 | constraint | Do NOT add lazy `client.config.get()` hydration in this change (deferred; document as future hardening option for multi-version support). | respected | No client.config.get() lazy hydration added (OOS6 deferred); fix uses only Hooks.config channel |
+| C4 | constraint | Chains map identity must remain stable across hook calls (mutate in-place via `.clear()` + `.set()`); references held by handler closures must continue to see updates. | respected | Map identity stability: config hook uses ctx.chains.clear() + ctx.chains.set() — verified by re-invocation test and Map identity test |
+| C5 | constraint | Structural correctness (P33) — define a typed Config shape consumed by the hook; do not infer config layout via heuristics. | respected | PluginInput / PluginHooks / SessionErrorData all typed structurally per OpenCode SDK shapes; no heuristic inference |
+| C6 | constraint | Do NOT modify OpenCode core / upstream — fix is plugin-side only. | respected | git diff main..HEAD shows zero changes outside plugin/ subtree; no OpenCode core files touched |
+| OOS1 | out_of_scope | Fixing OpenCode upstream PluginInput type to include config. | not_applicable | Out-of-scope: no OpenCode upstream PluginInput type fix attempted |
+| OOS2 | out_of_scope | The classifier / pattern / action.reason work (already shipped in parent `fixOmrUsageCapFallbackGap`). | not_applicable | Out-of-scope: classifier work shipped in parent fixOmrUsageCapFallbackGap |
+| OOS3 | out_of_scope | Adding new config-driven features (e.g., per-agent dedup window override). | not_applicable | Out-of-scope: no new config-driven features added |
+| OOS4 | out_of_scope | Multi-tier config merging beyond what OpenCode already does before delivering to the hook. | not_applicable | Out-of-scope: no multi-tier config merging added beyond what OpenCode delivers |
+| OOS5 | out_of_scope | Hot-reload of config changes (OpenCode-side behavior). | not_applicable | Out-of-scope: hot-reload not implemented (OpenCode-side behavior) |
+| OOS6 | out_of_scope | Lazy `client.config.get()` hydration defense-in-depth (validator-flagged future option; deferred). | not_applicable | Out-of-scope: lazy client.config.get() hydration deferred to future change if multi-version support becomes a concern |
+

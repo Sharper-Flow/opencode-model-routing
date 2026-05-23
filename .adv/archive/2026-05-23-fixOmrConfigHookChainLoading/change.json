@@ -1,0 +1,585 @@
+{
+  "id": "fixOmrConfigHookChainLoading",
+  "title": "Fix OMR config hook chain loading",
+  "status": "archived",
+  "created_at": "2026-05-23T19:43:08.182Z",
+  "tasks": [
+    {
+      "id": "tk-c89a60c5a0e6",
+      "title": "Register Hooks.config + strip dead opts.config reads (TDD)",
+      "type": "code",
+      "section": "Implementation",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T20:10:58.228Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6"
+        ]
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T20:13:25.502Z",
+      "verification": "RED: 5 new lifecycle/ordering tests failed because (a) hooks.config not registered, (b) chains map empty after init. GREEN: (1) corrected PluginInput interface to drop bogus `config?` field — matches real OpenCode SDK shape; (2) added `config?` to PluginHooks interface; (3) stripped `opts.rawConfig`/`opts.config` reads from createPluginContext (always undefined in production); chains starts as empty Map; (4) registered Hooks.config callback in createPluginHooks — calls loadFallbackChains(cfg, logger) and updates ctx.chains via .clear() + .set() (preserves Map identity for handler closures); emits info log \"config.loaded\" with agentCount; (5) added 11-line code comment at hook registration site documenting OpenCode ordering dependency with source link to packages/opencode/src/plugin/index.ts:217-237 @ 7fe7b9f. Migration: ctxWithChain helper rewritten to mutate ctx.chains directly (equivalent end state); createRuntimeHooks helper now invokes pluginModule.server then calls hooks.config(config) to deliver synthetic config (matches real lifecycle). 116/116 tests pass (was 23 before new tests added; 5 new lifecycle tests now green). tsc clean. Critical evidence in test output: `fallback.success` events fire with `to:\"anthropic/claude\"` reason=\"quota_exhausted\" — end-to-end fix verified.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "bda4bd88003f8bdbee7c635f7ae81f25e3f9ab8a",
+      "completedAt": "2026-05-23T20:16:38.167Z",
+      "completed_at": "2026-05-23T20:16:38.167Z"
+    },
+    {
+      "id": "tk-b2e0c4082fae",
+      "title": "Build + deploy via canonical make deploy-local + verify dist sync",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T20:11:10.000Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-c89a60c5a0e6"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC8",
+          "AC9"
+        ],
+        "not_applicable_reason": "Build/deploy task; no TDD applicable. Verification is dist file equality + deploy script success."
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T20:16:44.078Z",
+      "verification": "make deploy-local: bun typecheck pass, tsup build success (dist/index.js 23.92KB), deploy script reported runtime bundle verified + deployed plugin + plugin registered. diff -q on dist/index.js between worktree and ~/.local/share/opencode-model-routing/plugin/dist/ returns empty (identical). 4 grep hits for \"config.loaded\" / \"config: async\" / \"loadFallbackChains\" in deployed bundle confirm new code shipped. AC8 + AC9 satisfied. User must restart OpenCode session to load new bundle.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "bda4bd88003f8bdbee7c635f7ae81f25e3f9ab8a",
+      "completedAt": "2026-05-23T20:17:06.340Z",
+      "completed_at": "2026-05-23T20:17:06.340Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:04:52.849Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved via 'approve' to Tier A inline proposal sign-off.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/proposal.md",
+        "content_hash": "7742e7f9bc75209e3083538afa9a256899143b416681fe55821b893127696e64",
+        "non_whitespace_chars": 844,
+        "checked_at": "2026-05-23T20:04:52.936Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:10:31.405Z",
+      "completed_by": "agent",
+      "approval_evidence": "Validated via OpenCode source ordering proof + Hooks.config signature + AgentConfig normalize() options-promotion. Validator: APPROVE + 1 concern (undocumented ordering) absorbed into AC5 + design comment.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/agreement.md",
+        "content_hash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "non_whitespace_chars": 2967,
+        "checked_at": "2026-05-23T20:10:31.465Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:10:34.373Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design validated by adv-researcher: APPROVE. Concern absorbed: ordering-violation regression test + in-code comment with source link. Lazy client.config.get() hardening explicitly deferred as future-option OOS6.",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/design.md",
+        "content_hash": "a33f70ecaf67ad1028699cf5dae979a6aab1391ef6de6bf05d9b301b901713bd",
+        "non_whitespace_chars": 6112,
+        "checked_at": "2026-05-23T20:10:34.408Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:13:18.133Z",
+      "completed_by": "agent",
+      "approval_evidence": "User invoked /adv-apply fixOmrConfigHookChainLoading — command-as-approval per rq-inlineApproval01.7."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:17:24.606Z",
+      "completed_by": "agent",
+      "approval_evidence": "All tasks done. Final loop: 116/116 plugin tests, Go tests pass (cmd/omr + internal/config + internal/tui), tsc clean, build success, deployed dist synced via make deploy-local. Critical evidence: fallback.success events firing end-to-end in test output (was silent before this change)."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T20:46:01.761Z",
+      "completed_by": "user",
+      "approval_evidence": "User replied 'accept' to Tier A inline acceptance prompt. Contract review matrix: 21/21 rows pass/respected, 0 failures.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/acceptance.md",
+        "content_hash": "a09f3bbad201f9bba8e1b8d4151f5e4474bf81c82e258b2a0a956daa89ab911a",
+        "non_whitespace_chars": 5220,
+        "checked_at": "2026-05-23T20:46:01.886Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "fast_follow_of": {
+    "parent_change_id": "fixOmrUsageCapFallbackGap",
+    "linked_at": "2026-05-23T19:43:08.151Z"
+  },
+  "origin": {
+    "kind": "discovery",
+    "source_artifact": "post-archive-finding-fixOmrUsageCapFallbackGap"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+      "approvedAt": "2026-05-23T20:10:24.228Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`createPluginHooks` registers a `config` hook typed as `(input: Config) => Promise<void>` per `@opencode-ai/plugin` SDK.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "The `config` hook calls `loadFallbackChains(cfg, logger)` and updates `ctx.chains` via in-place `.clear() + .set()` so handler closures see updates.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "`createPluginContext` no longer reads `opts.rawConfig`/`opts.config`; chains starts as empty Map and is populated by the `config` hook.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "`PluginInput` interface no longer declares `config?: unknown`; documented as matching OpenCode's actual shape `{client, project?, worktree?, directory?, experimental_workspace?, serverUrl?, $?}`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "New lifecycle test: `createPluginHooks(realShapeInput)` (no config) → `hooks.config(syntheticCfg)` with `agent.adv.options.fallback_models: [...]` → `hooks.event({event: sessionStatusRetryWithUsageMessage})` → asserts `client.session.abort` + `client.session.prompt` called with next model in chain.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "New ordering-violation test: fire `hooks.event` BEFORE `hooks.config`; assert handler does not crash, no fallback fires, log records empty-chain skip; then call `hooks.config` + fire event again; assert fallback now fires.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "Code comment at the `config` hook registration site documents the OpenCode ordering dependency with source link.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "All existing tests still pass.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC9",
+        "kind": "acceptance_criterion",
+        "text": "Plugin rebuilt + deployed dist synced via `make deploy-local`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Do NOT change `loadFallbackChains` function signature or internal logic (already correctly handles the Config shape, including AgentConfig.options field promotion).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Do NOT add a disk-read fallback unless the `config` hook proves insufficient — keep dependency surface narrow.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Do NOT add lazy `client.config.get()` hydration in this change (deferred; document as future hardening option for multi-version support).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Chains map identity must remain stable across hook calls (mutate in-place via `.clear()` + `.set()`); references held by handler closures must continue to see updates.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Structural correctness (P33) — define a typed Config shape consumed by the hook; do not infer config layout via heuristics.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "Do NOT modify OpenCode core / upstream — fix is plugin-side only.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Fixing OpenCode upstream PluginInput type to include config.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "The classifier / pattern / action.reason work (already shipped in parent `fixOmrUsageCapFallbackGap`).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Adding new config-driven features (e.g., per-agent dedup window override).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "Multi-tier config merging beyond what OpenCode already does before delivering to the hook.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS5",
+        "kind": "out_of_scope",
+        "text": "Hot-reload of config changes (OpenCode-side behavior).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS6",
+        "kind": "out_of_scope",
+        "text": "Lazy `client.config.get()` hydration defense-in-depth (validator-flagged future option; deferred).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "46ad4c25e24e78b8861dcce776e5ac07847377db1e8c8393f997bdbbe4eaa59c",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-05-23T20:37:09.488Z",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:468 'config hook is registered on returned hooks' passes; plugin-internal.ts createPluginHooks returns config callback typed (input: unknown) => Promise<void>"
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:520 'config hook re-invocation updates chain in-place + new chain used' passes; verifies clear()+set() mutation preserves Map identity AND new chain is used"
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "grep confirms zero rawConfig references in plugin/ tree; createPluginContext signature only accepts {config?: Partial<PluginConfig>, logger?: Logger}"
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin-internal.ts:31 PluginInput interface contains only {client, directory?, worktree?} — config field removed; documented match with @opencode-ai/plugin@1.15.5 SDK shape"
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:473 'init → config → event triggers fallback with chain from cfg' passes with model-args assertion (providerID:anthropic, modelID:claude)"
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "test/plugin.test.ts:490 'ordering violation: event before config' passes — no crash, no fallback, recovers after config"
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "117/117 tests pass; ctxWithChain helper migrated to direct chain mutation; createRuntimeHooks helper invokes config hook for legacy test call sites"
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "make deploy-local: bun typecheck pass, tsup build success (dist/index.js 23.92KB → latest also clean), 117/117 tests pass"
+        },
+        {
+          "contractId": "AC9",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "make deploy-local reports 'runtime bundle verified', 'deployed plugin', 'plugin registered'; diff -q on dist/index.js clean"
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "loadFallbackChains function signature unchanged: (cfg: ConfigShape | unknown, logger?: Logger) => LoaderResult"
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No disk-read added; loadFallbackChains called only from createPluginHooks config callback"
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No client.config.get() lazy hydration added (OOS6 deferred); fix uses only Hooks.config channel"
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Map identity stability: config hook uses ctx.chains.clear() + ctx.chains.set() — verified by re-invocation test and Map identity test"
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "PluginInput / PluginHooks / SessionErrorData all typed structurally per OpenCode SDK shapes; no heuristic inference"
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "git diff main..HEAD shows zero changes outside plugin/ subtree; no OpenCode core files touched"
+        },
+        {
+          "contractId": "OOS1",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no OpenCode upstream PluginInput type fix attempted"
+        },
+        {
+          "contractId": "OOS2",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: classifier work shipped in parent fixOmrUsageCapFallbackGap"
+        },
+        {
+          "contractId": "OOS3",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no new config-driven features added"
+        },
+        {
+          "contractId": "OOS4",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: no multi-tier config merging added beyond what OpenCode delivers"
+        },
+        {
+          "contractId": "OOS5",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: hot-reload not implemented (OpenCode-side behavior)"
+        },
+        {
+          "contractId": "OOS6",
+          "kind": "out_of_scope",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "Out-of-scope: lazy client.config.get() hydration deferred to future change if multi-version support becomes a concern"
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`createPluginHooks` registers a `config` hook typed as `(input: Config) => Promise<void>` per `@opencode-ai/plugin` SDK.",
+    "The `config` hook calls `loadFallbackChains(cfg, logger)` and updates `ctx.chains` via in-place `.clear() + .set()` so handler closures see updates.",
+    "`createPluginContext` no longer reads `opts.rawConfig`/`opts.config`; chains starts as empty Map and is populated by the `config` hook.",
+    "`PluginInput` interface no longer declares `config?: unknown`; documented as matching OpenCode's actual shape `{client, project?, worktree?, directory?, experimental_workspace?, serverUrl?, $?}`.",
+    "New lifecycle test: `createPluginHooks(realShapeInput)` (no config) → `hooks.config(syntheticCfg)` with `agent.adv.options.fallback_models: [...]` → `hooks.event({event: sessionStatusRetryWithUsageMessage})` → asserts `client.session.abort` + `client.session.prompt` called with next model in chain.",
+    "New ordering-violation test: fire `hooks.event` BEFORE `hooks.config`; assert handler does not crash, no fallback fires, log records empty-chain skip; then call `hooks.config` + fire event again; assert fallback now fires.",
+    "Code comment at the `config` hook registration site documents the OpenCode ordering dependency with source link.",
+    "All existing tests still pass.",
+    "Plugin rebuilt + deployed dist synced via `make deploy-local`."
+  ],
+  "documents": {},
+  "artifacts": {
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/agreement.md",
+      "updatedAt": "2026-05-23T20:10:17.181Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/design.md",
+      "updatedAt": "2026-05-23T20:10:17.208Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixOmrConfigHookChainLoading/executive-summary.md",
+      "updatedAt": "2026-05-23T20:37:31.738Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T20:46:01.761Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "worktree_auto_managed": true
+}
