@@ -138,7 +138,7 @@ describe("handleEvent — session.error", () => {
       type: "session.error",
       properties: {
         sessionID: "s1",
-        error: { statusCode: 429 },
+        error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
       },
     });
     // Orchestrator should have been called → at least messages + abort + revert + prompt.
@@ -194,7 +194,7 @@ describe("plugin event hook boundary", () => {
         type: "session.error",
         properties: {
           sessionID: "s1",
-          error: { statusCode: 429 },
+          error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
         },
       },
     });
@@ -218,7 +218,7 @@ describe("plugin event hook boundary", () => {
     await callRuntimeEvent(hooks, {
       event: {
         type: 7,
-        properties: { sessionID: "s1", error: { statusCode: 429 } },
+        properties: { sessionID: "s1", error: { name: "APIError", data: { statusCode: 429, isRetryable: false } } },
       },
     });
 
@@ -246,7 +246,7 @@ describe("handleEvent — session.status retry", () => {
       type: "session.status",
       properties: {
         sessionID: "s1",
-        status: { message: "Rate limit exceeded; retrying..." },
+        status: { type: "retry", message: "Rate limit exceeded; retrying..." },
       },
     });
     expect(client.callsTo("session.prompt").length).toBe(1);
@@ -259,10 +259,116 @@ describe("handleEvent — session.status retry", () => {
       type: "session.status",
       properties: {
         sessionID: "s1",
-        status: { message: "all is well" },
+        status: { type: "retry", message: "all is well" },
       },
     });
     expect(client.callsTo("session.abort").length).toBe(0);
+  });
+
+  // Structural action.reason path (P33: structural before heuristic). Reason
+  // is a typed field on session.status retry events — see
+  // packages/opencode/src/session/status.ts:8-30 + retry.ts:11.
+  describe("structural action.reason", () => {
+    test("account_rate_limit → fallback fires (rate_limit)", async () => {
+      const ctx = ctxWithChain(["a/one", "b/two"]);
+      ctx.store.sessions.get("s1").currentModel = "a/one";
+      const client = new MockClient({
+        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      });
+      await handleEvent(ctx, client, {
+        type: "session.status",
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            message: "any text — ignored when action.reason is present",
+            action: {
+              reason: "account_rate_limit",
+              provider: "opencode-go",
+              title: "Go limit reached",
+              message: "Usage limit reached.",
+              label: "open settings",
+            },
+          },
+        },
+      });
+      expect(client.callsTo("session.prompt").length).toBe(1);
+    });
+
+    test("free_tier_limit → fallback fires (quota_exhausted)", async () => {
+      const ctx = ctxWithChain(["a/one", "b/two"]);
+      ctx.store.sessions.get("s1").currentModel = "a/one";
+      const client = new MockClient({
+        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      });
+      await handleEvent(ctx, client, {
+        type: "session.status",
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            message: "any",
+            action: {
+              reason: "free_tier_limit",
+              provider: "opencode-go",
+              title: "Free limit reached",
+              message: "Subscribe to Go.",
+              label: "subscribe",
+            },
+          },
+        },
+      });
+      expect(client.callsTo("session.prompt").length).toBe(1);
+    });
+
+    test("unknown action.reason + matching usage-limit text → falls through to text pattern", async () => {
+      const ctx = ctxWithChain(["a/one", "b/two"]);
+      ctx.store.sessions.get("s1").currentModel = "a/one";
+      const client = new MockClient({
+        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      });
+      await handleEvent(ctx, client, {
+        type: "session.status",
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            message: "5 hour usage limit reached. It will reset in 5 hours 23 minutes.",
+            action: {
+              reason: "some_future_reason_not_yet_mapped",
+              provider: "x",
+              title: "t",
+              message: "m",
+              label: "l",
+            },
+          },
+        },
+      });
+      expect(client.callsTo("session.prompt").length).toBe(1);
+    });
+
+    test("unknown action.reason + non-matching text → no fallback", async () => {
+      const ctx = ctxWithChain(["a/one", "b/two"]);
+      const client = new MockClient({ messages: [] });
+      await handleEvent(ctx, client, {
+        type: "session.status",
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            message: "informational message",
+            action: {
+              reason: "some_future_reason",
+              provider: "x",
+              title: "t",
+              message: "m",
+              label: "l",
+            },
+          },
+        },
+      });
+      expect(client.callsTo("session.abort").length).toBe(0);
+    });
   });
 });
 

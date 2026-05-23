@@ -163,8 +163,34 @@ interface EventInputShape {
   properties?: {
     sessionID?: string;
     sessionId?: string;
-    error?: { providerID?: string; statusCode?: number; name?: string; message?: string };
-    status?: { message?: string };
+    // Real OpenCode session.error payload shape — see classifier.ts
+    // SessionErrorLike for the nested {name, data:{...}} contract.
+    error?: {
+      name?: string;
+      data?: {
+        providerID?: string;
+        message?: string;
+        statusCode?: number;
+        isRetryable?: boolean;
+        responseHeaders?: Record<string, string>;
+        responseBody?: string;
+        metadata?: Record<string, string>;
+      };
+    };
+    // session.status retry shape per packages/opencode/src/session/status.ts:8-30.
+    // action.reason is the typed structural signal (P33: prefer over message text).
+    status?: {
+      type?: "idle" | "busy" | "retry";
+      message?: string;
+      action?: {
+        reason?: string;
+        provider?: string;
+        title?: string;
+        message?: string;
+        label?: string;
+        link?: string;
+      };
+    };
     part?: { type?: string; text?: string };
   };
 }
@@ -184,13 +210,23 @@ function isEventInputShape(event: unknown): event is EventInputShape {
   if (props.error !== undefined) {
     if (!isRecord(props.error)) return false;
     const error = props.error;
-    if (!isOptionalString(error.providerID)) return false;
-    if (error.statusCode !== undefined && typeof error.statusCode !== "number") return false;
-    if (!isOptionalString(error.name) || !isOptionalString(error.message)) return false;
+    if (!isOptionalString(error.name)) return false;
+    if (error.data !== undefined && !isRecord(error.data)) return false;
   }
   if (props.status !== undefined) {
     if (!isRecord(props.status)) return false;
+    if (!isOptionalString(props.status.type)) return false;
     if (!isOptionalString(props.status.message)) return false;
+    if (props.status.action !== undefined) {
+      if (!isRecord(props.status.action)) return false;
+      const action = props.status.action as Record<string, unknown>;
+      if (!isOptionalString(action.reason)) return false;
+      if (!isOptionalString(action.provider)) return false;
+      if (!isOptionalString(action.title)) return false;
+      if (!isOptionalString(action.message)) return false;
+      if (!isOptionalString(action.label)) return false;
+      if (!isOptionalString(action.link)) return false;
+    }
   }
   if (props.part !== undefined) {
     if (!isRecord(props.part)) return false;
@@ -239,8 +275,20 @@ export async function handleEvent(
       return;
     }
     case "session.status": {
-      const text = props.status?.message ?? "";
-      const category = classifyRetryStatusText(text);
+      // Structural first (P33): typed action.reason on retry status events is
+      // an Effect Schema field; prefer it over lossy text-pattern matching.
+      // Mapping per packages/opencode/src/session/retry.ts RetryReason union.
+      const status = props.status;
+      let category: ReturnType<typeof classifyRetryStatusText> = null;
+      const reason = status?.action?.reason;
+      if (status?.type === "retry" && reason) {
+        if (reason === "account_rate_limit") category = "rate_limit";
+        else if (reason === "free_tier_limit") category = "quota_exhausted";
+        // Open-ended (string & {}) future reasons fall through to text scan.
+      }
+      if (!category) {
+        category = classifyRetryStatusText(status?.message);
+      }
       if (!category) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
