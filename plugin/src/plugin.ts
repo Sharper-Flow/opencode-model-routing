@@ -127,6 +127,16 @@ interface EventInputShape {
   };
 }
 
+interface EventHookInputShape {
+  event?: EventInputShape;
+}
+
+function normalizeEventInput(input: EventHookInputShape | undefined): EventInputShape | undefined {
+  // OpenCode's event hook passes `{ event }`; undefined registration probes
+  // are treated as no-op compatibility inputs.
+  return input?.event;
+}
+
 function hasStreamingTextContent(part: { type?: string; text?: string }): boolean {
   return part.type === "text" && typeof part.text === "string" && part.text.length > 0;
 }
@@ -210,25 +220,6 @@ export async function handleEvent(
 export default async function plugin(opts: PluginInput): Promise<PluginHooks> {
   const ctx = createPluginContext({ rawConfig: opts.config });
 
-  // OpenCode 1.15.9 compatibility note:
-  //
-  // When this plugin is loaded from a directory whose package.json `main`
-  // points at `src/plugin.ts` and that file imports sibling .ts modules using
-  // explicit `.ts` extensions, OpenCode 1.15.9's plugin loader silently
-  // corrupts iteration of OTHER plugins' `config` hooks. Symptom: claude-max
-  // (or any provider-mutating `config` hook) never runs, leaving
-  // `config.provider.<id>` unpopulated, and `Provider.list` throws at
-  // launch with "undefined is not an object (evaluating 'r.provider')".
-  //
-  // Repro: stripping src/plugin.ts to a no-import `return {};` makes the
-  // launch succeed; restoring sibling .ts imports breaks it again — even
-  // with the plugin body returning empty hooks.
-  //
-  // Fix path: rebuild this plugin to a single dist/ JS bundle (like
-  // @sharperflow/advance does) and point package.json `main` at the JS
-  // bundle. Until then, this plugin should be left out of opencode.jsonc
-  // plugin[] in environments running OpenCode 1.15.9.
-
   return {
     "chat.message": async (input: unknown, output: unknown) => {
       await handleChatMessage(
@@ -239,7 +230,7 @@ export default async function plugin(opts: PluginInput): Promise<PluginHooks> {
       );
     },
     event: async (input: unknown) => {
-      await handleEvent(ctx, opts.client, input as EventInputShape);
+      await handleEvent(ctx, opts.client, normalizeEventInput(input as EventHookInputShape | undefined));
     },
   };
 }

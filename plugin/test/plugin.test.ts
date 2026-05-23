@@ -5,6 +5,7 @@ import {
   handleChatMessage,
   handleEvent,
 } from "../src/plugin.ts";
+import plugin from "../src/plugin.ts";
 import type { ModelKey } from "../src/types.ts";
 import { MockClient } from "./helpers/mock-client.ts";
 
@@ -124,6 +125,43 @@ describe("handleEvent — session.error", () => {
     expect(client.callsTo("session.abort").length).toBe(1);
     expect(client.callsTo("session.prompt").length).toBe(1);
     expect(ctx.store.sessions.get("s1").currentModel).toBe("b/two");
+  });
+});
+
+describe("plugin event hook boundary", () => {
+  test("unwraps canonical OpenCode { event } payload before dispatch", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+    });
+    const hooks = await plugin({
+      client,
+      config: {
+        agent: {
+          scout: { options: { fallback_models: ["a/one", "b/two"] } },
+        },
+      },
+    });
+
+    await hooks.event?.({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "s1",
+          error: { statusCode: 429 },
+        },
+      },
+    });
+
+    expect(client.callsTo("session.prompt").length).toBe(1);
+  });
+
+  test("undefined event hook payload is a no-op", async () => {
+    const client = new MockClient();
+    const hooks = await plugin({ client, config: {} });
+
+    await hooks.event?.(undefined);
+
+    expect(client.callsTo("session.prompt").length).toBe(0);
   });
 });
 
