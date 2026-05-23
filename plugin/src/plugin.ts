@@ -5,11 +5,13 @@
 // bundled package entry must export only the V1 default object.
 
 import type { Plugin, PluginModule } from "@opencode-ai/plugin";
-import { createPluginHooks, type PluginInput } from "./plugin-internal.ts";
+import { createPluginHooks, isPluginInput } from "./plugin-internal.ts";
 
 const server = (async (input: unknown, _options?: unknown) => {
-  await Promise.resolve();
-  return createPluginHooks(input as PluginInput);
+  if (!isPluginInput(input)) {
+    throw new Error("opencode-model-routing plugin: invalid initialization input");
+  }
+  return createPluginHooks(input);
 }) as Plugin;
 
 // eslint-disable-next-line import/no-default-export

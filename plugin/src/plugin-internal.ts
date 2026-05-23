@@ -81,6 +81,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function hasFunction(record: Record<string, unknown>, key: string): boolean {
+  return typeof record[key] === "function";
+}
+
+export function isPluginInput(input: unknown): input is PluginInput {
+  if (!isRecord(input)) return false;
+  const client = input.client;
+  if (!isRecord(client)) return false;
+  if (!isRecord(client.session)) return false;
+  return ["messages", "abort", "revert", "prompt"].every((key) =>
+    hasFunction(client.session as Record<string, unknown>, key),
+  );
+}
+
 export function normalizeChatMessageInput(input: unknown): ChatMessageInputShape | undefined {
   if (!isRecord(input)) return undefined;
   const sessionID = typeof input.sessionID === "string" ? input.sessionID : undefined;
@@ -264,14 +278,10 @@ export async function handleEvent(
 }
 
 /**
- * createPluginHooks wires the plugin context into the hook signatures expected
- * by the OpenCode plugin runtime. The runtime entry point wraps this in a V1
- * PluginModule object.
- *
- * Wires the closure-held context into the hook signatures expected by the
- * plugin runtime. We accept `unknown` payloads and narrow inside the
- * handlers because the plugin types are not stable across versions per
- * agreement.
+ * createPluginHooks wires the closure-held context into the OpenCode hook
+ * signatures. The runtime entry point wraps this in a V1 PluginModule object,
+ * while hook payloads remain `unknown` and are narrowed inside handlers because
+ * plugin types are not stable across versions per agreement.
  */
 export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks> {
   const ctx = createPluginContext({ rawConfig: opts.config });
