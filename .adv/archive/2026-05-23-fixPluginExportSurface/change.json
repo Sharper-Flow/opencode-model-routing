@@ -1,0 +1,825 @@
+{
+  "id": "fixPluginExportSurface",
+  "title": "Fix plugin export surface",
+  "status": "archived",
+  "created_at": "2026-05-23T04:31:51.059Z",
+  "tasks": [
+    {
+      "id": "tk-cdac3728b507",
+      "title": "Add runtime export-surface contract test",
+      "type": "code",
+      "section": "Testing",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T04:46:29.295Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC5"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC5"
+        ],
+        "respects": [
+          "C5",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT3"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T04:48:12.630Z",
+      "verification": "RED evidence: `bun test test/package-contract.test.ts` fails on export-surface assertion. Received exports [\"createPluginContext\",\"default\",\"handleChatMessage\",\"handleEvent\"] instead of expected [\"default\"]. This is the intended failing contract for AC1/AC2/AC3/AC5 before runtime split.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added package runtime contract test that installs/builds plugin, imports dist/index.js, and asserts the runtime module exports only default V1 plugin object with id/server. RED evidence confirms current exports include createPluginContext, handleChatMessage, and handleEvent.",
+      "filesTouched": [
+        "plugin/test/package-contract.test.ts"
+      ],
+      "touched_files": [
+        "plugin/test/package-contract.test.ts"
+      ],
+      "checkpointSha": "f75c3a23dcec279e7662fcbb687068dc9789ef41",
+      "completedAt": "2026-05-23T04:49:52.179Z",
+      "completed_at": "2026-05-23T04:49:52.179Z",
+      "notes": "Added RED export-surface contract test. It fails against current dist because helper exports are visible beside default, proving the bug shape.",
+      "error_recovery": {
+        "last_error": "Initial test run failed because tsup was unavailable before installing plugin dependencies.",
+        "retry_count": 1,
+        "max_retries": 3,
+        "error_class": "ENVIRONMENTAL",
+        "next_strategy": "N/A — RED contract established",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "`bun run build` failed with `tsup: command not found`.",
+            "diagnosis": "Worktree plugin dependencies were not installed, so the test could not reach the intended export-shape assertion.",
+            "fix_tried": "Added `bun install --frozen-lockfile` step inside the export-surface test before invoking `bun run build`.",
+            "strategy_label": "install-before-build in contract test",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T04:49:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T04:50:04.490Z"
+    },
+    {
+      "id": "tk-68e271faad87",
+      "title": "Split plugin runtime entry from internals and adopt V1 module",
+      "type": "code",
+      "section": "Runtime",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T04:46:46.604Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-cdac3728b507"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC3"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6",
+          "C7",
+          "DONT1",
+          "DONT2",
+          "DONT3",
+          "DONT4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T04:50:55.576Z",
+      "verification": "GREEN: runtime entry split completed. `bun test test/package-contract.test.ts` passes, proving built dist exports only default V1 object {id, server}. `bun run typecheck` passes after test import migration. Runtime entry plugin.ts contains only default export; helpers moved to plugin-internal.ts.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Moved testable helper implementation into plugin/src/plugin-internal.ts. Replaced plugin/src/plugin.ts with a thin V1 PluginModule default export containing exactly id and server. Server accepts OpenCode V1 input/options shape and delegates to internal hook creation. Package contract test now passes and proves built dist exports only default with id/server.",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/plugin.ts",
+        "plugin/test/package-contract.test.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/plugin.ts",
+        "plugin/test/package-contract.test.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "495bdda29c7b5e4bac57fd06968121fcd4ba0829",
+      "completedAt": "2026-05-23T04:53:46.739Z",
+      "completed_at": "2026-05-23T04:53:46.739Z",
+      "notes": "Split runtime entry from internals and adopted V1 module shape.",
+      "error_recovery": {
+        "last_error": "Initial typecheck failed because V1 Plugin type did not match loose internal PluginHooks and tests still imported helpers from plugin.ts.",
+        "retry_count": 1,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — fixed",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "TypeScript errors: Plugin return type mismatch, unsafe PluginInput cast warning, stale plugin.test helper imports, and dist import typing.",
+            "diagnosis": "Runtime entry needed an explicit Plugin cast at boundary and tests needed migration to internal module / unknown runtime hook calls.",
+            "fix_tried": "Wrapped server with Plugin boundary cast, moved tests to plugin-internal.ts, added runtime hook call helpers, and used URL dynamic import for dist contract test.",
+            "strategy_label": "typed runtime/internal split",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T04:53:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T04:53:59.687Z"
+    },
+    {
+      "id": "tk-78e69a27ab91",
+      "title": "Update plugin behavior tests for internal/runtime split",
+      "type": "code",
+      "section": "Testing",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-23T04:47:02.993Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-68e271faad87"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC4",
+          "AC6"
+        ],
+        "verifies": [
+          "AC4",
+          "AC6"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "DONT4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T04:54:19.241Z",
+      "verification": "Behavior test migration verified. `bun test test/plugin.test.ts` passes (19 pass); `bun run typecheck` passes. No additional source changes after prior split checkpoint.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Updated plugin behavior tests to import helper functions from plugin-internal.ts and exercise the runtime V1 module through pluginModule.server. Added test helper wrappers for intentionally malformed unknown hook payloads so typecheck remains strict while preserving malformed-payload coverage.",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "495bdda29c7b5e4bac57fd06968121fcd4ba0829",
+      "completedAt": "2026-05-23T04:54:37.580Z",
+      "completed_at": "2026-05-23T04:54:37.580Z",
+      "notes": "Behavior tests migrated and verified after runtime/internal split.",
+      "error_recovery": {
+        "last_error": "",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "TRANSIENT",
+        "next_strategy": "N/A — verification passed",
+        "attempts": []
+      },
+      "updatedAt": "2026-05-23T04:54:46.268Z"
+    },
+    {
+      "id": "tk-6ecaa08576e6",
+      "title": "Run build, deploy, and live OpenCode proof",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-05-23T04:47:13.891Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-cdac3728b507"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-68e271faad87"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-78e69a27ab91"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC8",
+          "AC9"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6",
+          "C7",
+          "DONT1",
+          "DONT2",
+          "DONT3",
+          "DONT4",
+          "DONT5"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T04:55:03.760Z",
+      "verification": "Harden remediation: added structural PluginInput guard at V1 server boundary, removed no-op Promise.resolve microtick, and deduplicated createPluginHooks JSDoc. Verification passed: bun run typecheck, bun test test/plugin.test.ts test/package-contract.test.ts, make build-plugin, make test (92 plugin tests + Go tests), make lint, ./scripts/deploy-local.sh --dry-run.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/plugin.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/plugin.ts"
+      ],
+      "checkpointSha": "355fb6198d957726d75c27d9bedc52e3d5b78357",
+      "completedAt": "2026-05-23T05:07:55.723Z",
+      "completed_at": "2026-05-23T05:07:55.723Z",
+      "notes": "Build, deploy, and live OpenCode proof passed. OMR plugin remains enabled.",
+      "error_recovery": {
+        "last_error": "",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "TRANSIENT",
+        "next_strategy": "N/A — verification passed",
+        "attempts": []
+      },
+      "updatedAt": "2026-05-23T04:57:59.757Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [
+    {
+      "id": "ws-wGBTgy",
+      "type": "pattern",
+      "content": "For OpenCode plugins, runtime package entry should default-export a V1 PluginModule object `{ id, server }` and avoid named function exports. Legacy loader enumerates function-valued exports as plugins, so test seams must live in internal modules and export-surface tests should assert `Object.keys(dist) === ['default']`.",
+      "source_task": "tk-6ecaa08576e6",
+      "recorded_at": "2026-05-23T05:08:45.801Z"
+    }
+  ],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T04:38:20.348Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved proposal with explicit reply: approve. Problem confirmed: rebuilt OMR package still fails live OpenCode startup because runtime entry exposes helper function exports and triggers legacy export enumeration. Proceeding to discovery/agreement.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/proposal.md",
+        "content_hash": "1668a949eabade0f932cd13a5fb5446a7993eed2e3b91d45cd3b27ae74b2fcb2",
+        "non_whitespace_chars": 2997,
+        "checked_at": "2026-05-23T04:38:20.479Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "started_at": "2026-05-23T04:40:54.524Z",
+      "completed_at": "2026-05-23T04:41:10.964Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved agreement with explicit reply: approve. Contract minted with AC1-AC9, C1-C7, DONT1-DONT5. Discovery evidence: live opencode models failed when OMR plugin was enabled and recovered when disabled; deployed module exported helper functions; researcher confirmed OpenCode V1 object-shaped default bypasses legacy, while legacy treats function exports as plugins.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/agreement.md",
+        "content_hash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "non_whitespace_chars": 3011,
+        "checked_at": "2026-05-23T04:41:11.030Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T04:46:02.511Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design persisted. Independent validator verdict CONCERNS; all validator blockers integrated into design: mandatory source-level runtime/internal split, plugin.ts only export default, V1 object exactly {id, server}, server(input, options) two-arg signature, no tui/extras, export-surface assertions, plugin.test import migration. No user-value tradeoff or contract-compromise risk remains.",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/design.md",
+        "content_hash": "d9241739a80e00ad216ccc357fe0c1376032c7683099e78f5f2efcbe0b427ede",
+        "non_whitespace_chars": 4393,
+        "checked_at": "2026-05-23T04:46:02.710Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T04:47:56.709Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved prep task graph with explicit reply: approve. Four tasks cover export-surface contract test, runtime/internal split, behavior test migration, and full build/deploy/live OpenCode proof."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T04:58:20.579Z",
+      "completed_by": "agent",
+      "approval_evidence": "All 4 tasks completed. Verification passed: make build-plugin, make test (Go tests + 92 plugin tests), make lint, deploy-local --dry-run, make deploy-local, export inspection showing only default {id,server}, deploy-local --check, and live opencode models with OMR enabled. Strict validation passed with only NO_DELTAS warning."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T04:59:54.516Z",
+      "completed_by": "agent",
+      "approval_evidence": "User accepted acceptance report with explicit reply: accept. Acceptance verdict APPROVED; contract matrix 21/21 passed/respected; verification includes make build-plugin, make test, make lint, deploy-local dry-run, make deploy-local, deploy-local --check, built export inspection, and live opencode models with OMR enabled/no O.config or r.provider failures. Executive summary persisted.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/acceptance.md",
+        "content_hash": "496534f5621465ba04b8012238b73083f198a9516104471c5b9623345e298c6a",
+        "non_whitespace_chars": 5004,
+        "checked_at": "2026-05-23T04:59:54.799Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "origin": {
+    "kind": "triage",
+    "issue_number": 1,
+    "source_artifact": "post-archive-live-proof-fixPluginPackaging"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+      "approvedAt": "2026-05-23T04:41:03.078Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "Built runtime import of `plugin/dist/index.js` exposes exactly one module export: `default`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "`default` is an object-shaped OpenCode V1 plugin module with stable `id` and function-valued `server`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "No helper functions (`createPluginContext`, `handleChatMessage`, `handleEvent`, normalizers, or test seams) are exported from `plugin/dist/index.js`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "Existing plugin behavior remains covered through an internal/testable source module.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "Runtime export-surface test fails on the current multi-function export shape and passes after the fix.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "Existing plugin behavior tests pass after imports are updated to the internal module.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "`make build-plugin`, `make test`, `make lint`, and `./scripts/deploy-local.sh --dry-run` pass.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "Live proof passes with OMR enabled in `~/.config/opencode/opencode.jsonc`: fresh `opencode models` exits 0 and does not log `O.config` or `r.provider` startup failures.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC9",
+        "kind": "acceptance_criterion",
+        "text": "OMR remains enabled after live proof; if proof fails, OMR is re-disabled and failure evidence is preserved.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Do not remove OMP compatibility in this change.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Do not change user-facing fallback config schema (`agent.<name>.options.fallback_models`).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Do not rewrite fallback routing behavior, cooldown behavior, TTFT policy, or replay orchestration except for mechanical imports required by the export-surface fix.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Do not patch OpenCode core.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Keep the plugin `id` stable once chosen: `@sharper-flow/opencode-model-routing-plugin`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "Prefer structural source/package/export tests over heuristic log matching for correctness; log checks are live-proof evidence only.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C7",
+        "kind": "constraint",
+        "text": "Keep local deploy package-shaped and bundled; do not revert to raw TypeScript loading.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "DONT1",
+        "kind": "avoidance",
+        "text": "Do not leave function-valued helper exports on the runtime package entry.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT2",
+        "kind": "avoidance",
+        "text": "Do not make `default` a plugin function; that still triggers legacy fallback. It must be an object-shaped V1 module.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT3",
+        "kind": "avoidance",
+        "text": "Do not rely on tsup-specific export hiding without a source-level runtime/internal split unless proven structurally by tests.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT4",
+        "kind": "avoidance",
+        "text": "Do not leave OpenCode config broken if live proof fails.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT5",
+        "kind": "avoidance",
+        "text": "Do not proceed to OMP removal before this change passes live proof.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "076aa09afd7c506327807caab52e2a79582592ad53d09776e626ab4dd5819673",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Export-surface contract test imports built plugin/dist/index.js and asserts Object.keys(module) === [\"default\"]. `bun test test/package-contract.test.ts` and `make test` passed.",
+          "notes": "Built runtime exposes exactly one module export."
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Export-surface test asserts default object keys are exactly [\"id\",\"server\"], id is @sharper-flow/opencode-model-routing-plugin, and server is a function. Passed in package contract test.",
+          "notes": "Default is object-shaped V1 plugin module."
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Export-surface test asserts module keys exactly [\"default\"]. Built export inspection returned {keys:[\"default\"], defaultKeys:[\"id\",\"server\"]}.",
+          "notes": "No helper exports remain in runtime entry."
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "plugin.test imports createPluginContext/handleChatMessage/handleEvent from plugin-internal.ts and runtime tests through pluginModule.server. `bun test test/plugin.test.ts` passed 19 tests.",
+          "notes": "Behavior remains covered through internal/testable source module."
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "RED: package contract test failed on current multi-function export shape. GREEN: same test passed after runtime/internal split.",
+          "notes": "TDD evidence recorded in tk-cdac3728b507 and tk-68e271faad87."
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Existing plugin behavior tests passed: `bun test test/plugin.test.ts` 19 pass; full `make test` passed with 92 plugin tests.",
+          "notes": "Imports migrated to internal module."
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "`make build-plugin`, `make test`, `make lint`, and `./scripts/deploy-local.sh --dry-run` all passed.",
+          "notes": "Local verification matrix complete."
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "With OMR enabled in ~/.config/opencode/opencode.jsonc, fresh `opencode models` exited 0. Log /home/jon/.local/share/opencode/log/2026-05-23T045626.log loads file:///home/jon/.local/share/opencode-model-routing/plugin and contains no ERROR lines or O.config/r.provider failures.",
+          "notes": "Live proof passed."
+        },
+        {
+          "contractId": "AC9",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "OMR plugin path remains enabled in opencode.jsonc after live proof; deploy-local --check reports plugin registered.",
+          "notes": "No failure fallback required."
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "cmd/omp and build-omp were not touched; OMP compatibility unchanged.",
+          "notes": "OMP removal deferred."
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No changes to schema/fallback-schema.json or fallback_models config path; schema-contract-check passed in make lint.",
+          "notes": "Fallback config schema unchanged."
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Changes limited to runtime export surface, internal module split, and tests; no routing/cooldown/TTFT/replay logic rewrite beyond imports.",
+          "notes": "Core behavior preserved."
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No OpenCode core repository files patched; only this plugin repo and global config enablement for live proof.",
+          "notes": "Uses public plugin module shape."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "Runtime id is @sharper-flow/opencode-model-routing-plugin in plugin.ts and asserted by export-surface test.",
+          "notes": "Stable scoped id."
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Export-surface package test structurally checks module/object keys; logs used only for live proof absence of prior startup failures.",
+          "notes": "Structural correctness first."
+        },
+        {
+          "contractId": "C7",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "make deploy-local and deploy-local --dry-run verify bundled package-shaped runtime dist/index.js; package.json still points at dist/index.js.",
+          "notes": "No raw TypeScript loading regression."
+        },
+        {
+          "contractId": "DONT1",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Built runtime exports only default; helper functions moved to plugin-internal.ts and are not exported from dist/index.js.",
+          "notes": "No function-valued helper exports remain."
+        },
+        {
+          "contractId": "DONT2",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Default export is object-shaped {id, server}; export-surface test asserts typeof default is object and server is function.",
+          "notes": "Default is not a plugin function."
+        },
+        {
+          "contractId": "DONT3",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "Source-level split implemented; no tsup export hiding relied on. plugin.ts imports internals and only export default V1 object.",
+          "notes": "No bundler trick reliance."
+        },
+        {
+          "contractId": "DONT4",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Live proof passed; OMR remains enabled. No broken config left behind.",
+          "notes": "Config remains usable."
+        },
+        {
+          "contractId": "DONT5",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No OMP removal tasks or file changes were performed; OMP removal remains a follow-up after proof.",
+          "notes": "Removal now unblocked but not done here."
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "Built runtime import of `plugin/dist/index.js` exposes exactly one module export: `default`.",
+    "`default` is an object-shaped OpenCode V1 plugin module with stable `id` and function-valued `server`.",
+    "No helper functions (`createPluginContext`, `handleChatMessage`, `handleEvent`, normalizers, or test seams) are exported from `plugin/dist/index.js`.",
+    "Existing plugin behavior remains covered through an internal/testable source module.",
+    "Runtime export-surface test fails on the current multi-function export shape and passes after the fix.",
+    "Existing plugin behavior tests pass after imports are updated to the internal module.",
+    "`make build-plugin`, `make test`, `make lint`, and `./scripts/deploy-local.sh --dry-run` pass.",
+    "Live proof passes with OMR enabled in `~/.config/opencode/opencode.jsonc`: fresh `opencode models` exits 0 and does not log `O.config` or `r.provider` startup failures.",
+    "OMR remains enabled after live proof; if proof fails, OMR is re-disabled and failure evidence is preserved."
+  ],
+  "documents": {},
+  "artifacts": {
+    "proposal": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/proposal.md",
+      "updatedAt": "2026-05-23T05:10:02.089Z"
+    },
+    "problemStatement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/problem-statement.md",
+      "updatedAt": "2026-05-23T05:10:02.107Z"
+    },
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/agreement.md",
+      "updatedAt": "2026-05-23T05:10:02.123Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/design.md",
+      "updatedAt": "2026-05-23T05:10:02.140Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginExportSurface/executive-summary.md",
+      "updatedAt": "2026-05-23T05:10:02.165Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T05:08:45.801Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_MISSING_SUCCESS_CRITERIA",
+      "severity": "warning",
+      "message": "Success criteria are placeholder or empty. What measurable outcomes define done?",
+      "recorded_at": "2026-05-23T04:33:43.698Z"
+    }
+  ],
+  "worktree_auto_managed": true
+}

@@ -1,0 +1,1 @@
+OMR live startup still failed after bundling because the runtime package entry exported helper functions alongside a default plugin function. OpenCode 1.15.10 fell back to legacy export enumeration, treated named helpers as plugins, and broke startup with plugin config hook and provider initialization errors.

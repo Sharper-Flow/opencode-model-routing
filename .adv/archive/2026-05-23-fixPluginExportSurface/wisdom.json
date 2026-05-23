@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "id": "ws-wGBTgy",
+      "type": "pattern",
+      "content": "For OpenCode plugins, runtime package entry should default-export a V1 PluginModule object `{ id, server }` and avoid named function exports. Legacy loader enumerates function-valued exports as plugins, so test seams must live in internal modules and export-surface tests should assert `Object.keys(dist) === ['default']`.",
+      "source_task": "tk-6ecaa08576e6",
+      "recorded_at": "2026-05-23T05:08:45.801Z"
+    }
+  ],
+  "count": 1
+}
