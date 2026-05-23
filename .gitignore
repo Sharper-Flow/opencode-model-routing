@@ -1,4 +1,5 @@
 /omr
+/omp
 .adv/db/
 
 # Plugin (TypeScript)
