@@ -25,7 +25,9 @@ export const retryPatterns: Pattern[] = [
   // Quota exhaustion
   { re: /\bquota.*(exhaust|exceed)/, category: "quota_exhausted" },
   { re: /\binsufficient.+(credit|quota)/, category: "quota_exhausted" },
-  // OpenAI raw error code (no separator between insufficient + quota).
+  // OpenAI literal error code. The previous \binsufficient.+(credit|quota)
+  // pattern already matches the underscore/hyphen forms via .+, but the
+  // no-separator form 'insufficientquota' is only caught here.
   { re: /\binsufficient[_-]?quota\b/, category: "quota_exhausted" },
   // OpenCode Go / Zen / free-tier "Usage limit reached" wording — see
   // packages/opencode/src/session/retry.ts:106 + GO_UPSELL_MESSAGE:9.

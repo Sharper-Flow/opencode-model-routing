@@ -71,17 +71,32 @@ describe("classifySessionError", () => {
   // covered by the canonical statusCode/message paths above.
   describe("responseBody scan + provider-specific shapes", () => {
     test("APIError data.responseBody insufficient_quota JSON → quota_exhausted", () => {
+      // Use a non-matching `message` so this test exclusively exercises the
+      // responseBody scan fallback path (message scan must not short-circuit).
       expect(
         classifySessionError({
           name: "APIError",
           data: {
-            message: "Quota exceeded.",
+            message: "Request failed",
             isRetryable: false,
             responseBody:
               '{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}',
           },
         }),
       ).toBe("quota_exhausted");
+    });
+    test("APIError with non-matching message + non-matching responseBody → unknown", () => {
+      // Sad-path coverage for the responseBody scan fallthrough.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            message: "Request failed",
+            isRetryable: false,
+            responseBody: '{"status":"ok"}',
+          },
+        }),
+      ).toBe("unknown");
     });
     test("ProviderAuthError nested → auth_error (name precedence)", () => {
       expect(

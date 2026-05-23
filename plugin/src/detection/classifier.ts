@@ -9,6 +9,24 @@ import type { ErrorCategory } from "../types.ts";
 import { retryPatterns } from "./patterns.ts";
 
 /**
+ * Inner `data` block on a NamedError-shaped session.error payload. Mirrors
+ * the SDK union members' data fields — APIError exposes all of these;
+ * ProviderAuthError only `providerID` + `message`; others a subset. Kept
+ * permissive (all optional) so a single shape covers the union safely.
+ * Imported by plugin-internal.ts EventInputShape to keep the SDK contract
+ * defined in exactly one place.
+ */
+export interface SessionErrorData {
+  providerID?: string;
+  message?: string;
+  statusCode?: number;
+  isRetryable?: boolean;
+  responseHeaders?: Record<string, string>;
+  responseBody?: string;
+  metadata?: Record<string, string>;
+}
+
+/**
  * Real OpenCode `session.error.properties.error` payload shape. Variants in
  * the SDK union (ApiError, ProviderAuthError, MessageAbortedError,
  * MessageOutputLengthError, UnknownError, etc.) all share `{name, data:{...}}`
@@ -17,15 +35,7 @@ import { retryPatterns } from "./patterns.ts";
  */
 export interface SessionErrorLike {
   name?: string;
-  data?: {
-    providerID?: string;
-    message?: string;
-    statusCode?: number;
-    isRetryable?: boolean;
-    responseHeaders?: Record<string, string>;
-    responseBody?: string;
-    metadata?: Record<string, string>;
-  };
+  data?: SessionErrorData;
 }
 
 /**
@@ -62,9 +72,10 @@ export function classifySessionError(err: SessionErrorLike): ErrorCategory {
   // Final fallback: scan responseBody text through retryPatterns. Catches
   // OpenAI insufficient_quota JSON, GoUsageLimitError / FreeUsageLimitError
   // substrings, and other provider-specific error bodies that don't surface
-  // through the typed message field.
+  // through the typed message field. Defensive typeof check: shape narrowing
+  // only validates `data` is a Record, not that responseBody is a string.
   const body = data.responseBody;
-  if (body) {
+  if (typeof body === "string" && body.length > 0) {
     const bodyClass = classifyRetryStatusText(body);
     if (bodyClass) return bodyClass;
   }

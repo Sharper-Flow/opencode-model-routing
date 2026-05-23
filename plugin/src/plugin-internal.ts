@@ -9,7 +9,11 @@
 // current config — cheap and keeps reloads simple.
 
 import { loadFallbackChains } from "./config/loader.ts";
-import { classifyRetryStatusText, classifySessionError } from "./detection/classifier.ts";
+import {
+  classifyRetryStatusText,
+  classifySessionError,
+  type SessionErrorData,
+} from "./detection/classifier.ts";
 import { createLogger, type Logger } from "./logging/logger.ts";
 import { applyPreemptiveSkip } from "./preemptive.ts";
 import { attemptFallback, type OrchestratorClient } from "./replay/orchestrator.ts";
@@ -167,15 +171,7 @@ interface EventInputShape {
     // SessionErrorLike for the nested {name, data:{...}} contract.
     error?: {
       name?: string;
-      data?: {
-        providerID?: string;
-        message?: string;
-        statusCode?: number;
-        isRetryable?: boolean;
-        responseHeaders?: Record<string, string>;
-        responseBody?: string;
-        metadata?: Record<string, string>;
-      };
+      data?: SessionErrorData;
     };
     // session.status retry shape per packages/opencode/src/session/status.ts:8-30.
     // action.reason is the typed structural signal (P33: prefer over message text).

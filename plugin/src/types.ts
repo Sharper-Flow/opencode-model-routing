@@ -7,7 +7,8 @@
 export type ModelKey = `${string}/${string}`;
 
 // Categories of failure that can trigger a fallback rotation. Maps from
-// session.error payloads (statusCode + name) and session.status retry text
+// session.error payloads ({name, data:{statusCode, message, responseBody, ...}})
+// and session.status retry events (typed action.reason first, then text)
 // via plugin/src/detection/classifier.ts. `unknown` is the catch-all bucket.
 export type ErrorCategory =
   | "rate_limit"
