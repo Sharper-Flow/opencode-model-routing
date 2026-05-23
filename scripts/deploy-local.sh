@@ -134,7 +134,7 @@ patch_config_if_possible() {
 	fi
 
 	local backup tmp_json
-	backup="$GLOBAL_JSON.omp-backup.$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	backup="$GLOBAL_JSON.omr-backup.$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	tmp_json="$(mktemp)"
 	jsonc_to_json "$GLOBAL_JSON" >"$tmp_json"
 	jq --arg plugin "$PLUGIN_CONFIG_PATH" --arg dev "$SOURCE_PLUGIN_PATH" '

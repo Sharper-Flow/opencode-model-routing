@@ -19,7 +19,7 @@ const maxOpencodeBackups = 5
 // so a crash mid-write cannot corrupt the destination file.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".omp-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".omr-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmpName, path)
 }
 
-// writeBackup copies the file at path to <path>.omp-backup.<RFC3339-timestamp>
+// writeBackup copies the file at path to <path>.omr-backup.<RFC3339-timestamp>
 // before any destructive mutation. Returns nil silently when the source file
 // does not exist (fresh-install case — nothing to back up). Any other error
 // (read failure, write failure) is propagated so callers MUST handle it
@@ -63,7 +63,7 @@ func writeBackup(path string) error {
 	// RFC3339Nano keeps filenames human-readable while avoiding collisions when
 	// tests or scripts apply preferences multiple times in the same second.
 	stamp := time.Now().UTC().Format(time.RFC3339Nano)
-	backupPath := path + ".omp-backup." + stamp
+	backupPath := path + ".omr-backup." + stamp
 	if err := os.WriteFile(backupPath, data, 0600); err != nil {
 		return fmt.Errorf("writing backup %s: %w", backupPath, err)
 	}
@@ -76,7 +76,7 @@ func pruneBackups(path string, keep int) error {
 	}
 
 	dir := filepath.Dir(path)
-	prefix := filepath.Base(path) + ".omp-backup."
+	prefix := filepath.Base(path) + ".omr-backup."
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("reading backup directory: %w", err)

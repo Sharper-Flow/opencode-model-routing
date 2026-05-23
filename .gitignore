@@ -1,4 +1,3 @@
-/omp
 /omr
 .adv/db/
 
@@ -7,4 +6,4 @@ plugin/node_modules/
 plugin/dist/
 
 # Per-run backups created by ApplyPreferences
-*.omp-backup.*
+*.omr-backup.*

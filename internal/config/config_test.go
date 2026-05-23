@@ -1550,7 +1550,7 @@ func TestSavePreferences_SanitizesAdvProviders(t *testing.T) {
 
 // -- ApplyPreferences backup + atomic-write tests ----------------------------
 
-// findBackups returns the list of .omp-backup.* files in dir.
+// findBackups returns the list of .omr-backup.* files in dir.
 func findBackups(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -1559,14 +1559,14 @@ func findBackups(t *testing.T, dir string) []string {
 	}
 	var backups []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.Contains(e.Name(), ".omp-backup.") {
+		if !e.IsDir() && strings.Contains(e.Name(), ".omr-backup.") {
 			backups = append(backups, e.Name())
 		}
 	}
 	return backups
 }
 
-// findTempFiles returns the list of .omp-*.tmp files in dir (used to verify
+// findTempFiles returns the list of .omr-*.tmp files in dir (used to verify
 // atomic write cleanup).
 func findTempFiles(t *testing.T, dir string) []string {
 	t.Helper()
@@ -1576,7 +1576,7 @@ func findTempFiles(t *testing.T, dir string) []string {
 	}
 	var tmps []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), ".omp-") && strings.HasSuffix(e.Name(), ".tmp") {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), ".omr-") && strings.HasSuffix(e.Name(), ".tmp") {
 			tmps = append(tmps, e.Name())
 		}
 	}
@@ -1599,7 +1599,7 @@ func TestApplyPreferences_CreatesBackup(t *testing.T) {
 
 	backups := findBackups(t, dir)
 	if len(backups) == 0 {
-		t.Fatalf("expected at least one .omp-backup.* file, found none")
+		t.Fatalf("expected at least one .omr-backup.* file, found none")
 	}
 }
 
@@ -1668,7 +1668,7 @@ func TestApplyPreferences_AtomicWriteLeavesNoTempFile(t *testing.T) {
 
 	tmps := findTempFiles(t, dir)
 	if len(tmps) > 0 {
-		t.Errorf("expected no leftover .omp-*.tmp files, found: %v", tmps)
+		t.Errorf("expected no leftover .omr-*.tmp files, found: %v", tmps)
 	}
 }
 
@@ -1680,7 +1680,7 @@ func TestApplyPreferences_PrunesBackupsToMostRecentFive(t *testing.T) {
 
 	base := time.Now().Add(-10 * time.Hour)
 	for i := 0; i < 6; i++ {
-		name := filepath.Join(dir, "opencode.json.omp-backup.old-"+string(rune('0'+i)))
+		name := filepath.Join(dir, "opencode.json.omr-backup.old-"+string(rune('0'+i)))
 		mustWriteFile(t, name, []byte("old"), 0600)
 		mod := base.Add(time.Duration(i) * time.Hour)
 		if err := os.Chtimes(name, mod, mod); err != nil {
@@ -1700,7 +1700,7 @@ func TestApplyPreferences_PrunesBackupsToMostRecentFive(t *testing.T) {
 		t.Fatalf("backup count = %d (%v), want %d", len(backups), backups, maxOpencodeBackups)
 	}
 	for _, backup := range backups {
-		if backup == "opencode.json.omp-backup.old-0" || backup == "opencode.json.omp-backup.old-1" {
+		if backup == "opencode.json.omr-backup.old-0" || backup == "opencode.json.omr-backup.old-1" {
 			t.Fatalf("old backup %q should have been pruned; backups=%v", backup, backups)
 		}
 	}
