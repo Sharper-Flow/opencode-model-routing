@@ -1,0 +1,3 @@
+OpenCode 1.15.9 can fail startup when this plugin is loaded from raw TypeScript (`main: "src/plugin.ts"`) with sibling `.ts` imports. Once defensive hook guards allow the plugin to load successfully, OpenCode's plugin/provider initialization can leave downstream provider config hooks unrun, causing `provider.list` / `config.providers` bootstrap failure.
+
+Desired outcome: make plugin packaging and hook handling compatible with OpenCode 1.15.9 by shipping a bundled ESM JavaScript entry, preserving defensive guards for undefined hook inputs, updating local deploy/build contracts so the deployed plugin always has a valid runtime entry, and documenting compatibility/deploy expectations.

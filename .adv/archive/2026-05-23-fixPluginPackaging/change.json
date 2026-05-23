@@ -1,0 +1,1075 @@
+{
+  "id": "fixPluginPackaging",
+  "title": "Fix plugin packaging",
+  "status": "archived",
+  "created_at": "2026-05-23T02:20:09.081Z",
+  "tasks": [
+    {
+      "id": "tk-5d1132fc39e4",
+      "title": "Add bundled plugin package contract",
+      "type": "code",
+      "section": "Packaging",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T03:09:22.814Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC5"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC5"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT3",
+          "DONT4",
+          "DONT5",
+          "DONT6",
+          "DONT7",
+          "DONT8"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:12:28.364Z",
+      "verification": "RED: `bun test test/package-contract.test.ts` failed because package main was `src/plugin.ts`, types/exports/build/prepack were missing. GREEN: package metadata now points to bundled dist entry with types/exports; `bun test test/package-contract.test.ts` passes (3 pass); `bun run build` emits dist/index.js and dist/index.d.ts; `bun run typecheck` passes.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added tsup-based bundle configuration, changed plugin package runtime metadata to dist/index.js/dist/index.d.ts with exports for `.` and `./server`, moved OpenCode packages to devDependencies, added package lifecycle scripts and package contract tests, and updated bun.lock. Verified package contract test, build, and typecheck.",
+      "filesTouched": [
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/test/package-contract.test.ts",
+        "plugin/tsup.config.ts"
+      ],
+      "touched_files": [
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/test/package-contract.test.ts",
+        "plugin/tsup.config.ts"
+      ],
+      "checkpointSha": "c816b77336ff7d034caf88944a452ab92412c837",
+      "completedAt": "2026-05-23T03:14:59.880Z",
+      "completed_at": "2026-05-23T03:14:59.880Z",
+      "notes": "Completed bundled plugin package contract.",
+      "error_recovery": {
+        "last_error": "Initial RED package contract test failed because package main was src/plugin.ts and types/exports/build/prepack were missing.",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — red/green completed",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "Package contract absent: main=src/plugin.ts, no types/exports/build/prepack.",
+            "diagnosis": "Expected pre-fix RED; package metadata did not satisfy AC1/AC2/AC5.",
+            "fix_tried": "Added tsup config, dist package metadata, scripts, files contract, and lockfile update.",
+            "strategy_label": "red-green package contract",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T03:15:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T03:15:11.832Z"
+    },
+    {
+      "id": "tk-6c99b7eed4eb",
+      "title": "Fix OpenCode event hook boundary and guards",
+      "type": "code",
+      "section": "Runtime compatibility",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T03:09:35.576Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC6",
+          "AC7"
+        ],
+        "verifies": [
+          "AC6",
+          "AC7",
+          "AC8"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "DONT4",
+          "DONT5",
+          "DONT6",
+          "DONT8"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:15:31.994Z",
+      "verification": "RED: `bun test test/plugin.test.ts` failed because canonical `{ event }` payload did not dispatch (`session.prompt` calls expected 1, received 0). GREEN: added narrow OpenCode event hook boundary normalizer for `{ event }` plus undefined no-op, removed speculative runtime comment, and `bun test test/plugin.test.ts` passes (16 pass); `bun run typecheck` passes.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added wrapper-path test for default plugin event hook using canonical OpenCode `{ event }` payload, implemented narrow boundary normalization for event hooks, retained undefined no-op behavior, removed speculative loader workaround narrative from runtime source, and verified plugin tests/typecheck.",
+      "filesTouched": [
+        "plugin/src/plugin.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "8a690f257ff72d36f8636ebc6b60e5b43f226465",
+      "completedAt": "2026-05-23T03:16:46.212Z",
+      "completed_at": "2026-05-23T03:16:46.212Z",
+      "notes": "Completed OpenCode event hook boundary and guard task.",
+      "error_recovery": {
+        "last_error": "RED test showed wrapped `{ event }` payload did not dispatch; session.prompt remained at 0.",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — red/green completed",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "Canonical OpenCode event wrapper was passed directly to handleEvent, so event.type was undefined and handler no-oped.",
+            "diagnosis": "Default plugin event hook needed to unwrap `{ event }` before calling raw-event handler.",
+            "fix_tried": "Added normalizeEventInput for undefined and wrapped event payloads and updated hook boundary.",
+            "strategy_label": "boundary normalizer",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T03:17:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T03:16:58.837Z"
+    },
+    {
+      "id": "tk-5031ecb4d1c3",
+      "title": "Wire Makefile build-plugin to typecheck and bundle",
+      "type": "code",
+      "section": "Build pipeline",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-23T03:09:46.501Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d1132fc39e4"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC3"
+        ],
+        "verifies": [
+          "AC3",
+          "AC9"
+        ],
+        "respects": [
+          "C2",
+          "C5",
+          "C6",
+          "DONT3",
+          "DONT4",
+          "DONT5",
+          "DONT6",
+          "DONT7"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:17:11.930Z",
+      "verification": "RED: extended `scripts/test-makefile-targets.sh` failed because `make build-plugin` ran typecheck only and did not run `bun run build`. GREEN: `make build-plugin` now runs frozen install, typecheck, and build; Makefile contract script passes; `make build-plugin` succeeds and emits dist/index.js and dist/index.d.ts.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Extended Makefile contract test to require `make build-plugin` to run both typecheck and bundle build, then updated `build-plugin` target to run `bun install --frozen-lockfile && bun run typecheck && bun run build`. Verified contract script and full `make build-plugin`.",
+      "filesTouched": [
+        "Makefile",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "touched_files": [
+        "Makefile",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "checkpointSha": "abb6876719e1b7a7d02293a2f1ca56350d78a2d4",
+      "completedAt": "2026-05-23T03:18:17.237Z",
+      "completed_at": "2026-05-23T03:18:17.237Z",
+      "notes": "Completed Makefile build-plugin task.",
+      "error_recovery": {
+        "last_error": "RED contract script failed because build-plugin did not run `bun run build`.",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — red/green completed",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "`make build-plugin` dry-run lacked plugin bundle build command.",
+            "diagnosis": "Build target satisfied old typecheck-only behavior, not AC3 bundle-generation requirement.",
+            "fix_tried": "Added build requirement to contract test and updated Makefile build-plugin target.",
+            "strategy_label": "Makefile contract red-green",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T03:18:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T03:18:27.583Z"
+    },
+    {
+      "id": "tk-ff51b1990356",
+      "title": "Harden deploy-local around bundled runtime artifact",
+      "type": "code",
+      "section": "Deploy",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-05-23T03:09:59.493Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d1132fc39e4"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-5031ecb4d1c3"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC4",
+          "AC5"
+        ],
+        "verifies": [
+          "AC4",
+          "AC5",
+          "AC8"
+        ],
+        "respects": [
+          "C2",
+          "C3",
+          "C5",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT3",
+          "DONT4",
+          "DONT5",
+          "DONT7"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:18:52.115Z",
+      "verification": "RED: extended Makefile contract script failed because deploy-local did not verify dist/index.js. GREEN: deploy-local verifies dist/index.js/dist/index.d.ts and package metadata, deploys package-shaped runtime instead of raw source tree, missing-bundle dry-run fails, normal dry-run verifies bundle successfully, and contract script passes.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added deploy-local runtime bundle verification for dist JS/types and package metadata, changed deploy to write a package-shaped runtime tree (`package.json`, `dist/`, optional NOTICE) instead of rsyncing raw source, improved dry-run messaging, and extended Makefile contract tests. Verified missing-bundle failure and successful dry-run verification.",
+      "filesTouched": [
+        "scripts/deploy-local.sh",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "touched_files": [
+        "scripts/deploy-local.sh",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "checkpointSha": "b864d4a7e8b208bd51e05388e735cf77f7df0d84",
+      "completedAt": "2026-05-23T03:20:18.288Z",
+      "completed_at": "2026-05-23T03:20:18.288Z",
+      "notes": "Completed deploy-local hardening task.",
+      "error_recovery": {
+        "last_error": "RED contract script failed because deploy-local did not verify dist/index.js and still rsynced raw source tree.",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — red/green completed",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "Deploy script lacked bundled runtime verification and copied source tree wholesale.",
+            "diagnosis": "Deploy path could still install a raw or missing runtime entry, violating AC4/AC5.",
+            "fix_tried": "Added bundle/package metadata verification and package-shaped deploy copy.",
+            "strategy_label": "deploy contract hardening",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T03:20:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T03:20:31.614Z"
+    },
+    {
+      "id": "tk-dc14c13c9253",
+      "title": "Update README with fixed plugin build/deploy path",
+      "type": "code",
+      "section": "Documentation",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-05-23T03:10:09.222Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d1132fc39e4"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-ff51b1990356"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC10"
+        ],
+        "verifies": [
+          "AC10"
+        ],
+        "respects": [
+          "C2",
+          "C5",
+          "C6",
+          "DONT4",
+          "DONT7"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:20:44.679Z",
+      "verification": "Docs-only task. Updated README plugin section and Make target table to describe build-plugin as install+typecheck+build, deploy-local as package-shaped bundled runtime deploy, and restart requirement. Verified no workaround wording in README and Makefile contract checks still pass.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Updated README plugin documentation to describe bundled dist runtime, package-shaped deploy, `make build-plugin` build behavior, and OpenCode restart requirement. Avoided workaround-focused docs. Verified contract script and README search for workaround language.",
+      "filesTouched": [
+        "README.md"
+      ],
+      "touched_files": [
+        "README.md"
+      ],
+      "checkpointSha": "c04531a5854bf4515032fc807949a2dbfaa37156",
+      "completedAt": "2026-05-23T03:21:29.503Z",
+      "completed_at": "2026-05-23T03:21:29.503Z",
+      "notes": "Completed README fixed build/deploy path update.",
+      "error_recovery": {
+        "last_error": "",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "TRANSIENT",
+        "next_strategy": "N/A — docs task completed",
+        "attempts": []
+      },
+      "updatedAt": "2026-05-23T03:21:40.104Z"
+    },
+    {
+      "id": "tk-ab230e32f94e",
+      "title": "Run final packaging compatibility verification",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 5,
+      "created_at": "2026-05-23T03:10:21.086Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-5d1132fc39e4"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-6c99b7eed4eb"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-5031ecb4d1c3"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-ff51b1990356"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-dc14c13c9253"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "implements": [],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC8",
+          "AC9",
+          "AC10"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT3",
+          "DONT4",
+          "DONT5",
+          "DONT6",
+          "DONT7",
+          "DONT8"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T03:21:51.274Z",
+      "verification": "Harden remediation: added structural hook payload normalizers/tests, guarded TTFT callback rejection, checked rsync availability before deploy, and clarified README deploy docs. Verification passed: bun test (91 pass), bun run typecheck, bun run build, ./scripts/test-makefile-targets.sh, ./scripts/deploy-local.sh --dry-run, make lint, make test, make build-plugin. Targeted re-verification marked all applied harden fixes resolved.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "README.md",
+        "plugin/src/plugin.ts",
+        "plugin/test/plugin.test.ts",
+        "scripts/deploy-local.sh"
+      ],
+      "touched_files": [
+        "README.md",
+        "plugin/src/plugin.ts",
+        "plugin/test/plugin.test.ts",
+        "scripts/deploy-local.sh"
+      ],
+      "checkpointSha": "18ae05a64aaab7b2de92d80d5041bb928712595d",
+      "completedAt": "2026-05-23T04:15:47.810Z",
+      "completed_at": "2026-05-23T04:15:47.810Z",
+      "notes": "Completed final packaging compatibility verification.",
+      "error_recovery": {
+        "last_error": "",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "TRANSIENT",
+        "next_strategy": "N/A — verification passed",
+        "attempts": []
+      },
+      "updatedAt": "2026-05-23T03:23:11.096Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [
+    {
+      "id": "ws-crT2SB",
+      "type": "pattern",
+      "content": "For OpenCode plugin package fixes, make package metadata a tested contract: assert `main`, `types`, `exports['.']`, `exports['./server']`, and lifecycle scripts in Bun tests before changing package.json. This gives clean RED/GREEN evidence for packaging-only changes.",
+      "source_task": "tk-5d1132fc39e4",
+      "recorded_at": "2026-05-23T03:15:22.224Z"
+    },
+    {
+      "id": "ws--Fora8",
+      "type": "success",
+      "content": "Final packaging verification should include both positive and negative deploy paths: build/test/typecheck plus `deploy-local --dry-run` success and a temporary missing-bundle failure check. This proves deploy refuses broken runtime artifacts without mutating the real local-share plugin.",
+      "source_task": "tk-ab230e32f94e",
+      "recorded_at": "2026-05-23T03:23:22.955Z"
+    },
+    {
+      "id": "ws--v_xyx",
+      "type": "pattern",
+      "content": "Release hardening for plugin host boundaries should convert `unknown` hook payloads to typed handlers through small runtime validators, not direct casts. Keep malformed payloads as no-op compatibility inputs and add tests that exercise the default plugin hook wrapper, not only internal handlers.",
+      "source_task": "tk-ab230e32f94e",
+      "recorded_at": "2026-05-23T04:17:33.600Z"
+    }
+  ],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T02:28:22.832Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved proposal with explicit reply: approve",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/proposal.md",
+        "content_hash": "963213b2fccde9bc2c9e20adb86b8aa3171fb2c7aa60f9bb04545b8015736840",
+        "non_whitespace_chars": 7762,
+        "checked_at": "2026-05-23T02:28:22.913Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-05-23T02:56:33.849Z",
+      "completed_by": "agent",
+      "approval_evidence": "Discovery findings persisted. Agreement approved via user reply: approve. Contract minted with AC1-AC10, C1-C6, DONT1-DONT8.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/agreement.md",
+        "content_hash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "non_whitespace_chars": 3359,
+        "checked_at": "2026-05-23T02:56:33.988Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T03:08:28.357Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design persisted. Architecture: tsup-built ESM dist/index.js, package main/types/exports to dist, package-shaped deploy, narrow event wrapper normalization, structural package verification. Independent validator verdict VALIDATED; caution refinements integrated (narrow normalizer, tsup maintenance note, optional package validators).",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/design.md",
+        "content_hash": "e74f1f083879b67b6e016921bfa7d5a4ad0fa390e9a23e193cfccce318d06655",
+        "non_whitespace_chars": 8850,
+        "checked_at": "2026-05-23T03:08:28.425Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T03:12:06.299Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved prep plan via explicit reply: approve. Task graph has 6 tasks with contract refs covering AC1-AC10; strict validation passed with only NO_DELTAS warning."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T03:23:40.012Z",
+      "completed_by": "agent",
+      "approval_evidence": "All 6 planned tasks completed. Verification passed: bun test (88 pass), bun run typecheck, bun run build, scripts/test-makefile-targets.sh, make build-plugin, deploy-local dry-run, missing-bundle failure check, make test, make lint. Strict validation passed with only NO_DELTAS warning."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T03:40:14.695Z",
+      "completed_by": "agent",
+      "approval_evidence": "User invoked adv-harden workflow after acceptance prompt. Acceptance review verdict APPROVED; issue fixed (@types/bun pinned to 1.3.14); verification passed: bun test, bun run typecheck, ./scripts/test-makefile-targets.sh. Executive summary persisted. Contract review matrix has 24/24 passed/respected rows with 0 failing rows.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/acceptance.md",
+        "content_hash": "be0a66147a66e54d87d176721a014d1fc38ae50196ae7d1c4dadfba08ab6601c",
+        "non_whitespace_chars": 5675,
+        "checked_at": "2026-05-23T03:40:14.864Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "origin": {
+    "kind": "triage",
+    "issue_number": 1,
+    "source_artifact": "manual-triage"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+      "approvedAt": "2026-05-23T02:56:13.462Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`plugin/package.json` loads runtime from bundled JS (`dist/index.js`), not `src/plugin.ts`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "Package metadata includes `types` and `exports[\".\"]` / `exports[\"./server\"]` with `./dist/index.js` paths.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "`make build-plugin` generates bundle + declarations and fails on typecheck/build errors.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "`scripts/deploy-local.sh` refuses missing bundle and deploys valid bundled runtime shape.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "Package lifecycle supports local deploy and packed/git-installed usage; no runtime `node_modules` dependency if bundled.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "Defensive hook guards keep undefined `chat.message` and `event` probe inputs as no-op.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "If design confirms OpenCode event wrapper mismatch, handler supports canonical `{ event }` shape in this change.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "Tests cover hook guards, event wrapper behavior if included, package metadata/build invariant, and deploy missing-bundle failure.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC9",
+        "kind": "acceptance_criterion",
+        "text": "Verification passes: plugin tests, typecheck, relevant Make/deploy checks.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC10",
+        "kind": "acceptance_criterion",
+        "text": "README documents LBP fixed build/deploy/restart path; no workaround-focused section.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Preserve existing fallback routing behavior except for compatibility no-op guards and confirmed event wrapper compatibility.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Keep OpenCode 1.15.9 compatibility as primary target.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Use public OpenCode plugin/package surfaces; do not patch OpenCode core.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Keep `agent.<name>.options.fallback_models` schema unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Prefer structural packaging/build guarantees over workaround instructions or load-failure masking.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "Keep verification local and repeatable where possible.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "DONT1",
+        "kind": "avoidance",
+        "text": "Do not leave OpenCode loading this plugin through `src/plugin.ts` in runtime package metadata.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT2",
+        "kind": "avoidance",
+        "text": "Do not require runtime `node_modules/` in the local deployed plugin if dependencies are bundled.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT3",
+        "kind": "avoidance",
+        "text": "Do not silently deploy a package whose `main` points to a missing file.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT4",
+        "kind": "avoidance",
+        "text": "Do not mask plugin startup errors by letting plugin load fail as workaround.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT5",
+        "kind": "avoidance",
+        "text": "Do not expand into OpenCode upstream changes inside this repo.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT6",
+        "kind": "avoidance",
+        "text": "Do not rewrite fallback orchestration, cooldown behavior, TTFT behavior, model resolution semantics, or user-facing schema.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT7",
+        "kind": "avoidance",
+        "text": "Do not add workaround-focused README sections; document the fixed path instead.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT8",
+        "kind": "avoidance",
+        "text": "Do not add `session.deleted` / `session.compacted` lifecycle hygiene handlers in this change; carry as follow-up if still valuable.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a56512a2ed9ba6a4ff97061df904e0b4945c591597a5921306eecd0f2750e108",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin/package.json main is ./dist/index.js; package-contract test asserts not src/ or .ts; deploy verifies dist/index.js.",
+          "notes": "Runtime entry no longer points at src/plugin.ts."
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin/package.json types plus exports . and ./server point to ./dist/index.d.ts and ./dist/index.js; package-contract test covers these paths.",
+          "notes": "Exports use package-contained ./dist paths."
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Makefile build-plugin runs bun install --frozen-lockfile, bun run typecheck, bun run build; ./scripts/test-makefile-targets.sh passed.",
+          "notes": "Build fails on typecheck or bundle failure by command chaining."
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "scripts/deploy-local.sh verify_runtime_bundle checks dist/index.js and dist/index.d.ts before deploy; final verification included deploy dry-run success and missing-bundle dry-run failure.",
+          "notes": "Deploy copies package.json, optional NOTICE, and dist only."
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin/package.json has prepack build script, no runtime dependencies field, package files dist/NOTICE; deploy output is package-shaped runtime without node_modules.",
+          "notes": "Dev dependencies are not required by deployed bundled runtime."
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "plugin tests cover undefined chat.message input/output and undefined event input/hook payload as no-op; bun test passed 88 tests.",
+          "notes": "Defensive probe guards preserved."
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "plugin/src/plugin.ts normalizes canonical { event } payload before handleEvent; plugin test verifies wrapped session.error dispatch triggers fallback; bun test passed.",
+          "notes": "Design confirmed wrapper mismatch and implementation supports it."
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "plugin tests cover hook guards and event wrapper; package-contract test covers package metadata/build scripts; Makefile contract script covers deploy missing-bundle verification surface.",
+          "notes": "Deploy missing-bundle behavior also manually verified in final task."
+        },
+        {
+          "contractId": "AC9",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Verification passed: bun test (88 pass), bun run typecheck, bun run build, ./scripts/test-makefile-targets.sh, make build-plugin, deploy-local dry-run, missing-bundle failure, make test, make lint. After acceptance remediation: bun test, typecheck, test-makefile-targets passed.",
+          "notes": "No red verification remains."
+        },
+        {
+          "contractId": "AC10",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "README plugin section documents make build-plugin, make deploy-local, bundled package-shaped runtime, and OpenCode restart; search found no workaround-focused wording.",
+          "notes": "Docs describe fixed path, not workaround."
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Review found fallback behavior unchanged except hook boundary guards/event wrapper normalization; no fallback schema/orchestration rewrite.",
+          "notes": "Only compatibility boundary changed."
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "design_proof",
+          "evidence": "OpenCode 1.15.9 compatibility addressed by bundled ESM entry and canonical { event } wrapper support; tests lock probe no-op behavior.",
+          "notes": "Primary target retained."
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "All changes confined to this repo; no OpenCode core patch or upstream modifications; cross-repo review passed.",
+          "notes": "Uses public package/plugin surfaces."
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "agent.<name>.options.fallback_models schema unchanged; config loader/model routing semantics not rewritten.",
+          "notes": "User-facing schema preserved."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Package metadata tests, Makefile contract tests, deploy bundle validation, and package-shaped deploy provide structural guarantees.",
+          "notes": "No heuristic-only correctness path."
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Local repeatable checks passed: bun test, typecheck, build, Make/deploy contract checks, make test, make lint.",
+          "notes": "Verification remains local."
+        },
+        {
+          "contractId": "DONT1",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "plugin/package.json main is ./dist/index.js; deploy runtime entry is dist/index.js; package-contract test rejects src/.ts main.",
+          "notes": "Runtime package does not load src/plugin.ts."
+        },
+        {
+          "contractId": "DONT2",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No runtime dependencies field; deploy copies dist/package metadata only, not node_modules.",
+          "notes": "Bundled runtime avoids runtime node_modules requirement."
+        },
+        {
+          "contractId": "DONT3",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "deploy-local verify_runtime_bundle refuses missing dist/index.js/dist/index.d.ts before deploy; missing-bundle dry-run failed as expected.",
+          "notes": "No silent missing-main deploy."
+        },
+        {
+          "contractId": "DONT4",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Implementation fixes packaging/hook boundary directly; README avoids workaround language and does not rely on plugin load failure.",
+          "notes": "No plugin-fail workaround."
+        },
+        {
+          "contractId": "DONT5",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Cross-repo review passed; no upstream OpenCode files or patches touched.",
+          "notes": "Current repo only."
+        },
+        {
+          "contractId": "DONT6",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No rewrite to fallback orchestration, cooldown behavior, TTFT behavior, model resolution semantics, or schema; only package/hook compatibility changed.",
+          "notes": "Routing behavior preserved."
+        },
+        {
+          "contractId": "DONT7",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "README updated with fixed build/deploy/restart path; review found no workaround-focused section/wording.",
+          "notes": "Docs stay LBP-focused."
+        },
+        {
+          "contractId": "DONT8",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No session.deleted/session.compacted lifecycle handlers added.",
+          "notes": "Deferred scope honored."
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`plugin/package.json` loads runtime from bundled JS (`dist/index.js`), not `src/plugin.ts`.",
+    "Package metadata includes `types` and `exports[\".\"]` / `exports[\"./server\"]` with `./dist/index.js` paths.",
+    "`make build-plugin` generates bundle + declarations and fails on typecheck/build errors.",
+    "`scripts/deploy-local.sh` refuses missing bundle and deploys valid bundled runtime shape.",
+    "Package lifecycle supports local deploy and packed/git-installed usage; no runtime `node_modules` dependency if bundled.",
+    "Defensive hook guards keep undefined `chat.message` and `event` probe inputs as no-op.",
+    "If design confirms OpenCode event wrapper mismatch, handler supports canonical `{ event }` shape in this change.",
+    "Tests cover hook guards, event wrapper behavior if included, package metadata/build invariant, and deploy missing-bundle failure.",
+    "Verification passes: plugin tests, typecheck, relevant Make/deploy checks.",
+    "README documents LBP fixed build/deploy/restart path; no workaround-focused section."
+  ],
+  "documents": {},
+  "artifacts": {
+    "proposal": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/proposal.md",
+      "updatedAt": "2026-05-23T04:17:17.392Z"
+    },
+    "problemStatement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/problem-statement.md",
+      "updatedAt": "2026-05-23T04:17:17.429Z"
+    },
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/agreement.md",
+      "updatedAt": "2026-05-23T04:17:17.463Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/design.md",
+      "updatedAt": "2026-05-23T04:17:17.500Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/fixPluginPackaging/executive-summary.md",
+      "updatedAt": "2026-05-23T04:17:17.542Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T04:17:33.600Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_MISSING_SUCCESS_CRITERIA",
+      "severity": "warning",
+      "message": "Success criteria are placeholder or empty. What measurable outcomes define done?",
+      "recorded_at": "2026-05-23T02:22:14.639Z"
+    }
+  ],
+  "worktree_auto_managed": true
+}

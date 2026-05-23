@@ -1,0 +1,26 @@
+{
+  "entries": [
+    {
+      "id": "ws-crT2SB",
+      "type": "pattern",
+      "content": "For OpenCode plugin package fixes, make package metadata a tested contract: assert `main`, `types`, `exports['.']`, `exports['./server']`, and lifecycle scripts in Bun tests before changing package.json. This gives clean RED/GREEN evidence for packaging-only changes.",
+      "source_task": "tk-5d1132fc39e4",
+      "recorded_at": "2026-05-23T03:15:22.224Z"
+    },
+    {
+      "id": "ws--Fora8",
+      "type": "success",
+      "content": "Final packaging verification should include both positive and negative deploy paths: build/test/typecheck plus `deploy-local --dry-run` success and a temporary missing-bundle failure check. This proves deploy refuses broken runtime artifacts without mutating the real local-share plugin.",
+      "source_task": "tk-ab230e32f94e",
+      "recorded_at": "2026-05-23T03:23:22.955Z"
+    },
+    {
+      "id": "ws--v_xyx",
+      "type": "pattern",
+      "content": "Release hardening for plugin host boundaries should convert `unknown` hook payloads to typed handlers through small runtime validators, not direct casts. Keep malformed payloads as no-op compatibility inputs and add tests that exercise the default plugin hook wrapper, not only internal handlers.",
+      "source_task": "tk-ab230e32f94e",
+      "recorded_at": "2026-05-23T04:17:33.600Z"
+    }
+  ],
+  "count": 3
+}
