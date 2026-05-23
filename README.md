@@ -10,9 +10,6 @@ This repository ships two artifacts:
   provide ordered fallback, conservative TTFT timeout, and preemptive skip of
   known-unhealthy models.
 
-The old standalone OMP project is reference/source material only. OMR users do
-not need a standalone OMP install.
-
 ## Schema Contract
 
 The per-agent fallback chain lives at `agent.<name>.options.fallback_models`
@@ -67,7 +64,7 @@ fallback_models:
 `omr` treats `opencode.json` as sensitive because it can contain provider API
 keys and other credentials. Mutations write the file with owner-only
 permissions (`0600`). Before `ApplyPreferences` changes the file, it writes a
-timestamped backup beside it (`opencode.json.omp-backup.<timestamp>`); after a
+timestamped backup beside it (`opencode.json.omr-backup.<timestamp>`); after a
 successful apply, only the 5 most recent backups are retained.
 
 Before applying, the TUI shows a preview generated from the same pure
@@ -141,7 +138,6 @@ Once published to npm, it can be loaded by name:
 | Target | Action |
 |---|---|
 | `make build` | Builds the `omr` Go binary. |
-| `make build-omp` | Builds the legacy compatibility `omp` binary. |
 | `make build-plugin` | Installs plugin deps (frozen lockfile), typechecks, and builds `plugin/dist`. |
 | `make deploy-local` | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates or patches OpenCode config with `--fix`. |
 | `make install` | Installs `omr` to `~/.local/bin/`. Does NOT touch git hooks. |
@@ -150,7 +146,7 @@ Once published to npm, it can be loaded by name:
 | `make test-go` | Go tests only. |
 | `make test-plugin` | Plugin tests only (`bun test`). |
 | `make lint` | Go vet, schema-contract-check, plugin typecheck. |
-| `make clean` | Removes `omr`/`omp` binaries and `plugin/node_modules`, `plugin/dist`. |
+| `make clean` | Removes the `omr` binary and `plugin/node_modules`, `plugin/dist`. |
 
 ## License
 

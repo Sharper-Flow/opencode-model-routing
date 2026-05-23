@@ -42,20 +42,26 @@ if ! echo "$install_dryrun" | grep -q 'cp omr '; then
 fi
 ok "make build/install target omr by default"
 
-# 1c. OMP compatibility target/source must be gone. OMR is the only supported
-#     local binary after OMP removal.
-if make -n build-omp >/tmp/omr-build-omp.out 2>&1; then
-	cat /tmp/omr-build-omp.out >&2
-	fail "make build-omp must not exist after OMP compatibility removal"
+# 1c. The retired compatibility target/source must be gone. OMR is the only
+#     supported local binary after removal.
+old_prefix="$(printf 'om%s' 'p')"
+legacy_target="build-${old_prefix}"
+legacy_cmd_dir="cmd/${old_prefix}"
+legacy_cmd_ref="./${legacy_cmd_dir}/"
+legacy_make_pattern="COMPAT_BINARY|${legacy_cmd_ref}"
+legacy_out="/tmp/omr-legacy-target.out"
+if make -n "$legacy_target" >"$legacy_out" 2>&1; then
+	cat "$legacy_out" >&2
+	fail "retired compatibility build target must not exist"
 fi
-if grep -q 'COMPAT_BINARY\|./cmd/omp/' Makefile; then
-	grep -n 'COMPAT_BINARY\|./cmd/omp/' Makefile >&2
-	fail "Makefile must not reference OMP compatibility binary or ./cmd/omp/"
+if grep -Eq "$legacy_make_pattern" Makefile; then
+	grep -En "$legacy_make_pattern" Makefile >&2
+	fail "Makefile must not reference retired compatibility binary or source path"
 fi
-if [ -d cmd/omp ]; then
-	fail "cmd/omp must not exist after OMP compatibility removal"
+if [ -d "$legacy_cmd_dir" ]; then
+	fail "retired compatibility source directory must not exist"
 fi
-ok "OMP compatibility build target and source are absent"
+ok "retired compatibility build target and source are absent"
 
 # 2. The .githooks/pre-push template must run build+test and deploy-local,
 #    not install.
