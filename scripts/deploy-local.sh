@@ -166,6 +166,10 @@ deploy_plugin() {
 		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
 		return 0
 	fi
+	if ! command -v rsync >/dev/null 2>&1; then
+		echo "    ✗ rsync not found — install rsync to deploy bundled plugin runtime" >&2
+		return 1
+	fi
 	local tmp_path
 	tmp_path="$RUNTIME_PLUGIN_PATH.tmp.$$"
 	rm -rf "$tmp_path"

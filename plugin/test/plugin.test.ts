@@ -129,6 +129,32 @@ describe("handleEvent — session.error", () => {
 });
 
 describe("plugin event hook boundary", () => {
+  test("returns chat.message and event hook functions", async () => {
+    const hooks = await plugin({ client: new MockClient(), config: {} });
+
+    expect(typeof hooks["chat.message"]).toBe("function");
+    expect(typeof hooks.event).toBe("function");
+  });
+
+  test("malformed chat hook payload is a no-op", async () => {
+    const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
+    const hooks = await plugin({
+      client,
+      config: {
+        agent: {
+          scout: { options: { fallback_models: ["a/one", "b/two"] } },
+        },
+      },
+    });
+
+    await hooks["chat.message"]?.(
+      { sessionID: "s1" },
+      { message: { model: { providerID: 7, modelID: "one" } } },
+    );
+
+    expect(client.callsTo("session.messages").length).toBe(0);
+  });
+
   test("unwraps canonical OpenCode { event } payload before dispatch", async () => {
     const client = new MockClient({
       messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
@@ -153,6 +179,29 @@ describe("plugin event hook boundary", () => {
     });
 
     expect(client.callsTo("session.prompt").length).toBe(1);
+  });
+
+  test("malformed event wrapper payload is a no-op", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+    });
+    const hooks = await plugin({
+      client,
+      config: {
+        agent: {
+          scout: { options: { fallback_models: ["a/one", "b/two"] } },
+        },
+      },
+    });
+
+    await hooks.event?.({
+      event: {
+        type: 7,
+        properties: { sessionID: "s1", error: { statusCode: 429 } },
+      },
+    });
+
+    expect(client.callsTo("session.prompt").length).toBe(0);
   });
 
   test("undefined event hook payload is a no-op", async () => {

@@ -78,6 +78,31 @@ interface ChatMessageOutputShape {
   message: { model?: { providerID: string; modelID: string } };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizeChatMessageInput(input: unknown): ChatMessageInputShape | undefined {
+  if (!isRecord(input)) return undefined;
+  const sessionID = typeof input.sessionID === "string" ? input.sessionID : undefined;
+  const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+  if (!sessionID && !sessionId) return undefined;
+  return { sessionID, sessionId };
+}
+
+function isChatMessageOutputShape(output: unknown): output is ChatMessageOutputShape {
+  if (!isRecord(output)) return false;
+  if (!isRecord(output.message)) return false;
+  const model = output.message.model;
+  if (model === undefined) return true;
+  return isRecord(model) && typeof model.providerID === "string" && typeof model.modelID === "string";
+}
+
+function errorSummary(err: unknown): string {
+  if (err instanceof Error) return err.name || "Error";
+  return typeof err;
+}
+
 export async function handleChatMessage(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -104,15 +129,19 @@ export async function handleChatMessage(
   // via the event hook (session.message.part.updated).
   ctx.ttft.arm(sessionId, ctx.config.ttftMs, async () => {
     const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
-    await attemptFallback({
-      sessionId,
-      reason: "ttft_timeout",
-      chain,
-      client,
-      store: ctx.store,
-      config: ctx.config,
-      logger: ctx.logger,
-    });
+    try {
+      await attemptFallback({
+        sessionId,
+        reason: "ttft_timeout",
+        chain,
+        client,
+        store: ctx.store,
+        config: ctx.config,
+        logger: ctx.logger,
+      });
+    } catch (err) {
+      ctx.logger.error("ttft.callback_failed", { sessionId, err: errorSummary(err) });
+    }
   });
 }
 
@@ -127,14 +156,41 @@ interface EventInputShape {
   };
 }
 
-interface EventHookInputShape {
-  event?: EventInputShape;
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
 }
 
-function normalizeEventInput(input: EventHookInputShape | undefined): EventInputShape | undefined {
+function isEventInputShape(event: unknown): event is EventInputShape {
+  if (!isRecord(event)) return false;
+  if (!isOptionalString(event.type)) return false;
+  if (event.properties === undefined) return true;
+  if (!isRecord(event.properties)) return false;
+
+  const props = event.properties;
+  if (!isOptionalString(props.sessionID) || !isOptionalString(props.sessionId)) return false;
+  if (props.error !== undefined) {
+    if (!isRecord(props.error)) return false;
+    const error = props.error;
+    if (!isOptionalString(error.providerID)) return false;
+    if (error.statusCode !== undefined && typeof error.statusCode !== "number") return false;
+    if (!isOptionalString(error.name) || !isOptionalString(error.message)) return false;
+  }
+  if (props.status !== undefined) {
+    if (!isRecord(props.status)) return false;
+    if (!isOptionalString(props.status.message)) return false;
+  }
+  if (props.part !== undefined) {
+    if (!isRecord(props.part)) return false;
+    if (!isOptionalString(props.part.type) || !isOptionalString(props.part.text)) return false;
+  }
+  return true;
+}
+
+function normalizeEventInput(input: unknown): EventInputShape | undefined {
   // OpenCode's event hook passes `{ event }`; undefined registration probes
   // are treated as no-op compatibility inputs.
-  return input?.event;
+  if (!isRecord(input)) return undefined;
+  return isEventInputShape(input.event) ? input.event : undefined;
 }
 
 function hasStreamingTextContent(part: { type?: string; text?: string }): boolean {
@@ -222,15 +278,12 @@ export default async function plugin(opts: PluginInput): Promise<PluginHooks> {
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
-      await handleChatMessage(
-        ctx,
-        opts.client,
-        input as ChatMessageInputShape,
-        output as ChatMessageOutputShape,
-      );
+      const chatInput = normalizeChatMessageInput(input);
+      const chatOutput = isChatMessageOutputShape(output) ? output : undefined;
+      await handleChatMessage(ctx, opts.client, chatInput, chatOutput);
     },
     event: async (input: unknown) => {
-      await handleEvent(ctx, opts.client, normalizeEventInput(input as EventHookInputShape | undefined));
+      await handleEvent(ctx, opts.client, normalizeEventInput(input));
     },
   };
 }

@@ -118,6 +118,8 @@ deploys the package-shaped runtime (`package.json`, `dist/`, and notice files),
 not raw TypeScript source. Restart OpenCode after deploy; running sessions keep
 the plugin code loaded at startup.
 
+Set `OMR_LOCAL_DEPLOY_ROOT` to override the default local deploy root.
+
 To enable in OpenCode, add the deployed plugin path to your `opencode.json`:
 
 ```jsonc
@@ -141,9 +143,9 @@ Once published to npm, it can be loaded by name:
 | `make build` | Builds the `omr` Go binary. |
 | `make build-omp` | Builds the legacy compatibility `omp` binary. |
 | `make build-plugin` | Installs plugin deps (frozen lockfile), typechecks, and builds `plugin/dist`. |
-| `make deploy-local` | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates OpenCode config. |
+| `make deploy-local` | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates or patches OpenCode config with `--fix`. |
 | `make install` | Installs `omr` to `~/.local/bin/`. Does NOT touch git hooks. |
-| `make install-hooks` | Installs the optional pre-push hook (build + test + deploy-local). |
+| `make install-hooks` | Installs the optional pre-push hook, which runs build + test + deploy-local on push. |
 | `make test` | Runs both Go and plugin test suites. |
 | `make test-go` | Go tests only. |
 | `make test-plugin` | Plugin tests only (`bun test`). |
