@@ -57,6 +57,24 @@ describe("handleChatMessage", () => {
     expect(ctx.ttft.has("")).toBe(false);
   });
 
+  test("undefined input → no-op (OpenCode plugin-registration probe)", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    const client = new MockClient();
+    // Regression: OpenCode 1.15.9 invokes chat.message with undefined args
+    // during plugin registration. Previously threw
+    // "undefined is not an object (evaluating 'input.sessionID')" which the
+    // plugin loader reported as "failed to load plugin".
+    await handleChatMessage(ctx, client, undefined, undefined);
+    expect(ctx.ttft.has("")).toBe(false);
+  });
+
+  test("undefined output but defined input → no-op", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    const client = new MockClient();
+    await handleChatMessage(ctx, client, { sessionID: "s1" }, undefined);
+    expect(ctx.ttft.has("s1")).toBe(false);
+  });
+
   test("manual model change resets fallback depth", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     const state = ctx.store.sessions.get("s1");
@@ -74,6 +92,17 @@ describe("handleChatMessage", () => {
     expect(state.fallbackDepth).toBe(0);
     expect(state.lastFallbackAt).toBe(0);
     ctx.ttft.clear("s1");
+  });
+});
+
+describe("handleEvent — undefined input", () => {
+  test("undefined event → no-op (OpenCode plugin-registration probe)", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    const client = new MockClient();
+    // Regression: see handleChatMessage undefined-input test above.
+    await handleEvent(ctx, client, undefined);
+    // No state change, no throw.
+    expect(ctx.ttft.has("")).toBe(false);
   });
 });
 

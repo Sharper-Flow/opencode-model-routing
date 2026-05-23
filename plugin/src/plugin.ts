@@ -81,9 +81,12 @@ interface ChatMessageOutputShape {
 export async function handleChatMessage(
   ctx: PluginContext,
   client: OrchestratorClient,
-  input: ChatMessageInputShape,
-  output: ChatMessageOutputShape,
+  input: ChatMessageInputShape | undefined,
+  output: ChatMessageOutputShape | undefined,
 ): Promise<void> {
+  // Defensive: OpenCode 1.15.9 may invoke chat.message with undefined args
+  // during plugin registration / probe phases. Treat as no-op.
+  if (!input || !output) return;
   const sessionId = input.sessionID ?? input.sessionId ?? "";
   if (!sessionId) return;
 
@@ -131,8 +134,10 @@ function hasStreamingTextContent(part: { type?: string; text?: string }): boolea
 export async function handleEvent(
   ctx: PluginContext,
   client: OrchestratorClient,
-  event: EventInputShape,
+  event: EventInputShape | undefined,
 ): Promise<void> {
+  // Defensive: OpenCode may invoke event with undefined during registration.
+  if (!event) return;
   const props = event.properties ?? {};
   const sessionId = props.sessionID ?? props.sessionId ?? "";
   if (!sessionId) return;
@@ -204,6 +209,25 @@ export async function handleEvent(
 // eslint-disable-next-line import/no-default-export
 export default async function plugin(opts: PluginInput): Promise<PluginHooks> {
   const ctx = createPluginContext({ rawConfig: opts.config });
+
+  // OpenCode 1.15.9 compatibility note:
+  //
+  // When this plugin is loaded from a directory whose package.json `main`
+  // points at `src/plugin.ts` and that file imports sibling .ts modules using
+  // explicit `.ts` extensions, OpenCode 1.15.9's plugin loader silently
+  // corrupts iteration of OTHER plugins' `config` hooks. Symptom: claude-max
+  // (or any provider-mutating `config` hook) never runs, leaving
+  // `config.provider.<id>` unpopulated, and `Provider.list` throws at
+  // launch with "undefined is not an object (evaluating 'r.provider')".
+  //
+  // Repro: stripping src/plugin.ts to a no-import `return {};` makes the
+  // launch succeed; restoring sibling .ts imports breaks it again — even
+  // with the plugin body returning empty hooks.
+  //
+  // Fix path: rebuild this plugin to a single dist/ JS bundle (like
+  // @sharperflow/advance does) and point package.json `main` at the JS
+  // bundle. Until then, this plugin should be left out of opencode.jsonc
+  // plugin[] in environments running OpenCode 1.15.9.
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
