@@ -5,38 +5,95 @@ import {
 } from "../src/detection/classifier.ts";
 
 describe("classifySessionError", () => {
-  test("429 → rate_limit", () => {
-    expect(classifySessionError({ statusCode: 429 })).toBe("rate_limit");
+  // Fixtures use the real {name, data:{...}} shape OpenCode emits — per
+  // @opencode-ai/sdk EventSessionError union (ApiError, ProviderAuthError,
+  // MessageAbortedError, MessageOutputLengthError, UnknownError). Name-only
+  // fixtures exercise the name-precedence path; data.* fixtures exercise the
+  // statusCode/message/responseBody paths.
+  test("APIError data.statusCode 429 → rate_limit", () => {
+    expect(
+      classifySessionError({ name: "APIError", data: { statusCode: 429, isRetryable: false } }),
+    ).toBe("rate_limit");
   });
-  test("500 → server_error", () => {
-    expect(classifySessionError({ statusCode: 503 })).toBe("server_error");
+  test("APIError data.statusCode 503 → server_error", () => {
+    expect(
+      classifySessionError({ name: "APIError", data: { statusCode: 503, isRetryable: true } }),
+    ).toBe("server_error");
   });
-  test("401 → auth_error", () => {
-    expect(classifySessionError({ statusCode: 401 })).toBe("auth_error");
+  test("APIError data.statusCode 401 → auth_error", () => {
+    expect(
+      classifySessionError({ name: "APIError", data: { statusCode: 401, isRetryable: false } }),
+    ).toBe("auth_error");
   });
-  test("403 → auth_error", () => {
-    expect(classifySessionError({ statusCode: 403 })).toBe("auth_error");
+  test("APIError data.statusCode 403 → auth_error", () => {
+    expect(
+      classifySessionError({ name: "APIError", data: { statusCode: 403, isRetryable: false } }),
+    ).toBe("auth_error");
   });
   test("ModelNotFoundError name → unknown_model", () => {
-    expect(classifySessionError({ name: "ModelNotFoundError" })).toBe("unknown_model");
+    expect(classifySessionError({ name: "ModelNotFoundError", data: {} })).toBe("unknown_model");
   });
   test("Quota in name → quota_exhausted", () => {
-    expect(classifySessionError({ name: "QuotaExhaustedError" })).toBe("quota_exhausted");
+    expect(classifySessionError({ name: "QuotaExhaustedError", data: {} })).toBe("quota_exhausted");
   });
   test("auth keyword in name → auth_error", () => {
-    expect(classifySessionError({ name: "AuthenticationError" })).toBe("auth_error");
+    expect(classifySessionError({ name: "AuthenticationError", data: {} })).toBe("auth_error");
   });
   test("404 + model in name → unknown_model", () => {
-    expect(classifySessionError({ statusCode: 404, name: "ModelLookupError" })).toBe("unknown_model");
+    expect(
+      classifySessionError({
+        name: "ModelLookupError",
+        data: { statusCode: 404, isRetryable: false },
+      }),
+    ).toBe("unknown_model");
   });
-  test("rate-limit in message text → rate_limit", () => {
-    expect(classifySessionError({ message: "Too Many Requests" })).toBe("rate_limit");
+  test("rate-limit in data.message text → rate_limit", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: { message: "Too Many Requests", isRetryable: false },
+      }),
+    ).toBe("rate_limit");
   });
-  test("quota in message text → quota_exhausted", () => {
-    expect(classifySessionError({ message: "monthly quota exceeded" })).toBe("quota_exhausted");
+  test("quota in data.message text → quota_exhausted", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: { message: "monthly quota exceeded", isRetryable: false },
+      }),
+    ).toBe("quota_exhausted");
   });
   test("no signals → unknown", () => {
     expect(classifySessionError({})).toBe("unknown");
+  });
+
+  // Extra fixtures for the responseBody scan + provider-specific cases not
+  // covered by the canonical statusCode/message paths above.
+  describe("responseBody scan + provider-specific shapes", () => {
+    test("APIError data.responseBody insufficient_quota JSON → quota_exhausted", () => {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            message: "Quota exceeded.",
+            isRetryable: false,
+            responseBody:
+              '{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}',
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("ProviderAuthError nested → auth_error (name precedence)", () => {
+      expect(
+        classifySessionError({
+          name: "ProviderAuthError",
+          data: { providerID: "openai", message: "Invalid API key" },
+        }),
+      ).toBe("auth_error");
+    });
+    test("APIError with empty data → unknown", () => {
+      expect(classifySessionError({ name: "APIError", data: {} })).toBe("unknown");
+    });
   });
 });
 
