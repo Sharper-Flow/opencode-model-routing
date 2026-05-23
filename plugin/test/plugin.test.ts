@@ -12,18 +12,25 @@ import { MockClient } from "./helpers/mock-client.ts";
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 
 function ctxWithChain(chain: ModelKey[]) {
-  return createPluginContext({
-    rawConfig: {
-      agent: {
-        scout: { options: { fallback_models: chain } },
-      },
-    },
-    logger: silentLogger,
-  });
+  // Production chain population happens via the Hooks.config callback (see
+  // createPluginHooks). For unit tests that exercise handler behavior with a
+  // pre-populated chain, mutate ctx.chains directly — equivalent end state
+  // without the full hook lifecycle. Lifecycle tests live in the dedicated
+  // "createPluginHooks — Hooks.config lifecycle" describe block below.
+  const ctx = createPluginContext({ logger: silentLogger });
+  ctx.chains.set("scout", chain);
+  return ctx;
 }
 
 async function createRuntimeHooks(client: MockClient, config: unknown) {
-  return pluginModule.server({ client, config } as unknown as Parameters<typeof pluginModule.server>[0]);
+  // PluginInput no longer carries config (real OpenCode shape). To preserve
+  // existing test semantics, we invoke pluginModule.server then explicitly
+  // call the Hooks.config callback to deliver the synthetic config — matching
+  // the real lifecycle (init → config → events).
+  const hooks = await pluginModule.server({ client } as unknown as Parameters<typeof pluginModule.server>[0]);
+  const configHook = (hooks as { config?: (input: unknown) => unknown | Promise<unknown> }).config;
+  if (configHook) await configHook(config);
+  return hooks;
 }
 
 async function callRuntimeChatMessage(
@@ -42,18 +49,29 @@ async function callRuntimeEvent(hooks: Awaited<ReturnType<typeof createRuntimeHo
   await hook?.(input);
 }
 
-describe("plugin entry — config loading", () => {
-  test("loads chains from agent.<name>.options.fallback_models", () => {
-    const ctx = ctxWithChain(["a/one", "b/two"]);
-    expect(ctx.chains.get("scout")).toEqual(["a/one", "b/two"]);
+describe("plugin entry — context init", () => {
+  test("ctx.chains starts empty (populated later by Hooks.config)", () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    expect(ctx.chains.size).toBe(0);
   });
 
-  test("default config values applied", () => {
-    const ctx = createPluginContext({ rawConfig: {}, logger: silentLogger });
+  test("default plugin config values applied", () => {
+    const ctx = createPluginContext({ logger: silentLogger });
     expect(ctx.config.ttftMs).toBe(60_000);
     expect(ctx.config.cooldownMs).toBe(5 * 60_000);
     expect(ctx.config.maxDepth).toBe(3);
     expect(ctx.config.dedupWindowMs).toBe(3_000);
+  });
+
+  // Chain loader integration (loader unit tests live in config.test.ts).
+  // Verifies the Map identity invariant: ctxWithChain helper mutates the
+  // existing Map rather than replacing it, matching production behavior.
+  test("direct chain mutation preserves Map identity", () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    const ref = ctx.chains;
+    ctx.chains.set("scout", ["a/one"]);
+    expect(ctx.chains).toBe(ref);
+    expect(ref.get("scout")).toEqual(["a/one"]);
   });
 });
 
@@ -414,5 +432,105 @@ describe("handleEvent — token arrival", () => {
     });
     expect(ctx.ttft.has("s1")).toBe(true);
     ctx.ttft.clear("s1");
+  });
+});
+
+// Lifecycle tests for the Hooks.config callback path — OpenCode delivers
+// merged Config via Hooks.config (not via PluginInput.config which never
+// existed). These tests codify the real bus contract and protect against
+// regressions in hook-ordering or chain-loading.
+describe("createPluginHooks — Hooks.config lifecycle", () => {
+  async function makeHooks(client: MockClient) {
+    return pluginModule.server({ client } as unknown as Parameters<typeof pluginModule.server>[0]);
+  }
+
+  async function callConfig(hooks: Awaited<ReturnType<typeof makeHooks>>, cfg: unknown) {
+    const hook = (hooks as { config?: (input: unknown) => unknown | Promise<unknown> }).config;
+    if (!hook) throw new Error("config hook not registered on plugin hooks");
+    await hook(cfg);
+  }
+
+  function usageRetryEvent(sessionID = "s1") {
+    return {
+      type: "session.status",
+      properties: {
+        sessionID,
+        status: {
+          type: "retry",
+          attempt: 1,
+          message: "The usage limit has been reached",
+          next: Date.now() + 2000,
+        },
+      },
+    };
+  }
+
+  test("config hook is registered on returned hooks", async () => {
+    const hooks = await makeHooks(new MockClient());
+    expect(typeof (hooks as { config?: unknown }).config).toBe("function");
+  });
+
+  test("init → config → event triggers fallback with chain from cfg", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+    });
+    const hooks = await makeHooks(client);
+    // OpenCode-side: deliver merged Config via the hook
+    await callConfig(hooks, {
+      agent: {
+        adv: { options: { fallback_models: ["anthropic/claude", "z/glm"] } },
+      },
+    });
+    // Bus event arrives after config hook completed
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+    expect(client.callsTo("session.abort").length).toBe(1);
+    expect(client.callsTo("session.prompt").length).toBe(1);
+  });
+
+  test("ordering violation: event before config → no crash, no fallback; recovers after config", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+    });
+    const hooks = await makeHooks(client);
+    // Fire event BEFORE config — codifies the ordering contract.
+    // Chains are empty; handler must short-circuit cleanly (no abort, no prompt, no crash).
+    await expect(callRuntimeEvent(hooks, { event: usageRetryEvent() })).resolves.toBeUndefined();
+    expect(client.callsTo("session.abort").length).toBe(0);
+    expect(client.callsTo("session.prompt").length).toBe(0);
+
+    // Now deliver config and fire event again — fallback now fires.
+    await callConfig(hooks, {
+      agent: { adv: { options: { fallback_models: ["anthropic/claude"] } } },
+    });
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+    expect(client.callsTo("session.prompt").length).toBe(1);
+  });
+
+  test("empty agent config → chains stay empty → fallback exits 'no chain'", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+    });
+    const hooks = await makeHooks(client);
+    await callConfig(hooks, {}); // no `agent` key at all
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+    expect(client.callsTo("session.abort").length).toBe(0);
+    expect(client.callsTo("session.prompt").length).toBe(0);
+  });
+
+  test("config hook re-invocation updates chain in-place (Map identity preserved)", async () => {
+    const client = new MockClient({
+      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+    });
+    const hooks = await makeHooks(client);
+    await callConfig(hooks, {
+      agent: { adv: { options: { fallback_models: ["initial/model"] } } },
+    });
+    // Re-deliver with different chain (simulates config update path)
+    await callConfig(hooks, {
+      agent: { adv: { options: { fallback_models: ["updated/model"] } } },
+    });
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+    // Fallback fires (chain non-empty) — second config delivery did not break handler closure references.
+    expect(client.callsTo("session.prompt").length).toBe(1);
   });
 });

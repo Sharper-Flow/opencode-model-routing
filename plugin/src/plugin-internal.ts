@@ -22,19 +22,26 @@ import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import { defaultConfig, type ErrorCategory, type ModelKey, type PluginConfig } from "./types.ts";
 
-// PluginInput is intentionally typed loosely — the @opencode-ai/plugin
-// signature varies across versions; we accept what we need defensively.
+// Real OpenCode PluginInput shape per @opencode-ai/plugin@1.15.5 PluginInput
+// + packages/opencode/src/plugin/index.ts:134-150 source. NO `config` field —
+// OpenCode delivers the merged Config via the Hooks.config callback after
+// init, not via PluginInput. (Pre-fix OMR read `opts.config` which was always
+// `undefined` → chains map empty → every fallback exited "no chain" silently.)
 export interface PluginInput {
   client: OrchestratorClient & {
     session: OrchestratorClient["session"];
   };
   directory?: string;
-  config?: unknown;
+  worktree?: string;
 }
 
 export interface PluginHooks {
   "chat.message"?: (input: unknown, output: unknown) => unknown | Promise<unknown>;
   event?: (input: unknown) => unknown | Promise<unknown>;
+  // Hooks.config per @opencode-ai/plugin SDK — receives merged OpenCode Config
+  // after plugin init and BEFORE bus.subscribeAll() — see ordering proof in
+  // packages/opencode/src/plugin/index.ts:217-237 @ 7fe7b9f.
+  config?: (input: unknown) => unknown | Promise<unknown>;
 }
 
 export interface PluginContext {
@@ -48,20 +55,23 @@ export interface PluginContext {
 /**
  * createPluginContext — exposed for testing. Production wires this into the
  * default-exported plugin function below.
+ *
+ * Chains start empty; OpenCode delivers config via the Hooks.config callback
+ * after plugin init (see createPluginHooks below + ordering proof in
+ * packages/opencode/src/plugin/index.ts:217-237 @ 7fe7b9f). Tests that need
+ * pre-populated chains can mutate `ctx.chains` directly or call the config
+ * hook synthetically via pluginModule.server({...}).then(hooks => hooks.config?.(cfg)).
  */
 export function createPluginContext(opts: {
-  rawConfig?: unknown;
   config?: Partial<PluginConfig>;
   logger?: Logger;
-}): PluginContext {
+} = {}): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
-  const { chains, warnings } = loadFallbackChains(opts.rawConfig, logger);
-  for (const w of warnings) logger.warn("loader.warning", { message: w });
   return {
     store: new FallbackStore(),
     ttft: new TtftRegistry(),
-    chains,
+    chains: new Map(),
     config: merged,
     logger,
   };
@@ -341,7 +351,7 @@ export async function handleEvent(
  * plugin types are not stable across versions per agreement.
  */
 export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks> {
-  const ctx = createPluginContext({ rawConfig: opts.config });
+  const ctx = createPluginContext();
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
@@ -351,6 +361,23 @@ export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks>
     },
     event: async (input: unknown) => {
       await handleEvent(ctx, opts.client, normalizeEventInput(input));
+    },
+    // OpenCode calls this hook after plugin init and BEFORE bus.subscribeAll(),
+    // so chains are guaranteed populated before any session.status event fires.
+    // Ordering proof: packages/opencode/src/plugin/index.ts:217-237 @ 7fe7b9f
+    //   for (const hook of hooks) yield* (hook.config?.(cfg))  // awaited
+    //   yield* (yield* bus.subscribeAll()).pipe(...)            // then subscribe
+    // If OpenCode ever reorders this, the ordering-violation regression test
+    // in plugin.test.ts ("event before config") will catch it: chains stay
+    // empty, attemptFallback short-circuits with "no chain", no crash.
+    // Mutation is in-place (clear + set) to preserve Map identity for handler
+    // closures that hold ctx by reference.
+    config: async (input: unknown) => {
+      const { chains: loaded, warnings } = loadFallbackChains(input, ctx.logger);
+      ctx.chains.clear();
+      for (const [name, chain] of loaded) ctx.chains.set(name, chain);
+      for (const w of warnings) ctx.logger.warn("loader.warning", { message: w });
+      ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });
     },
   };
 }
