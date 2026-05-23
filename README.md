@@ -104,13 +104,19 @@ make install-hooks
 ### Plugin (TypeScript)
 
 The runtime fallback plugin lives in [`plugin/`](./plugin). Local development
-uses a stable deployed copy so OpenCode does not load directly from the mutable
-dev checkout.
+uses a stable deployed copy so OpenCode loads the same bundled runtime shape as
+a packaged install: `package.json` points at `dist/index.js`, with declarations
+and server exports generated during build.
 
 ```sh
-make build-plugin  # installs deps (frozen lockfile) + typechecks
-make deploy-local  # copies plugin/ to ~/.local/share/opencode-model-routing/plugin
+make build-plugin  # installs deps, typechecks, and builds plugin/dist
+make deploy-local  # deploys bundled runtime to ~/.local/share/opencode-model-routing/plugin
 ```
+
+`make deploy-local` verifies the bundle before writing the local-share copy and
+deploys the package-shaped runtime (`package.json`, `dist/`, and notice files),
+not raw TypeScript source. Restart OpenCode after deploy; running sessions keep
+the plugin code loaded at startup.
 
 To enable in OpenCode, add the deployed plugin path to your `opencode.json`:
 
@@ -134,8 +140,8 @@ Once published to npm, it can be loaded by name:
 |---|---|
 | `make build` | Builds the `omr` Go binary. |
 | `make build-omp` | Builds the legacy compatibility `omp` binary. |
-| `make build-plugin` | Installs plugin deps (frozen lockfile) and typechecks. |
-| `make deploy-local` | Deploys the plugin to `~/.local/share/opencode-model-routing/plugin` and validates OpenCode config. |
+| `make build-plugin` | Installs plugin deps (frozen lockfile), typechecks, and builds `plugin/dist`. |
+| `make deploy-local` | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates OpenCode config. |
 | `make install` | Installs `omr` to `~/.local/bin/`. Does NOT touch git hooks. |
 | `make install-hooks` | Installs the optional pre-push hook (build + test + deploy-local). |
 | `make test` | Runs both Go and plugin test suites. |
