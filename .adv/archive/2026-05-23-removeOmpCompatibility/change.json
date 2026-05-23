@@ -1,0 +1,837 @@
+{
+  "id": "removeOmpCompatibility",
+  "title": "Remove OMP compatibility",
+  "status": "archived",
+  "created_at": "2026-05-23T05:26:37.288Z",
+  "tasks": [
+    {
+      "id": "tk-05ab200ed2ad",
+      "title": "Add OMP-removal contract tests",
+      "type": "code",
+      "section": "Testing",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-05-23T05:34:36.822Z",
+      "deps": [],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC5"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC5"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T05:37:09.898Z",
+      "verification": "RED evidence established. `./scripts/test-makefile-targets.sh` fails because `make build-omp` still exists and builds `./cmd/omp/`. `./scripts/e2e-smoke.sh` fails after expecting `opencode.json.omr-backup.*` while current code still writes `omp-backup`. These are intended failing contracts for AC1/AC2/AC5 before OMP removal.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Extended Makefile contract checks to require `build-omp`, `COMPAT_BINARY`, `./cmd/omp/`, and `cmd/omp` source directory to be absent. Updated e2e smoke to expect `opencode.json.omr-backup.*`. Verified RED failures against current OMP compatibility surface.",
+      "filesTouched": [
+        "scripts/e2e-smoke.sh",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "touched_files": [
+        "scripts/e2e-smoke.sh",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "checkpointSha": "3001eeaf37c8d597ede6f92ed3d69a79353e3fdf",
+      "completedAt": "2026-05-23T05:38:19.894Z",
+      "completed_at": "2026-05-23T05:38:19.894Z",
+      "notes": "Added RED contract tests for OMP compatibility removal and backup suffix rename.",
+      "error_recovery": {
+        "last_error": "Expected RED failures: build-omp still exists; backup suffix still omp-backup.",
+        "retry_count": 0,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "N/A — RED contract established",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "`scripts/test-makefile-targets.sh` failed because build-omp still exists; `scripts/e2e-smoke.sh` failed because no omr-backup file was created.",
+            "diagnosis": "Pre-removal code still contains OMP compatibility and old backup suffix as intended.",
+            "fix_tried": "No fix in this task; RED contract will be made green by subsequent removal task.",
+            "strategy_label": "red contract tests",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:39:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T05:38:32.487Z"
+    },
+    {
+      "id": "tk-876c091629e4",
+      "title": "Remove OMP code, Make target, and backup suffix",
+      "type": "code",
+      "section": "Code cleanup",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-05-23T05:35:21.082Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-05ab200ed2ad"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC5"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC5"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T05:40:01.659Z",
+      "verification": "./scripts/test-makefile-targets.sh PASS; go test ./internal/config ./cmd/omr -count=1 PASS; ./scripts/e2e-smoke.sh PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Deleted cmd/omp source/tests and empty directory. Removed Makefile build-omp/COMPAT_BINARY/omp clean handling. Renamed active config backup and temp naming from .omp-backup/.omp-* to .omr-backup/.omr-* in atomic writer, tests, deploy-local, and .gitignore. Verification: ./scripts/test-makefile-targets.sh PASS; go test ./internal/config ./cmd/omr -count=1 PASS; ./scripts/e2e-smoke.sh PASS.",
+      "filesTouched": [
+        ".gitignore",
+        "Makefile",
+        "cmd/omp/main.go",
+        "cmd/omp/main_test.go",
+        "internal/config/atomic.go",
+        "internal/config/config_test.go",
+        "scripts/deploy-local.sh"
+      ],
+      "touched_files": [
+        ".gitignore",
+        "Makefile",
+        "cmd/omp/main.go",
+        "cmd/omp/main_test.go",
+        "internal/config/atomic.go",
+        "internal/config/config_test.go",
+        "scripts/deploy-local.sh"
+      ],
+      "checkpointSha": "a1c5aca4ef7991d09947fd1ce63606381a416516",
+      "completedAt": "2026-05-23T05:41:46.107Z",
+      "completed_at": "2026-05-23T05:41:46.107Z",
+      "notes": "Removed OMP command source and Makefile compatibility target; renamed active backup/temp suffixes to omr; verified contract checks and focused tests pass. Checkpoint a1c5aca4ef7991d09947fd1ce63606381a416516.",
+      "error_recovery": {
+        "last_error": "Initial ./scripts/test-makefile-targets.sh failed because empty cmd/omp directory still existed after deleting files.",
+        "retry_count": 1,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "No further retry needed; removed empty directory and reran tests successfully.",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "FAIL: cmd/omp must not exist after OMP compatibility removal",
+            "diagnosis": "apply_patch deleted files but left empty cmd/omp directory; contract checks require directory absence.",
+            "fix_tried": "Removed empty cmd/omp directory with rmdir.",
+            "strategy_label": "remove-empty-directory",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:45:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T05:41:56.638Z"
+    },
+    {
+      "id": "tk-7adb239d32ae",
+      "title": "Clean OMP docs and active text references",
+      "type": "code",
+      "section": "Documentation",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-05-23T05:35:34.540Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-876c091629e4"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC3",
+          "AC4",
+          "AC6"
+        ],
+        "verifies": [
+          "AC3",
+          "AC4",
+          "AC6"
+        ],
+        "respects": [
+          "C3",
+          "C4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T05:42:15.488Z",
+      "verification": "./scripts/test-makefile-targets.sh PASS; active OMP reference scan excluding .adv/archive returned no matches; ./schema-contract-check.sh PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Removed README text describing standalone OMP and build-omp target; updated backup suffix docs to omr-backup; updated schema wording from Go writer (omp) to Go writer (omr); deleted obsolete OMP-only openchad/tmux spec and research docs; rewrote Makefile contract test strings to avoid active OMP text while still checking retired target/path absence. Verification: ./scripts/test-makefile-targets.sh PASS; active OMP reference scan excluding .adv/archive returned no matches; ./schema-contract-check.sh PASS.",
+      "filesTouched": [
+        "README.md",
+        "docs/research/openchad-tmux-modal-architecture.md",
+        "docs/specs/openchad-tmux-integration.md",
+        "schema/fallback-schema.json",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "touched_files": [
+        "README.md",
+        "docs/research/openchad-tmux-modal-architecture.md",
+        "docs/specs/openchad-tmux-integration.md",
+        "schema/fallback-schema.json",
+        "scripts/test-makefile-targets.sh"
+      ],
+      "checkpointSha": "2873136b7cd83ae64f7681627077031779a22cd1",
+      "completedAt": "2026-05-23T05:44:29.133Z",
+      "completed_at": "2026-05-23T05:44:29.133Z",
+      "notes": "Cleaned active README/schema/docs/text references and removed obsolete openchad/tmux docs. Checkpoint 2873136b7cd83ae64f7681627077031779a22cd1.",
+      "error_recovery": {
+        "last_error": "Mistyped schema contract script path as ./scripts/schema-contract-check.sh; root script is ./schema-contract-check.sh.",
+        "retry_count": 1,
+        "max_retries": 3,
+        "error_class": "ENVIRONMENTAL",
+        "next_strategy": "No further retry needed; reran correct root script successfully.",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "/bin/sh: 1: ./scripts/schema-contract-check.sh: not found",
+            "diagnosis": "Schema contract script lives at repo root and Makefile invokes ./schema-contract-check.sh.",
+            "fix_tried": "Reran verification with ./schema-contract-check.sh.",
+            "strategy_label": "correct-script-path",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:48:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T05:44:39.907Z"
+    },
+    {
+      "id": "tk-03707ab13f85",
+      "title": "Run OMR verification before destructive external cleanup",
+      "type": "code",
+      "section": "Verification",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-05-23T05:35:47.316Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-05ab200ed2ad"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-876c091629e4"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-7adb239d32ae"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC10"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T05:44:54.507Z",
+      "verification": "./scripts/test-makefile-targets.sh PASS; make test PASS (Go packages + 92 plugin tests); make lint PASS; ./scripts/e2e-smoke.sh PASS; active OMP reference scan PASS; ./scripts/deploy-local.sh --check PASS; opencode models PASS. Reverted unrelated .opencode/package-lock.json drift from opencode models; worktree clean.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Ran full OMR verification suite before any destructive external cleanup. Results: ./scripts/test-makefile-targets.sh PASS; make test PASS (Go packages plus 92 plugin tests); make lint PASS; ./scripts/e2e-smoke.sh PASS; active OMP reference scan excluding .adv/archive and generated deps PASS; ./scripts/deploy-local.sh --check PASS; opencode models PASS. Reverted unrelated .opencode/package-lock.json drift caused by live opencode models invocation; final worktree clean.",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "2873136b7cd83ae64f7681627077031779a22cd1",
+      "completedAt": "2026-05-23T05:51:22.766Z",
+      "completed_at": "2026-05-23T05:51:22.766Z",
+      "notes": "Pre-destructive OMR verification passed; worktree clean. Checkpoint clean at 2873136b7cd83ae64f7681627077031779a22cd1.",
+      "error_recovery": {
+        "last_error": "Initial active reference scan commands timed out because rg had no explicit path under adv_run_test and waited on stdin; opencode models also updated .opencode/package-lock.json as unrelated drift.",
+        "retry_count": 2,
+        "max_retries": 3,
+        "error_class": "ENVIRONMENTAL",
+        "next_strategy": "No further retry needed; scan rerun with explicit '.' path and unrelated lockfile drift reverted.",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "active OMP reference scan timed out after 120000ms",
+            "diagnosis": "rg was invoked without an explicit search path under adv_run_test, so it waited on stdin instead of searching the repo.",
+            "fix_tried": "Reran rg scan with explicit '.' path and dependency/build-dir excludes.",
+            "strategy_label": "explicit-rg-path",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:51:00Z"
+          },
+          {
+            "attempt_number": 2,
+            "error": ".opencode/package-lock.json modified after live opencode models",
+            "diagnosis": "Live OpenCode command updated local .opencode dependency lockfile; unrelated to OMP removal and outside contract scope.",
+            "fix_tried": "Restored .opencode/package-lock.json from HEAD and confirmed clean status.",
+            "strategy_label": "revert-unrelated-drift",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:52:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T05:51:41.539Z"
+    },
+    {
+      "id": "tk-b7becf147a0c",
+      "title": "Archive old GitHub repo and remove local OMP checkout",
+      "type": "code",
+      "section": "External cleanup",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-05-23T05:36:12.376Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-03707ab13f85"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "inline_required",
+        "destructive_targets": "GitHub repo JRedeker/opencode-model-preferences; /home/jon/dev/omp"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC8",
+          "AC9"
+        ],
+        "verifies": [
+          "AC3",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC8",
+          "AC9",
+          "AC10"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6"
+        ],
+        "not_applicable_reason": ""
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-05-23T05:52:03.703Z",
+      "verification": "Acceptance review remediation: renamed remaining active OMP identity references to OMR, including model-preferences spec, preferences file name to omr-preferences.json, log prefixes, comments, and stale temp test. Verification: go test ./internal/config ./cmd/omr -count=1 PASS; ./scripts/e2e-smoke.sh PASS; active OMP reference scan PASS; make test PASS; make lint PASS; ./scripts/deploy-local.sh --check PASS; opencode models PASS.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Verified /home/jon/dev/omp immediately before deletion: clean git status, remote https://github.com/JRedeker/opencode-model-preferences.git, empty stash, one worktree, branches not ahead. Verified GitHub repo target JRedeker/opencode-model-preferences, archived it with gh api, and confirmed archived=true. Deleted /home/jon/dev/omp and confirmed path absent. Re-ran post-cleanup OMR checks. Acceptance review then found active OMP references; remediation renamed remaining active OMP identity references to OMR: model-preferences spec, preferences filename `omr-preferences.json`, log prefixes, comments, and stale temp-file assertion. Verification after remediation: go test ./internal/config ./cmd/omr -count=1 PASS; ./scripts/e2e-smoke.sh PASS; active OMP reference scan PASS; make test PASS; make lint PASS; ./scripts/deploy-local.sh --check PASS; opencode models PASS.",
+      "filesTouched": [
+        "docs/specs/model-preferences-routing.md",
+        "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/config/preferences.go"
+      ],
+      "touched_files": [
+        "docs/specs/model-preferences-routing.md",
+        "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/config/preferences.go"
+      ],
+      "checkpointSha": "81de364c041435372378c66d0b2bb2d7b9a9fa05",
+      "completedAt": "2026-05-23T06:00:48.514Z",
+      "completed_at": "2026-05-23T06:00:48.514Z",
+      "notes": "Acceptance review remediation committed in 81de364c041435372378c66d0b2bb2d7b9a9fa05 after reviewer found active OMP references. External cleanup still complete; post-remediation verification passed.",
+      "error_recovery": {
+        "last_error": "Acceptance reviewer found active OMP references in docs/specs/model-preferences-routing.md, internal/config/preferences.go, internal/config/config.go, and internal/config/config_test.go.",
+        "retry_count": 2,
+        "max_retries": 3,
+        "error_class": "SEMANTIC",
+        "next_strategy": "Rerun independent acceptance review after remediation commit.",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "error": "zsh:1: read-only variable: status",
+            "diagnosis": "zsh reserves `status` as a readonly parameter; verification command failed before any destructive action.",
+            "fix_tried": "Renamed shell variable to stat_out and reran exact-target verification.",
+            "strategy_label": "avoid-zsh-readonly-status",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T05:55:00Z"
+          },
+          {
+            "attempt_number": 2,
+            "error": "Acceptance review verdict FAIL: active OMP references remain outside allowed contexts.",
+            "diagnosis": "Initial active scan missed lower-case whole-word `omp` and `omp-preferences` references.",
+            "fix_tried": "Renamed active OMP identity references to OMR and reran stricter scan plus full verification suite.",
+            "strategy_label": "acceptance-remediation-active-omp-scan",
+            "outcome": "succeeded",
+            "attempted_at": "2026-05-23T06:02:00Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-05-23T06:01:07.099Z"
+    }
+  ],
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-05-23T05:27:59.151Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved proposal with explicit reply: approve. Scope confirmed: remove OMP compatibility artifacts from OMR repo, remove /home/jon/dev/omp after clean-state proof, archive GitHub repo JRedeker/opencode-model-preferences after OMR verification.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/proposal.md",
+        "content_hash": "deb36e26dc74e6457f90d3b69c9690ef0ce2a3553072165b5725a2ed8a35a410",
+        "non_whitespace_chars": 2189,
+        "checked_at": "2026-05-23T05:27:59.233Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "started_at": "2026-05-23T05:30:41.699Z",
+      "completed_at": "2026-05-23T05:30:55.364Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved agreement with explicit reply: approve. Contract minted with AC1-AC10 and C1-C6. Discovery evidence: OMR health proof, old local repo /home/jon/dev/omp remote, remote repo identity, and active OMP artifacts in Makefile/README/gitignore/schema/docs.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/agreement.md",
+        "content_hash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "non_whitespace_chars": 2441,
+        "checked_at": "2026-05-23T05:30:55.444Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-05-23T05:34:24.270Z",
+      "completed_by": "agent",
+      "approval_evidence": "Design persisted. Independent validator verdict VALIDATED; suggestions integrated: GitHub archive verification via gh api --jq .archived, stronger local delete gate with stash/worktree/ahead checks, .adv/archive exclusion, live/deploy checks last. No user-value tradeoff or contract compromise remains.",
+      "artifact_evidence": {
+        "kind": "design",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/design.md",
+        "content_hash": "129421c4000e21e60315ad3adadb66d6e58a82bd86e7f4659b06ed022b0e3e02",
+        "non_whitespace_chars": 3674,
+        "checked_at": "2026-05-23T05:34:24.335Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-05-23T05:36:55.542Z",
+      "completed_by": "agent",
+      "approval_evidence": "User approved prep task graph with explicit reply: approve. Five tasks cover OMP-removal contract tests, code/Make/backup suffix cleanup, docs/text cleanup, OMR verification, and exact-target remote archive/local checkout deletion."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-05-23T05:54:11.192Z",
+      "completed_by": "agent",
+      "approval_evidence": "All five planned tasks completed with checkpoints. Verification: makefile contract checks, make test, make lint, e2e smoke, active OMP scan, deploy-local --check, opencode models. GitHub repo JRedeker/opencode-model-preferences archived=true; /home/jon/dev/omp deleted and verified absent."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-05-23T15:30:24.571Z",
+      "completed_by": "user:jon",
+      "approval_evidence": "User approved acceptance with explicit reply: approve. Independent reviewer re-review PASS; contract review matrix all pass/respected/not_applicable; strict validation passed with NO_DELTAS warning only.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/acceptance.md",
+        "content_hash": "0675ba104a663fde95c1e86845e0c9d124d60ec0e41997e1d85ad2656811d99b",
+        "non_whitespace_chars": 3647,
+        "checked_at": "2026-05-23T15:30:24.799Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "origin": {
+    "kind": "triage",
+    "issue_number": 1,
+    "source_artifact": "ag-Dg3b1ldW"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+      "approvedAt": "2026-05-23T05:30:47.512Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`cmd/omp/` and its tests are removed from the OMR repo.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "`make build-omp`, `COMPAT_BINARY`, and clean-target `omp` removal are gone.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "README and schema no longer describe OMP as an active supported binary or required standalone project.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "Obsolete OMP-only tmux/openchad docs are removed or rewritten as historical/irrelevant; active docs refer to OMR where applicable.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "`.gitignore` no longer ignores `/omp`; backup suffix policy is updated from `omp-backup` to an OMR-neutral or OMR-named suffix, with docs/tests updated.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "Remaining `omp` text matches are either absent or explicitly historical/archived/vendor/license-context references.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "OMR verification passes: `make test`, `make lint`, `./scripts/e2e-smoke.sh`, `./scripts/deploy-local.sh --check`, and live `opencode models`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "`/home/jon/dev/omp` is removed only after `git status --short` shows no uncommitted work and remote is confirmed as `JRedeker/opencode-model-preferences`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC9",
+        "kind": "acceptance_criterion",
+        "text": "GitHub repo `JRedeker/opencode-model-preferences` is archived only after local OMR verification passes.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC10",
+        "kind": "acceptance_criterion",
+        "text": "Current OMR plugin remains enabled and working after all cleanup.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Do not rewrite OMR fallback behavior.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Do not change `fallback_models` schema semantics.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Do not remove Advance archive records or historical change bundles.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Do not remove unrelated substring matches such as `prompt`, `compliance`, or `compatibility`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Treat local directory deletion and GitHub archive as destructive/external actions requiring exact target verification immediately before execution.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "If GitHub archive fails due to permission/API limits, preserve repo cleanup and report the remote blocker.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "a32c026209628c465158b1ff0861820ec488bedef498daa31271be0e2eb40863",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-05-23T06:05:00Z",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Reviewer PASS: cmd/omp absent on disk and no tracked cmd/omp files.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Reviewer PASS: Makefile builds ./cmd/omr only; build-omp target absent; clean removes omr/plugin artifacts only; ./scripts/test-makefile-targets.sh passed.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "Reviewer PASS: README, schema, and active model-preferences spec describe OMR/omr and omr-preferences.json, not OMP as active binary/project.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "Reviewer PASS: no active tmux/openchad matches found; obsolete OMP-only docs deleted.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Reviewer PASS: .gitignore uses /omr and *.omr-backup.*; tests/docs use omr-preferences.json and .omr temp/backup naming; e2e smoke passed.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "static_check",
+          "evidence": "Reviewer PASS: active OMP scan excluding .adv/archive and generated deps has only test legacy-removal guard pattern; prior blocker files remediated.",
+          "notes": "Guard pattern remains in scripts/test-makefile-targets.sh solely to assert retired target/path absence."
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Reviewer PASS: ./scripts/test-makefile-targets.sh, make test, make lint, ./scripts/e2e-smoke.sh, ./scripts/deploy-local.sh --check, and opencode models passed.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Exact local target verified clean before deletion; /home/jon/dev/omp deleted and verified absent.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC9",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "GitHub repo JRedeker/opencode-model-preferences archived via gh api and verified archived=true; reviewer confirmed isArchived=true.",
+          "notes": ""
+        },
+        {
+          "contractId": "AC10",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "deploy-local --check confirms plugin registration; live opencode models succeeds after cleanup.",
+          "notes": ""
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Reviewer detected no fallback behavior rewrite; verification suite and plugin tests passed.",
+          "notes": ""
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "schema-contract-check passed; fallback_models field semantics unchanged.",
+          "notes": ""
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": ".adv/archive excluded and not removed; historical change bundles intact.",
+          "notes": ""
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Remediation targeted whole-word/active OMP references; unrelated substrings like prompt/compliance/compatibility were not removed.",
+          "notes": ""
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Before deletion/archive, exact targets were verified: local path, clean status, remote URL, stash, worktree count, branches not ahead; GitHub repo full_name and archived state checked.",
+          "notes": ""
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "not_applicable",
+          "evidencePolicy": "not_applicable",
+          "evidence": "GitHub archive did not fail; repo archived=true verified.",
+          "notes": ""
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`cmd/omp/` and its tests are removed from the OMR repo.",
+    "`make build-omp`, `COMPAT_BINARY`, and clean-target `omp` removal are gone.",
+    "README and schema no longer describe OMP as an active supported binary or required standalone project.",
+    "Obsolete OMP-only tmux/openchad docs are removed or rewritten as historical/irrelevant; active docs refer to OMR where applicable.",
+    "`.gitignore` no longer ignores `/omp`; backup suffix policy is updated from `omp-backup` to an OMR-neutral or OMR-named suffix, with docs/tests updated.",
+    "Remaining `omp` text matches are either absent or explicitly historical/archived/vendor/license-context references.",
+    "OMR verification passes: `make test`, `make lint`, `./scripts/e2e-smoke.sh`, `./scripts/deploy-local.sh --check`, and live `opencode models`.",
+    "`/home/jon/dev/omp` is removed only after `git status --short` shows no uncommitted work and remote is confirmed as `JRedeker/opencode-model-preferences`.",
+    "GitHub repo `JRedeker/opencode-model-preferences` is archived only after local OMR verification passes.",
+    "Current OMR plugin remains enabled and working after all cleanup."
+  ],
+  "documents": {},
+  "artifacts": {
+    "proposal": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/proposal.md",
+      "updatedAt": "2026-05-23T06:06:22.056Z"
+    },
+    "problemStatement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/problem-statement.md",
+      "updatedAt": "2026-05-23T06:06:22.125Z"
+    },
+    "agreement": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/agreement.md",
+      "updatedAt": "2026-05-23T06:06:22.221Z"
+    },
+    "design": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/design.md",
+      "updatedAt": "2026-05-23T06:06:22.340Z"
+    },
+    "executiveSummary": {
+      "path": "/home/jon/.local/share/opencode/plugins/advance/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/changes/removeOmpCompatibility/executive-summary.md",
+      "updatedAt": "2026-05-23T06:06:22.444Z"
+    }
+  },
+  "lastSignalAt": "2026-05-23T15:30:24.571Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "worktree_auto_managed": true
+}
