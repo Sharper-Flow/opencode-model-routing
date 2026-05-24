@@ -108,17 +108,27 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		if !t.IsModelMappable() {
 			continue
 		}
-		chainPath := "agent." + t.Name + "." + FallbackJSONPath
+		legacyChainPath := "agent." + t.Name + "." + FallbackJSONPath
 		chain := pc.TargetFallbacks[t.Name]
-		pathExists := gjson.GetBytes(updated, chainPath).Exists()
+		pluginPath, pluginPathExists := pluginFallbackPath(updated, t.Name)
+		pluginValueExists := pluginPathExists && gjson.GetBytes(updated, pluginPath).Exists()
+		legacyValueExists := gjson.GetBytes(updated, legacyChainPath).Exists()
 
 		if len(chain) == 0 {
-			if !pathExists {
+			if !pluginValueExists && !legacyValueExists {
 				continue
 			}
-			updated, mutations, err = plannedDelete(updated, mutations, chainPath)
-			if err != nil {
-				return ApplyPlan{}, err
+			if pluginValueExists {
+				updated, mutations, err = plannedDelete(updated, mutations, pluginPath)
+				if err != nil {
+					return ApplyPlan{}, err
+				}
+			}
+			if legacyValueExists {
+				updated, mutations, err = plannedDelete(updated, mutations, legacyChainPath)
+				if err != nil {
+					return ApplyPlan{}, err
+				}
 			}
 			continue
 		}
@@ -126,9 +136,23 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		if err := ValidateFallbackChain(chain); err != nil {
 			return ApplyPlan{}, fmt.Errorf("invalid fallback chain for %s: %w", t.Name, err)
 		}
-		updated, mutations, err = plannedSet(updated, mutations, chainPath, chain)
+		updated, _, err = ensureRoutingPluginOptions(updated)
 		if err != nil {
 			return ApplyPlan{}, err
+		}
+		pluginPath, ok := pluginFallbackPath(updated, t.Name)
+		if !ok {
+			return ApplyPlan{}, fmt.Errorf("routing plugin options path unavailable")
+		}
+		updated, mutations, err = plannedSet(updated, mutations, pluginPath, chain)
+		if err != nil {
+			return ApplyPlan{}, err
+		}
+		if gjson.GetBytes(updated, legacyChainPath).Exists() {
+			updated, mutations, err = plannedDelete(updated, mutations, legacyChainPath)
+			if err != nil {
+				return ApplyPlan{}, err
+			}
 		}
 	}
 

@@ -16,7 +16,7 @@ describe("resolveAgentName", () => {
   test("fetches from messages on cold cache and caches it", async () => {
     const store = new FallbackStore();
     const client = new MockClient({
-      messages: [{ agent: "scout", role: "user" }, { agent: "scout", role: "assistant" }],
+      messages: [{ info: { agent: "scout", role: "user" }, parts: [] }, { info: { agent: "scout", role: "assistant" }, parts: [] }],
     });
     const name = await resolveAgentName("s1", client, store);
     expect(name).toBe("scout");
@@ -25,6 +25,7 @@ describe("resolveAgentName", () => {
     expect(again).toBe("scout");
     // Only one messages call.
     expect(client.callsTo("session.messages").length).toBe(1);
+    expect(client.callsTo("session.messages")[0]?.args).toEqual({ path: { id: "s1" } });
   });
 
   test("returns null when messages are empty", async () => {
@@ -36,7 +37,7 @@ describe("resolveAgentName", () => {
   test("returns null when first messages lack an agent field", async () => {
     const store = new FallbackStore();
     const client = new MockClient({
-      messages: [{ role: "user" }, { role: "assistant", agent: "" }],
+      messages: [{ info: { role: "user" }, parts: [] }, { info: { role: "assistant", agent: "" }, parts: [] }],
     });
     expect(await resolveAgentName("s1", client, store)).toBeNull();
   });

@@ -8,12 +8,13 @@
 // API call.
 
 import type { FallbackStore } from "../state/store.ts";
+import { messageInfo, unwrapSdkData } from "../utils/type-guards.ts";
 
 // Subset of @opencode-ai/sdk client surface we actually use. Kept narrow
 // so tests can stub it without pulling the full SDK type graph.
 export interface AgentResolverClient {
   session: {
-    messages(args: { sessionID: string } | { sessionId: string }): Promise<unknown[]>;
+    messages(args: unknown): Promise<unknown>;
   };
 }
 
@@ -27,11 +28,9 @@ export async function resolveAgentName(
 
   let messages: unknown[];
   try {
-    // The SDK uses sessionID (capital ID) in some versions and sessionId in
-    // others — accept either by trying both.
-    messages = await client.session.messages({ sessionID: sessionId } as never).catch(async () =>
-      client.session.messages({ sessionId } as never),
-    );
+    const response = await client.session.messages({ path: { id: sessionId } } as never);
+    const data = unwrapSdkData(response);
+    messages = Array.isArray(data) ? data : [];
   } catch {
     return null;
   }
@@ -39,8 +38,9 @@ export async function resolveAgentName(
 
   // Walk messages oldest-first; the first one with a non-empty agent wins.
   for (const m of messages) {
-    if (!m || typeof m !== "object") continue;
-    const agent = (m as { agent?: unknown }).agent;
+    const info = messageInfo(m);
+    if (!info) continue;
+    const agent = info.agent;
     if (typeof agent === "string" && agent.length > 0) {
       state.agentName = agent;
       return agent;

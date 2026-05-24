@@ -40,10 +40,17 @@ export interface SessionErrorLike {
 
 /**
  * Map a typed session.error payload to an ErrorCategory.
- * Precedence: name → data.statusCode → data.message → data.responseBody scan → unknown.
+ * Precedence: non-retryable user abort → name → data.statusCode →
+ * data.message → data.responseBody scan → unknown.
  */
-export function classifySessionError(err: SessionErrorLike): ErrorCategory {
+export function classifySessionError(err: SessionErrorLike): ErrorCategory | null {
   const name = (err.name ?? "").toLowerCase();
+  // User-initiated ESC/cancel arrives from OpenCode as MessageAbortedError
+  // (AbortedError in message-v2.ts). It is a terminal user action, not a model
+  // failure, so fallback rotation must not fire.
+  if (name.includes("messageabortederror") || name.includes("aborterror")) {
+    return null;
+  }
   if (name.includes("modelnotfound") || name.includes("model_not_found")) {
     return "unknown_model";
   }

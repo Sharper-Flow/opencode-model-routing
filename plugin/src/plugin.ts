@@ -7,11 +7,11 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin";
 import { createPluginHooks, isPluginInput } from "./plugin-internal.ts";
 
-const server = (async (input: unknown, _options?: unknown) => {
+const server = (async (input: unknown, options?: unknown) => {
   if (!isPluginInput(input)) {
     throw new Error("opencode-model-routing plugin: invalid initialization input");
   }
-  return createPluginHooks(input);
+  return createPluginHooks(input, options);
 }) as Plugin;
 
 // eslint-disable-next-line import/no-default-export

@@ -11,11 +11,13 @@ const chain: ModelKey[] = ["a/one", "b/two", "c/three"];
 
 function userMsg(id = "msg-1", agent = "scout") {
   return {
-    id,
-    role: "user",
-    agent,
+    info: { id, role: "user", agent },
     parts: [{ type: "text", text: "hello" }],
   };
+}
+
+function assistantMsg(id: string, parts: unknown[] = []) {
+  return { info: { id, role: "assistant" }, parts };
 }
 
 describe("attemptFallback — happy path", () => {
@@ -43,9 +45,20 @@ describe("attemptFallback — happy path", () => {
     expect(order).toEqual(["session.messages", "session.abort", "session.revert", "session.prompt"]);
 
     // prompt called with parsed { providerID, modelID }
-    const promptArgs = client.callsTo("session.prompt")[0]?.args as { model: { providerID: string; modelID: string }; agent: string };
-    expect(promptArgs.model).toEqual({ providerID: "b", modelID: "two" });
-    expect(promptArgs.agent).toBe("scout");
+    const promptArgs = client.callsTo("session.prompt")[0]?.args as {
+      path: { id: string };
+      body: { model: { providerID: string; modelID: string }; agent: string };
+    };
+    expect(promptArgs.path).toEqual({ id: "s1" });
+    expect(promptArgs.body.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(promptArgs.body.agent).toBe("scout");
+
+    expect(client.callsTo("session.messages")[0]?.args).toEqual({ path: { id: "s1" } });
+    expect(client.callsTo("session.abort")[0]?.args).toEqual({ path: { id: "s1" } });
+    expect(client.callsTo("session.revert")[0]?.args).toEqual({
+      path: { id: "s1" },
+      body: { messageID: "msg-1" },
+    });
 
     // session state updated
     const st = store.sessions.get("s1");
@@ -269,7 +282,7 @@ describe("attemptFallback — orphanMessageId logging", () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
-      messages: [userMsg("user-1"), { id: "asst-orphan", role: "assistant", parts: [] }],
+      messages: [userMsg("user-1"), assistantMsg("asst-orphan")],
     });
     const { logger, events } = makeCapturingLogger();
 
@@ -295,7 +308,7 @@ describe("attemptFallback — orphanMessageId logging", () => {
     const client = new MockClient({
       messages: [
         userMsg("user-1"),
-        { id: "asst-done", role: "assistant", parts: [{ type: "text", text: "response" }] },
+        assistantMsg("asst-done", [{ type: "text", text: "response" }]),
       ],
     });
     const { logger, events } = makeCapturingLogger();
@@ -322,8 +335,8 @@ describe("attemptFallback — orphanMessageId logging", () => {
     const client = new MockClient({
       messages: [
         userMsg("user-1"),
-        { id: "asst-old", role: "assistant", parts: [] },
-        { id: "asst-newest", role: "assistant", parts: [] },
+        assistantMsg("asst-old"),
+        assistantMsg("asst-newest"),
       ],
     });
     const { logger, events } = makeCapturingLogger();
@@ -353,7 +366,7 @@ describe("attemptFallback — orphanMessageId logging", () => {
         null,
         "string-not-record",
         42,
-        { id: "asst-orphan", role: "assistant", parts: [] },
+        assistantMsg("asst-orphan"),
       ],
     });
     const { logger, events } = makeCapturingLogger();

@@ -5,10 +5,11 @@
 // ~/.config/opencode/omr-preferences.json (separate from opencode.json which
 // uses additionalProperties:false).
 //
-// Fallback chains: the canonical JSON path in opencode.json is
-// `agent.<name>.options.fallback_models`. See schema/fallback-schema.json for
-// the cross-stack contract — both this Go writer and the TypeScript plugin
-// reader reference the field name `fallback_models` verbatim.
+// Fallback chains: the canonical storage surface in opencode.json is the OMR
+// plugin tuple option `plugin[N][1].agents.<name>.fallback_models`. See
+// schema/fallback-schema.json for the cross-stack contract — both this Go
+// writer and the TypeScript plugin reader reference the field name
+// `fallback_models` verbatim.
 package config
 
 import (
@@ -23,9 +24,9 @@ import (
 // ClearedModels tracks targets whose model was explicitly cleared by the user,
 // so ApplyPreferences can remove the model key from opencode.json.
 // AdvProviders holds provider-specific ADV variant configuration (enable/disable + model).
-// TargetFallbacks maps each target to its ordered fallback chain — written
-// at opencode.json path agent.<name>.options.fallback_models. See
-// schema/fallback-schema.json for the contract; empty/missing means no
+// TargetFallbacks maps each target to its ordered fallback chain — written to
+// OMR plugin tuple options. See schema/fallback-schema.json for the contract;
+// empty/missing means no
 // fallback (single-model behavior).
 type PreferencesConfig struct {
 	TargetModels    map[string]string            `json:"target_models"`

@@ -35,7 +35,7 @@ type Target struct {
 	BuiltIn        bool
 	Locked         bool     // true for built-in primary agents whose cycle order is fixed by OpenCode
 	Hidden         bool     // true when frontmatter sets hidden: true
-	FallbackModels []string // ordered fallback chain from agent.<name>.options.fallback_models
+	FallbackModels []string // ordered fallback chain from OMR plugin options; legacy agent options are migration-only
 }
 
 var unmappedMainAgents = map[string]bool{
@@ -251,11 +251,16 @@ func discoverTargets(configDir string, raw []byte) []Target {
 	return targets
 }
 
-// readFallbackChain extracts agent.<name>.options.fallback_models from the
-// raw config as a []string. Returns nil when the path is absent or the value
-// is not an array. The path constant lives in fallback.go.
+// readFallbackChain extracts the plugin-owned fallback chain first, then the
+// legacy agent.<name>.options.fallback_models path for migration.
 func readFallbackChain(raw []byte, agentName string) []string {
-	res := gjson.GetBytes(raw, "agent."+agentName+"."+FallbackJSONPath)
+	var res gjson.Result
+	if path, ok := pluginFallbackPath(raw, agentName); ok {
+		res = gjson.GetBytes(raw, path)
+	}
+	if !res.Exists() {
+		res = gjson.GetBytes(raw, "agent."+agentName+"."+FallbackJSONPath)
+	}
 	if !res.Exists() || !res.IsArray() {
 		return nil
 	}

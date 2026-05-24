@@ -66,6 +66,17 @@ describe("classifySessionError", () => {
   test("no signals → unknown", () => {
     expect(classifySessionError({})).toBe("unknown");
   });
+  test("MessageAbortedError → null (user cancel, no fallback)", () => {
+    expect(
+      classifySessionError({
+        name: "MessageAbortedError",
+        data: { message: "The operation was aborted." },
+      }),
+    ).toBeNull();
+  });
+  test("AbortError name → null (user cancel, no fallback)", () => {
+    expect(classifySessionError({ name: "AbortError", data: { message: "Aborted" } })).toBeNull();
+  });
 
   // Extra fixtures for the responseBody scan + provider-specific cases not
   // covered by the canonical statusCode/message paths above.

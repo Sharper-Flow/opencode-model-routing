@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Sharper-Flow/opencode-model-routing/schema/fallback-schema.json",
   "title": "OpenCode Model Routing — Fallback Chain Contract",
-  "description": "Canonical schema for the per-agent fallback chain field consumed by both the Go writer (omr) and the TypeScript runtime plugin. The chain lives at `agent.<name>.options.fallback_models` inside OpenCode's global `opencode.json`. The `options` slot is OpenCode's documented extension surface — `AgentConfig.normalize()` in packages/opencode/src/config/agent.ts relocates any non-allow-listed sibling key into `options` at config load time, so writing directly to `options.fallback_models` matches the schema contract rather than relying on the transform side-effect. See design.md § D1 for the source citation.",
+  "description": "Canonical schema for the per-agent fallback chain field consumed by both the Go writer (omr) and the TypeScript runtime plugin. The chain lives under the OMR plugin tuple option at `plugin[N][1].agents.<name>.fallback_models` inside OpenCode's global `opencode.json`. Legacy `agent.<name>.options.fallback_models` is read only for migration because OpenCode forwards `agent.options` into provider/model request options.",
 
   "type": "object",
   "properties": {

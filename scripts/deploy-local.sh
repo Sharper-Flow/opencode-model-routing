@@ -86,10 +86,10 @@ jsonc_to_json() {
 	fi
 }
 
-json_array_contains() {
-	local file="$1" jq_path="$2" value="$3"
+plugin_array_contains_spec() {
+	local file="$1" value="$2"
 	jsonc_to_json "$file" | jq --arg value "$value" \
-		-e "($jq_path | if type == \"array\" then . else [.] end) | any(. == \$value)" \
+		-e '((.plugin // []) | if type == "array" then . else [.] end) | any((type == "string" and . == $value) or (type == "array" and .[0] == $value))' \
 		&>/dev/null
 }
 
@@ -107,7 +107,7 @@ check_config() {
 		echo "    ✗ config is not valid JSON/JSONC: $GLOBAL_JSON"
 		return 1
 	fi
-	if json_array_contains "$GLOBAL_JSON" ".plugin // []" "$PLUGIN_CONFIG_PATH"; then
+	if plugin_array_contains_spec "$GLOBAL_JSON" "$PLUGIN_CONFIG_PATH"; then
 		echo "    ✓ plugin registered: $PLUGIN_CONFIG_PATH"
 	else
 		echo "    ✗ plugin path missing from .plugin[]"
@@ -115,7 +115,7 @@ check_config() {
 		issues=1
 	fi
 	if jsonc_to_json "$GLOBAL_JSON" | jq -e --arg dev "$SOURCE_PLUGIN_PATH" \
-		'((.plugin // []) | if type == "array" then . else [.] end) | any(. == $dev)' \
+		'((.plugin // []) | if type == "array" then . else [.] end) | any((type == "string" and . == $dev) or (type == "array" and .[0] == $dev))' \
 		>/dev/null 2>&1; then
 		echo "    ⚠ dev checkout plugin path still registered: $SOURCE_PLUGIN_PATH"
 		issues=1
@@ -129,7 +129,7 @@ patch_config_if_possible() {
 	fi
 	if [ "$GLOBAL_JSON_IS_JSONC" = true ]; then
 		echo "    ⚠ config is JSONC — not auto-patching to avoid comment loss"
-		echo "      Add manually: \"$PLUGIN_CONFIG_PATH\""
+		echo "      Add manually: [\"$PLUGIN_CONFIG_PATH\", {\"agents\": {}}]"
 		return 0
 	fi
 
@@ -138,14 +138,15 @@ patch_config_if_possible() {
 	tmp_json="$(mktemp)"
 	jsonc_to_json "$GLOBAL_JSON" >"$tmp_json"
 	jq --arg plugin "$PLUGIN_CONFIG_PATH" --arg dev "$SOURCE_PLUGIN_PATH" '
+		def spec: if type == "array" then .[0] else . end;
 		.plugin = (((.plugin // []) | if type == "array" then . else [.] end)
-			| map(select(. != $dev)) + [$plugin] | unique)
+			| map(select(spec != $dev and spec != $plugin)) + [[$plugin, {"agents": {}}]])
 	' "$tmp_json" >"$tmp_json.new"
 	mv "$tmp_json.new" "$tmp_json"
 
 	if [ "$DRY_RUN" = true ]; then
 		echo "    dry-run: would back up $GLOBAL_JSON to $backup"
-		echo "    dry-run: would patch .plugin[] with $PLUGIN_CONFIG_PATH"
+		echo "    dry-run: would patch .plugin[] with [$PLUGIN_CONFIG_PATH, {agents:{}}]"
 		rm -f "$tmp_json"
 	else
 		cp "$GLOBAL_JSON" "$backup"

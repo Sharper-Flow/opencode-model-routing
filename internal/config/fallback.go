@@ -6,28 +6,92 @@
 // plugin's loader reference the field name `fallback_models` verbatim — drift
 // is enforced by schema-contract-check.sh.
 //
-// Why `agent.<name>.options.fallback_models` instead of a top-level sibling
-// key: OpenCode's `AgentConfig.normalize()` in
-// packages/opencode/src/config/agent.ts relocates any non-allow-listed
-// sibling into `options` at config load time. Writing directly to the
-// `options` extension slot matches the documented contract rather than
-// relying on the transform side-effect. See design.md § D1 for the citation.
+// New writes target OMR plugin tuple options because OpenCode forwards
+// agent.options into provider/model requests. FallbackJSONPath remains only as
+// the legacy migration path under agent.<name>.options.fallback_models.
 package config
 
 import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ModelKeyPattern is the regex that every fallback chain entry must match.
 // Mirrors `items.pattern` in schema/fallback-schema.json.
 const ModelKeyPattern = `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\.[A-Za-z0-9_:/-]+)*$`
 
-// FallbackJSONPath is the canonical JSON path under each agent for the
-// fallback chain. Used by ApplyPreferences (sjson SetBytes target) and by
-// discoverTargets (gjson read source).
+// FallbackJSONPath is the legacy JSON path under each agent for the fallback
+// chain. OMR now writes plugin tuple options instead; this path is retained for
+// migration reads and cleanup.
 const FallbackJSONPath = "options.fallback_models"
+
+const RoutingPluginID = "@sharper-flow/opencode-model-routing-plugin"
+const RoutingPluginPathFragment = "opencode-model-routing"
+
+func isRoutingPluginSpec(spec string) bool {
+	return spec == RoutingPluginID || strings.Contains(spec, RoutingPluginPathFragment)
+}
+
+func routingPluginIndex(raw []byte) (int, bool) {
+	plugins := gjson.GetBytes(raw, "plugin")
+	if !plugins.Exists() || !plugins.IsArray() {
+		return -1, false
+	}
+	for i, item := range plugins.Array() {
+		if item.Type == gjson.String && isRoutingPluginSpec(item.String()) {
+			return i, true
+		}
+		if item.IsArray() {
+			arr := item.Array()
+			if len(arr) > 0 && arr[0].Type == gjson.String && isRoutingPluginSpec(arr[0].String()) {
+				return i, true
+			}
+		}
+	}
+	return -1, false
+}
+
+func ensureRoutingPluginOptions(raw []byte) ([]byte, int, error) {
+	idx, ok := routingPluginIndex(raw)
+	if !ok {
+		updated := raw
+		if !gjson.GetBytes(updated, "plugin").IsArray() {
+			var err error
+			updated, err = sjson.SetBytes(updated, "plugin", []any{})
+			if err != nil {
+				return nil, -1, err
+			}
+		}
+		updated, err := sjson.SetBytes(updated, "plugin.-1", []any{RoutingPluginID, map[string]any{}})
+		if err != nil {
+			return nil, -1, err
+		}
+		idx, _ = routingPluginIndex(updated)
+		return updated, idx, nil
+	}
+
+	entry := gjson.GetBytes(raw, fmt.Sprintf("plugin.%d", idx))
+	if entry.Type == gjson.String {
+		updated, err := sjson.SetBytes(raw, fmt.Sprintf("plugin.%d", idx), []any{entry.String(), map[string]any{}})
+		if err != nil {
+			return nil, -1, err
+		}
+		return updated, idx, nil
+	}
+	return raw, idx, nil
+}
+
+func pluginFallbackPath(raw []byte, agentName string) (string, bool) {
+	idx, ok := routingPluginIndex(raw)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("plugin.%d.1.agents.%s.fallback_models", idx, agentName), true
+}
 
 // MaxChainLength caps the number of entries in a single fallback chain.
 // Mirrors `maxItems` in schema/fallback-schema.json. The cap is conservative

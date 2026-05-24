@@ -418,6 +418,15 @@ func readOpencodeJSON(t *testing.T) []byte {
 	return data
 }
 
+func readPluginFallback(t *testing.T, raw []byte, agent string) gjson.Result {
+	t.Helper()
+	path, ok := pluginFallbackPath(raw, agent)
+	if !ok {
+		t.Fatalf("routing plugin fallback path missing in config: %s", string(raw))
+	}
+	return gjson.GetBytes(raw, path)
+}
+
 func TestApplyPreferences_WritesFallbackChain(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
@@ -435,7 +444,7 @@ func TestApplyPreferences_WritesFallbackChain(t *testing.T) {
 	}
 
 	raw := readOpencodeJSON(t)
-	res := gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath)
+	res := readPluginFallback(t, raw, "scout")
 	if !res.IsArray() {
 		t.Fatalf("expected fallback_models to be an array, got %v", res)
 	}
@@ -472,7 +481,7 @@ func TestApplyPreferences_WritesPrimaryModelAndChainTogether(t *testing.T) {
 	if got := gjson.GetBytes(raw, "agent.scout.model").String(); got != "anthropic/claude-opus-4" {
 		t.Errorf("primary model = %q, want anthropic/claude-opus-4", got)
 	}
-	chain := gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Array()
+	chain := readPluginFallback(t, raw, "scout").Array()
 	if len(chain) != 1 || chain[0].String() != "openai/gpt-5" {
 		t.Errorf("chain = %v, want [openai/gpt-5]", chain)
 	}
@@ -481,8 +490,8 @@ func TestApplyPreferences_WritesPrimaryModelAndChainTogether(t *testing.T) {
 func TestApplyPreferences_ClearsEmptyChain(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG_DIR", dir)
-	// Pre-existing chain at options.fallback_models.
-	initial := `{"agent": {"scout": {"options": {"fallback_models": ["openai/gpt-5"]}}}}`
+	// Pre-existing chain at plugin tuple options plus legacy options fallback.
+	initial := `{"agent": {"scout": {"options": {"fallback_models": ["legacy/model"]}}}, "plugin": [["@sharper-flow/opencode-model-routing-plugin", {"agents": {"scout": {"fallback_models": ["openai/gpt-5"]}}}]]}`
 	mustWriteFile(t, filepath.Join(dir, "opencode.json"), []byte(initial), 0644)
 
 	// Empty chain in preferences should clear the field.
@@ -494,9 +503,11 @@ func TestApplyPreferences_ClearsEmptyChain(t *testing.T) {
 	}
 
 	raw := readOpencodeJSON(t)
+	if path, ok := pluginFallbackPath(raw, "scout"); ok && gjson.GetBytes(raw, path).Exists() {
+		t.Errorf("expected plugin fallback_models to be cleared, but path still exists: %s", gjson.GetBytes(raw, path).Raw)
+	}
 	if gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Exists() {
-		t.Errorf("expected fallback_models to be cleared, but path still exists: %s",
-			gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Raw)
+		t.Errorf("expected legacy fallback_models to be cleared, but path still exists: %s", gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Raw)
 	}
 }
 
@@ -516,6 +527,12 @@ func TestApplyPreferences_PreservesOtherOptionsSiblings(t *testing.T) {
 	raw := readOpencodeJSON(t)
 	if got := gjson.GetBytes(raw, "agent.scout.options.existing_key").String(); got != "keep_me" {
 		t.Errorf("existing_key = %q, want keep_me (sjson should preserve siblings)", got)
+	}
+	if gjson.GetBytes(raw, "agent.scout."+FallbackJSONPath).Exists() {
+		t.Errorf("legacy fallback_models should be removed after plugin-owned write")
+	}
+	if got := readPluginFallback(t, raw, "scout").Array(); len(got) != 1 || got[0].String() != "openai/gpt-5" {
+		t.Errorf("plugin fallback chain = %v, want [openai/gpt-5]", got)
 	}
 }
 

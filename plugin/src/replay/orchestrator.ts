@@ -9,13 +9,13 @@ import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { FallbackStore } from "../state/store.ts";
 import type { ErrorCategory, ModelKey, PluginConfig, ReplayResult } from "../types.ts";
-import { isRecord } from "../utils/type-guards.ts";
+import { isRecord, messageInfo, messageParts, unwrapSdkData } from "../utils/type-guards.ts";
 import { convertPartsForPrompt, type Part } from "./message-converter.ts";
 
 // Narrow client surface used here. Tests stub via MockClient.
 export interface OrchestratorClient {
   session: {
-    messages(args: unknown): Promise<unknown[]>;
+    messages(args: unknown): Promise<unknown>;
     abort(args: unknown): Promise<unknown>;
     revert(args: unknown): Promise<unknown>;
     prompt(args: unknown): Promise<unknown>;
@@ -53,16 +53,16 @@ interface LastUserMessage {
 // we need to revert past and re-prompt. Returns null if not found.
 function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || typeof m !== "object") continue;
-    const role = (m as { role?: unknown }).role;
+    const info = messageInfo(messages[i]);
+    if (!info) continue;
+    const role = info.role;
     if (role !== "user") continue;
-    const id = (m as { id?: unknown }).id ?? (m as { messageID?: unknown }).messageID;
-    const parts = (m as { parts?: unknown }).parts;
-    const agent = (m as { agent?: unknown }).agent;
+    const id = info.id ?? info.messageID;
+    const parts = messageParts(messages[i]);
+    const agent = info.agent;
     return {
       messageID: typeof id === "string" ? id : null,
-      parts: Array.isArray(parts) ? parts : [],
+      parts,
       agent: typeof agent === "string" ? agent : null,
     };
   }
@@ -164,9 +164,9 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
 
     let messages: unknown[];
     try {
-      messages = await client.session.messages({ sessionID: sessionId } as never).catch(async () =>
-        client.session.messages({ sessionId } as never),
-      );
+      const response = await client.session.messages({ path: { id: sessionId } } as never);
+      const data = unwrapSdkData(response);
+      messages = Array.isArray(data) ? data : [];
     } catch (err) {
       logger.error("fallback.messages_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "messages failed" };
@@ -183,7 +183,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     const orphanMessageId = findOrphanCandidate(messages, lastUser.messageID);
 
     try {
-      await client.session.abort({ sessionID: sessionId } as never);
+      await client.session.abort({ path: { id: sessionId } } as never);
     } catch (err) {
       logger.error("fallback.abort_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "abort failed" };
@@ -192,7 +192,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     await sleep(config.abortWaitMs);
 
     try {
-      await client.session.revert({ sessionID: sessionId, messageID: lastUser.messageID } as never);
+      await client.session.revert({ path: { id: sessionId }, body: { messageID: lastUser.messageID } } as never);
     } catch (err) {
       logger.error("fallback.revert_failed", { sessionId, err: errorSummary(err) });
       return { success: false, error: "revert failed" };
@@ -203,10 +203,12 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
 
     try {
       await client.session.prompt({
-        sessionID: sessionId,
-        model: { providerID, modelID },
-        parts: convertPartsForPrompt(lastUser.parts),
-        agent: agentName,
+        path: { id: sessionId },
+        body: {
+          model: { providerID, modelID },
+          parts: convertPartsForPrompt(lastUser.parts),
+          agent: agentName,
+        },
       } as never);
     } catch (err) {
       logger.error("fallback.prompt_failed", { sessionId, err: errorSummary(err) });

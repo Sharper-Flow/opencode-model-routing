@@ -28,12 +28,19 @@ function ctxWithChain(chain: ModelKey[]) {
   return ctx;
 }
 
-async function createRuntimeHooks(client: MockClient, config: unknown) {
+function userMsg(id = "msg-1", agent = "scout") {
+  return { info: { id, role: "user", agent }, parts: [] };
+}
+
+async function createRuntimeHooks(client: MockClient, config: unknown, pluginOptions?: unknown) {
   // PluginInput no longer carries config (real OpenCode shape). To preserve
   // existing test semantics, we invoke pluginModule.server then explicitly
   // call the Hooks.config callback to deliver the synthetic config — matching
   // the real lifecycle (init → config → events).
-  const hooks = await pluginModule.server({ client } as unknown as Parameters<typeof pluginModule.server>[0]);
+  const hooks = await pluginModule.server(
+    { client } as unknown as Parameters<typeof pluginModule.server>[0],
+    pluginOptions as Parameters<typeof pluginModule.server>[1],
+  );
   const configHook = (hooks as HooksWithConfig).config;
   if (configHook) await configHook(config);
   return hooks;
@@ -86,7 +93,7 @@ describe("handleChatMessage", () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     // Cool current model
     ctx.store.health.cooldown("a/one" as ModelKey, 60_000);
-    const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
+    const client = new MockClient({ messages: [userMsg()] });
     const output = { message: { model: { providerID: "a", modelID: "one" } } };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
     expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
@@ -128,7 +135,7 @@ describe("handleChatMessage", () => {
     state.fallbackDepth = 2;
     state.lastFallbackAt = Date.now();
 
-    const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
+    const client = new MockClient({ messages: [userMsg()] });
     const output = { message: { model: { providerID: "c", modelID: "manual" } } };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
 
@@ -156,7 +163,7 @@ describe("handleEvent — session.error", () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      messages: [userMsg()],
     });
     await handleEvent(ctx, client, {
       type: "session.error",
@@ -170,6 +177,30 @@ describe("handleEvent — session.error", () => {
     expect(client.callsTo("session.prompt").length).toBe(1);
     expect(ctx.store.sessions.get("s1").currentModel).toBe("b/two");
   });
+
+  test("does not fallback on MessageAbortedError from user cancel", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg()],
+    });
+
+    await handleEvent(ctx, client, {
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: {
+          name: "MessageAbortedError",
+          data: { message: "The operation was aborted." },
+        },
+      },
+    });
+
+    expect(client.callsTo("session.abort").length).toBe(0);
+    expect(client.callsTo("session.prompt").length).toBe(0);
+    expect(ctx.store.sessions.get("s1").currentModel).toBe("a/one");
+    expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(false);
+  });
 });
 
 describe("plugin event hook boundary", () => {
@@ -177,11 +208,24 @@ describe("plugin event hook boundary", () => {
     const hooks = await createRuntimeHooks(new MockClient(), {});
 
     expect(typeof hooks["chat.message"]).toBe("function");
+    expect(typeof hooks["chat.params"]).toBe("function");
     expect(typeof hooks.event).toBe("function");
   });
 
+  test("chat.params strips legacy OMR fallback_models before provider transform", async () => {
+    const hooks = await createRuntimeHooks(new MockClient(), {});
+    const out: { options: Record<string, unknown> } = {
+      options: { fallback_models: ["a/one"], thinking: { type: "enabled" } },
+    };
+
+    const hook = hooks["chat.params"] as ((input: unknown, output: unknown) => unknown | Promise<unknown>) | undefined;
+    await hook?.({}, out);
+
+    expect(out.options).toEqual({ thinking: { type: "enabled" } });
+  });
+
   test("malformed chat hook payload is a no-op", async () => {
-    const client = new MockClient({ messages: [{ agent: "scout", role: "user" }] });
+    const client = new MockClient({ messages: [userMsg()] });
     const hooks = await createRuntimeHooks(
       client,
       {
@@ -202,7 +246,7 @@ describe("plugin event hook boundary", () => {
 
   test("unwraps canonical OpenCode { event } payload before dispatch", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      messages: [userMsg()],
     });
     const hooks = await createRuntimeHooks(
       client,
@@ -228,7 +272,7 @@ describe("plugin event hook boundary", () => {
 
   test("malformed event wrapper payload is a no-op", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      messages: [userMsg()],
     });
     const hooks = await createRuntimeHooks(
       client,
@@ -264,7 +308,7 @@ describe("handleEvent — session.status retry", () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+      messages: [userMsg()],
     });
     await handleEvent(ctx, client, {
       type: "session.status",
@@ -297,7 +341,7 @@ describe("handleEvent — session.status retry", () => {
       const ctx = ctxWithChain(["a/one", "b/two"]);
       ctx.store.sessions.get("s1").currentModel = "a/one";
       const client = new MockClient({
-        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+        messages: [userMsg()],
       });
       await handleEvent(ctx, client, {
         type: "session.status",
@@ -323,7 +367,7 @@ describe("handleEvent — session.status retry", () => {
       const ctx = ctxWithChain(["a/one", "b/two"]);
       ctx.store.sessions.get("s1").currentModel = "a/one";
       const client = new MockClient({
-        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+        messages: [userMsg()],
       });
       await handleEvent(ctx, client, {
         type: "session.status",
@@ -349,7 +393,7 @@ describe("handleEvent — session.status retry", () => {
       const ctx = ctxWithChain(["a/one", "b/two"]);
       ctx.store.sessions.get("s1").currentModel = "a/one";
       const client = new MockClient({
-        messages: [{ id: "msg-1", role: "user", agent: "scout", parts: [] }],
+        messages: [userMsg()],
       });
       await handleEvent(ctx, client, {
         type: "session.status",
@@ -397,16 +441,15 @@ describe("handleEvent — session.status retry", () => {
 });
 
 describe("handleEvent — token arrival", () => {
-  test("clears TTFT timer on session.message.part.updated", async () => {
+  test("clears TTFT timer on message.part.updated", async () => {
     const ctx = ctxWithChain(["a/one"]);
     // Arm a timer manually
     ctx.ttft.arm("s1", 5_000, () => {});
     expect(ctx.ttft.has("s1")).toBe(true);
     await handleEvent(ctx, new MockClient(), {
-      type: "session.message.part.updated",
+      type: "message.part.updated",
       properties: {
-        sessionID: "s1",
-        part: { type: "text", text: "hi" },
+        part: { sessionID: "s1", type: "text", text: "hi" },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(false);
@@ -416,10 +459,9 @@ describe("handleEvent — token arrival", () => {
     const ctx = ctxWithChain(["a/one"]);
     ctx.ttft.arm("s1", 5_000, () => {});
     await handleEvent(ctx, new MockClient(), {
-      type: "session.message.part.updated",
+      type: "message.part.updated",
       properties: {
-        sessionID: "s1",
-        part: { type: "", text: "" },
+        part: { sessionID: "s1", type: "", text: "" },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(true);
@@ -430,10 +472,9 @@ describe("handleEvent — token arrival", () => {
     const ctx = ctxWithChain(["a/one"]);
     ctx.ttft.arm("s1", 5_000, () => {});
     await handleEvent(ctx, new MockClient(), {
-      type: "session.message.part.updated",
+      type: "message.part.updated",
       properties: {
-        sessionID: "s1",
-        part: { type: "tool" },
+        part: { sessionID: "s1", type: "tool" },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(true);
@@ -446,8 +487,11 @@ describe("handleEvent — token arrival", () => {
 // existed). These tests codify the real bus contract and protect against
 // regressions in hook-ordering or chain-loading.
 describe("createPluginHooks — Hooks.config lifecycle", () => {
-  async function makeHooks(client: MockClient) {
-    return pluginModule.server({ client } as unknown as Parameters<typeof pluginModule.server>[0]);
+  async function makeHooks(client: MockClient, pluginOptions?: unknown) {
+    return pluginModule.server(
+      { client } as unknown as Parameters<typeof pluginModule.server>[0],
+      pluginOptions as Parameters<typeof pluginModule.server>[1],
+    );
   }
 
   async function callConfig(hooks: Awaited<ReturnType<typeof makeHooks>>, cfg: unknown) {
@@ -478,7 +522,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
   test("init → config → event triggers fallback with chain from cfg", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+      messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(client);
     // OpenCode-side: deliver merged Config via the hook
@@ -496,13 +540,29 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     // first non-cooled model). Without this, the test passes even if the
     // resolver picked a different/wrong model.
     expect(promptCalls[0].args).toMatchObject({
-      model: { providerID: "anthropic", modelID: "claude" },
+      body: { model: { providerID: "anthropic", modelID: "claude" } },
+    });
+  });
+
+  test("plugin tuple options supply chains without agent options config", async () => {
+    const client = new MockClient({ messages: [userMsg("msg-1", "adv")] });
+    const hooks = await makeHooks(client, {
+      agents: { adv: { fallback_models: ["plugin/primary"] } },
+    });
+    await callConfig(hooks, {});
+
+    await callRuntimeEvent(hooks, { event: usageRetryEvent() });
+
+    const promptCalls = client.callsTo("session.prompt");
+    expect(promptCalls.length).toBe(1);
+    expect(promptCalls[0].args).toMatchObject({
+      body: { model: { providerID: "plugin", modelID: "primary" } },
     });
   });
 
   test("ordering violation: event before config → no crash, no fallback; recovers after config", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+      messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(client);
     // Fire event BEFORE config — codifies the ordering contract.
@@ -521,7 +581,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
   test("empty agent config → chains stay empty → fallback exits 'no chain'", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+      messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(client);
     await callConfig(hooks, {}); // no `agent` key at all
@@ -532,7 +592,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
   test("config hook re-invocation updates chain in-place (Map identity preserved + new chain used)", async () => {
     const client = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+      messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(client);
     await callConfig(hooks, {
@@ -549,7 +609,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     const promptCalls = client.callsTo("session.prompt");
     expect(promptCalls.length).toBe(1);
     expect(promptCalls[0].args).toMatchObject({
-      model: { providerID: "updated", modelID: "model" },
+      body: { model: { providerID: "updated", modelID: "model" } },
     });
   });
 
@@ -558,7 +618,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     // accidentally removed, agents from earlier config deliveries would leak
     // and produce phantom fallback routes.
     const advClient = new MockClient({
-      messages: [{ id: "msg-1", role: "user", agent: "adv", parts: [] }],
+      messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(advClient);
     // First delivery: agent "adv" has a chain

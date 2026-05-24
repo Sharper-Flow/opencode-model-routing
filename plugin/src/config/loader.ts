@@ -1,10 +1,9 @@
-// Configuration loader: reads per-agent fallback chains from the OpenCode
-// config object passed by the `config` hook input.
+// Configuration loader: reads per-agent fallback chains from OMR plugin tuple
+// options, with legacy OpenCode config fallback for migration.
 //
-// Canonical JSON path is `agent.<name>.options.fallback_models` per
-// schema/fallback-schema.json — OpenCode's AgentConfig normalize() relocates
-// any non-allow-listed sibling into `options`, so we read from the documented
-// extension slot rather than relying on the transform side-effect.
+// Canonical shape is pluginOptions.agents.<name>.fallback_models per
+// schema/fallback-schema.json. Legacy agent.<name>.options.fallback_models is
+// migration-only because OpenCode forwards agent.options to provider requests.
 //
 // Transitional path: `agent.<name>.fallback_models` (top-level sibling) is
 // also read as a fallback — a user who hand-edits sibling keys into their
@@ -32,6 +31,10 @@ export interface AgentConfigShape {
 
 export interface ConfigShape {
   agent?: Record<string, AgentConfigShape>;
+}
+
+export interface PluginOptionsShape {
+  agents?: Record<string, { fallback_models?: unknown }>;
 }
 
 export interface LoaderResult {
@@ -64,9 +67,34 @@ function validateChainEntries(raw: unknown[]): { chain: ModelKey[]; dropped: num
  * A malformed chain does NOT throw — it returns an empty array. The caller
  * (`plugin/src/plugin.ts`) treats an empty chain as "no fallback".
  */
-export function loadFallbackChains(cfg: ConfigShape | unknown, logger?: Logger): LoaderResult {
+export function loadFallbackChains(
+  cfg: ConfigShape | unknown,
+  logger?: Logger,
+  pluginOptions?: PluginOptionsShape | unknown,
+): LoaderResult {
   const chains = new Map<string, ModelKey[]>();
   const warnings: string[] = [];
+
+  const pluginAgents =
+    pluginOptions && typeof pluginOptions === "object" && !Array.isArray(pluginOptions)
+      ? (pluginOptions as PluginOptionsShape).agents
+      : undefined;
+  if (pluginAgents && typeof pluginAgents === "object") {
+    for (const [name, agent] of Object.entries(pluginAgents)) {
+      if (!name || !name.trim()) continue;
+      if (!agent || typeof agent !== "object") continue;
+      const raw = agent.fallback_models;
+      if (!Array.isArray(raw)) continue;
+
+      const { chain: validated, dropped } = validateChainEntries(raw);
+      if (dropped > 0) {
+        const msg = `plugin option agent '${name}' has ${dropped} invalid fallback_models entr${dropped === 1 ? "y" : "ies"}; skipped`;
+        warnings.push(msg);
+        logger?.warn("loader.invalid_plugin_option_entries", { agent: name, count: dropped });
+      }
+      if (validated.length > 0) chains.set(name, validated);
+    }
+  }
 
   const root = (cfg ?? {}) as ConfigShape;
   const agents = root.agent ?? {};
@@ -95,6 +123,13 @@ export function loadFallbackChains(cfg: ConfigShape | unknown, logger?: Logger):
     }
     if (chainRaw === undefined) continue;
 
+    if (chains.has(name)) {
+      const msg = `agent '${name}' has legacy agent.options.fallback_models ignored because plugin options define a chain`;
+      warnings.push(msg);
+      logger?.warn("loader.legacy_ignored_plugin_options_win", { agent: name });
+      continue;
+    }
+
     const { chain: validated, dropped } = validateChainEntries(chainRaw as unknown[]);
     if (dropped > 0) {
       const msg = `agent '${name}' has ${dropped} invalid fallback_models entr${dropped === 1 ? "y" : "ies"}; skipped`;
@@ -106,9 +141,13 @@ export function loadFallbackChains(cfg: ConfigShape | unknown, logger?: Logger):
     chains.set(name, validated);
 
     if (usedLegacy) {
-      const msg = `agent '${name}' uses legacy sibling-path 'fallback_models'; prefer 'options.fallback_models'`;
+      const msg = `agent '${name}' uses legacy sibling-path 'fallback_models'; prefer plugin tuple options`;
       warnings.push(msg);
       logger?.warn("loader.legacy_path", { agent: name });
+    } else {
+      const msg = `agent '${name}' uses legacy agent options fallback_models; prefer plugin tuple options`;
+      warnings.push(msg);
+      logger?.warn("loader.legacy_agent_options", { agent: name });
     }
   }
 

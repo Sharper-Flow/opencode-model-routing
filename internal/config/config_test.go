@@ -1755,11 +1755,12 @@ func TestBuildApplyPlan_DoesNotWriteOrBackup(t *testing.T) {
 	if backups := findBackups(t, dir); len(backups) != 0 {
 		t.Fatalf("BuildApplyPlan created backups: %v", backups)
 	}
-	if !gjson.GetBytes(plan.Updated, "agent.scout."+FallbackJSONPath).IsArray() {
+	pluginPath, ok := pluginFallbackPath(plan.Updated, "scout")
+	if !ok || !gjson.GetBytes(plan.Updated, pluginPath).IsArray() {
 		t.Fatalf("plan updated bytes missing fallback chain: %s", string(plan.Updated))
 	}
 	preview := plan.Preview()
-	if !strings.Contains(preview, configPath) || !strings.Contains(preview, "agent.scout.model") || !strings.Contains(preview, "agent.scout."+FallbackJSONPath) {
+	if !strings.Contains(preview, configPath) || !strings.Contains(preview, "agent.scout.model") || !strings.Contains(preview, pluginPath) {
 		t.Fatalf("preview missing expected paths; preview=\n%s", preview)
 	}
 }

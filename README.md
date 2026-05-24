@@ -12,36 +12,44 @@ This repository ships two artifacts:
 
 ## Schema Contract
 
-The per-agent fallback chain lives at `agent.<name>.options.fallback_models`
-inside OpenCode's global `opencode.json`. The shape, allowed value pattern,
-and length cap are defined in [`schema/fallback-schema.json`](./schema/fallback-schema.json).
+The per-agent fallback chain lives in the OMR plugin tuple options inside
+OpenCode's global `opencode.json`. The shape, allowed value pattern, and length
+cap are defined in [`schema/fallback-schema.json`](./schema/fallback-schema.json).
 
 Both the Go writer (`internal/config/`) and the TypeScript plugin reader
-(`plugin/src/`) reference the field name verbatim.
-The `schema-contract-check.sh` script (wired into `make lint`) enforces this
-cross-stack contract; renaming the field on one side without updating the
-other will fail CI.
+(`plugin/src/`) reference the field name `fallback_models` verbatim. The
+`schema-contract-check.sh` script (wired into `make lint`) enforces this
+cross-stack contract; renaming the field on one side without updating the other
+will fail CI.
 
-Why `options.fallback_models` rather than a top-level sibling key: OpenCode's
-`AgentConfig` schema runs a `normalize()` transform that relocates any
-non-allow-listed sibling key into `options`. Writing directly to the `options`
-extension slot matches the documented contract rather than relying on the
-transform side-effect.
+Why plugin options rather than `agent.<name>.options.fallback_models`: OpenCode
+merges `agent.options` into model/provider options before LLM execution, then
+wraps those options differently per provider family. OMR-owned routing metadata
+must not be stored in that provider-options field. The plugin also strips legacy
+`fallback_models` from `chat.params.output.options` defensively before provider
+transform.
 
 Example:
 
 ```jsonc
 {
-  "agent": {
-    "adv-researcher": {
-      "model": "anthropic/claude-sonnet-4-5",
-      "options": {
-        "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"]
+  "plugin": [
+    [
+      "/home/you/.local/share/opencode-model-routing/plugin",
+      {
+        "agents": {
+          "adv-researcher": {
+            "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"]
+          }
+        }
       }
-    }
-  }
+    ]
+  ]
 }
 ```
+
+Legacy `agent.<name>.options.fallback_models` is still read as a migration
+fallback and removed by `omr` when it writes the plugin-owned option.
 
 Markdown agent frontmatter may use either inline or multi-line YAML list form:
 
@@ -121,7 +129,12 @@ To enable in OpenCode, add the deployed plugin path to your `opencode.json`:
 
 ```jsonc
 {
-  "plugin": ["/home/you/.local/share/opencode-model-routing/plugin"]
+  "plugin": [
+    [
+      "/home/you/.local/share/opencode-model-routing/plugin",
+      { "agents": {} }
+    ]
+  ]
 }
 ```
 

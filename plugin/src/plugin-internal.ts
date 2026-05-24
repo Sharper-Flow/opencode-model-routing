@@ -40,6 +40,7 @@ export interface PluginInput {
 
 export interface PluginHooks {
   "chat.message"?: (input: unknown, output: unknown) => unknown | Promise<unknown>;
+  "chat.params"?: (input: unknown, output: unknown) => unknown | Promise<unknown>;
   event?: (input: unknown) => unknown | Promise<unknown>;
   // Hooks.config per @opencode-ai/plugin SDK — receives merged OpenCode Config
   // after plugin init and BEFORE bus.subscribeAll() — see ordering proof in
@@ -53,6 +54,7 @@ export interface PluginContext {
   chains: Map<string, ModelKey[]>;
   config: PluginConfig;
   logger: Logger;
+  pluginOptions?: unknown;
 }
 
 /**
@@ -68,6 +70,7 @@ export interface PluginContext {
 export function createPluginContext(opts: {
   config?: Partial<PluginConfig>;
   logger?: Logger;
+  pluginOptions?: unknown;
 } = {}): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
@@ -77,6 +80,7 @@ export function createPluginContext(opts: {
     chains: new Map(),
     config: merged,
     logger,
+    pluginOptions: opts.pluginOptions,
   };
 }
 
@@ -152,7 +156,7 @@ export async function handleChatMessage(
   );
 
   // Arm the TTFT timer for this round. Cleared when the first token arrives
-  // via the event hook (session.message.part.updated).
+  // via the event hook (message.part.updated).
   ctx.ttft.arm(sessionId, ctx.config.ttftMs, async () => {
     const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
     try {
@@ -196,7 +200,7 @@ interface EventInputShape {
         link?: string;
       };
     };
-    part?: { type?: string; text?: string };
+    part?: { type?: string; text?: string; sessionID?: string; sessionId?: string };
   };
 }
 
@@ -250,6 +254,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
   if (props.part !== undefined) {
     if (!isRecord(props.part)) return false;
     if (!isOptionalString(props.part.type) || !isOptionalString(props.part.text)) return false;
+    if (!isOptionalString(props.part.sessionID) || !isOptionalString(props.part.sessionId)) return false;
   }
   return true;
 }
@@ -265,6 +270,11 @@ function hasStreamingTextContent(part: { type?: string; text?: string }): boolea
   return part.type === "text" && typeof part.text === "string" && part.text.length > 0;
 }
 
+export function sanitizeChatParamsOutput(output: unknown): void {
+  if (!isRecord(output) || !isRecord(output.options)) return;
+  delete output.options.fallback_models;
+}
+
 export async function handleEvent(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -273,13 +283,14 @@ export async function handleEvent(
   // Defensive: OpenCode may invoke event with undefined during registration.
   if (!event) return;
   const props = event.properties ?? {};
-  const sessionId = props.sessionID ?? props.sessionId ?? "";
-  if (!sessionId) return;
 
   switch (event.type) {
     case "session.error": {
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      if (!sessionId) return;
       if (!props.error) return;
       const category = classifySessionError(props.error);
+      if (!category) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
       await attemptFallback({
@@ -294,6 +305,8 @@ export async function handleEvent(
       return;
     }
     case "session.status": {
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      if (!sessionId) return;
       // Structural first (P33): typed action.reason on retry status events is
       // an Effect Schema field; prefer it over lossy text-pattern matching.
       // Map definition lives at REASON_TO_CATEGORY near the top of this file.
@@ -321,13 +334,15 @@ export async function handleEvent(
       });
       return;
     }
-    case "session.message.part.updated": {
+    case "message.part.updated": {
       // First streamed text content for this session → clear TTFT timer. Do
       // not clear on metadata/tool/status parts that have a non-empty type but
       // no generated text.
       const part = props.part;
       if (!part) return;
       if (!hasStreamingTextContent(part)) return;
+      const sessionId = part.sessionID ?? part.sessionId ?? props.sessionID ?? props.sessionId ?? "";
+      if (!sessionId) return;
       if (ctx.ttft.has(sessionId)) {
         ctx.ttft.clear(sessionId);
         ctx.logger.debug("ttft.cleared_on_token", { sessionId });
@@ -349,8 +364,8 @@ export async function handleEvent(
  * while hook payloads remain `unknown` and are narrowed inside handlers because
  * plugin types are not stable across versions per agreement.
  */
-export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks> {
-  const ctx = createPluginContext();
+export async function createPluginHooks(opts: PluginInput, pluginOptions?: unknown): Promise<PluginHooks> {
+  const ctx = createPluginContext({ pluginOptions });
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
@@ -360,6 +375,9 @@ export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks>
     },
     event: async (input: unknown) => {
       await handleEvent(ctx, opts.client, normalizeEventInput(input));
+    },
+    "chat.params": async (_input: unknown, output: unknown) => {
+      sanitizeChatParamsOutput(output);
     },
     // OpenCode calls this hook after plugin init and BEFORE bus.subscribeAll(),
     // so chains are guaranteed populated before any session.status event fires.
@@ -372,7 +390,7 @@ export async function createPluginHooks(opts: PluginInput): Promise<PluginHooks>
     // Mutation is in-place (clear + set) to preserve Map identity for handler
     // closures that hold ctx by reference.
     config: async (input: unknown) => {
-      const { chains: loaded, warnings } = loadFallbackChains(input, ctx.logger);
+      const { chains: loaded, warnings } = loadFallbackChains(input, ctx.logger, ctx.pluginOptions);
       ctx.chains.clear();
       for (const [name, chain] of loaded) ctx.chains.set(name, chain);
       for (const w of warnings) ctx.logger.warn("loader.warning", { message: w });
