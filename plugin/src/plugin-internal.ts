@@ -10,6 +10,8 @@
 // after plugin init and may re-fire on config reload) — see createPluginHooks
 // for the ordering guarantee against OpenCode's bus.subscribeAll().
 
+import { applyAvailabilityPreflight } from "./availability/preflight.ts";
+import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
 import { loadFallbackChains } from "./config/loader.ts";
 import {
   classifyRetryStatusText,
@@ -146,6 +148,20 @@ export async function handleChatMessage(
   if (!sessionId) return;
 
   const agentName = await resolveAgentName(sessionId, client, ctx.store);
+
+  // Availability preflight: consume one descriptor-validated snapshot per
+  // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
+  // Anthropic/Claude selection to the first healthy configured non-Anthropic
+  // chain entry before dispatch — no Claude child attempt starts on confirmed
+  // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
+  // snapshot → null → no-op; non-Anthropic selections are never touched.
+  const snapshot = readAvailabilitySnapshot();
+  applyAvailabilityPreflight(
+    { sessionId, agentName, output, snapshot },
+    ctx.store,
+    ctx.chains,
+    ctx.logger,
+  );
 
   applyPreemptiveSkip(
     { sessionId, agentName, output },
