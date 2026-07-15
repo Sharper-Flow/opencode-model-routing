@@ -465,3 +465,116 @@ describe("attemptFallback — orphanMessageId logging", () => {
     expect(success?.data.orphanMessageId).toBeUndefined();
   });
 });
+
+// Extract the parts array actually sent to session.prompt so preserve_context
+// behaviour can be asserted against the real replay prompt.
+function promptParts(client: MockClient): unknown[] {
+  const call = client.callsTo("session.prompt")[0];
+  const body = (call?.args as { body: { parts: unknown[] } } | undefined)?.body;
+  return body?.parts ?? [];
+}
+
+describe("attemptFallback — preserve_context", () => {
+  test("preserveContext=true with assistant work → recovery part prepended", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "bash" }])],
+    });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig, // preserveContext defaults to true
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const parts = promptParts(client);
+    // Recovery part is first; original user parts follow.
+    expect(parts.length).toBe(2);
+    const recovery = parts[0] as { type: string; text: string };
+    expect(recovery.type).toBe("text");
+    expect(recovery.text).toContain("auto-generated from failed turn, verify before acting");
+    expect(recovery.text).toContain("Previous model (a/one) failed mid-turn");
+    expect(recovery.text).toContain("bash");
+    expect(recovery.text).toContain("Do not blindly re-execute; verify current state before continuing.");
+    // Original user prompt preserved as the second part.
+    expect(parts[1]).toEqual({ type: "text", text: "hello" });
+  });
+
+  test("preserveContext=true with no assistant work → bare prompt (current behaviour)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg("user-1")] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const parts = promptParts(client);
+    expect(parts).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  test("preserveContext=false → bare prompt even when assistant work exists", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "bash" }])],
+    });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: { ...defaultConfig, preserveContext: false },
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const parts = promptParts(client);
+    expect(parts).toEqual([{ type: "text", text: "hello" }]);
+    const joined = JSON.stringify(parts);
+    expect(joined).not.toContain("[Context Recovery]");
+    expect(joined).not.toContain("bash");
+  });
+
+  test("preserveContext=true with null current model → recovery part labels 'unknown'", async () => {
+    const store = new FallbackStore();
+    // currentModel left null (no prior model known)
+    const client = new MockClient({
+      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "edit" }])],
+    });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const recovery = promptParts(client)[0] as { type: string; text: string };
+    expect(recovery.text).toContain("Previous model (unknown) failed mid-turn");
+    expect(recovery.text).toContain("edit");
+  });
+});

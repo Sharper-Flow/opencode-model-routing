@@ -37,6 +37,12 @@ export interface PluginConfig {
   // canonical reference plugin to avoid a race where revert is rejected
   // mid-abort.
   abortWaitMs: number;
+  // When true, a model that fails mid-turn has its completed assistant work
+  // (tool calls + text) summarised and prepended to the re-prompt so the next
+  // model in the chain continues from where the previous one stopped, instead
+  // of restarting from the bare user message. Defaults to true (safe-by-default);
+  // any summary-extraction failure degrades to the bare prompt.
+  preserveContext: boolean;
 }
 
 export interface ReplayResult {
@@ -54,4 +60,5 @@ export const defaultConfig: PluginConfig = {
   maxDepth: 3,
   dedupWindowMs: 3_000,
   abortWaitMs: 150,
+  preserveContext: true,
 };

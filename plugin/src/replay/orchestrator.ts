@@ -10,6 +10,7 @@ import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { FallbackStore } from "../state/store.ts";
 import type { ErrorCategory, ModelKey, PluginConfig, ReplayResult } from "../types.ts";
 import { isRecord, messageInfo, messageParts, unwrapSdkData } from "../utils/type-guards.ts";
+import { extractContextSummary } from "./context-summary.ts";
 import { convertPartsForPrompt, type Part } from "./message-converter.ts";
 
 // Narrow client surface used here. Tests stub via MockClient.
@@ -182,6 +183,31 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     // different visibility/ordering after revert sets its pointer.
     const orphanMessageId = findOrphanCandidate(messages, lastUser.messageID);
 
+    // Build the prompt parts. When preserveContext is enabled and the failed
+    // turn left assistant work (tool calls / text) after the last user message,
+    // prepend a recovery summary so the next model continues from where the
+    // previous one stopped instead of restarting from the bare user prompt.
+    // Computed from the same pre-revert snapshot as the orphan capture.
+    // Graceful: empty summary (no work, or any extraction failure) → bare
+    // prompt, identical to the pre-feature behaviour. Fallback must never block
+    // on context enrichment.
+    let promptParts: Part[] = convertPartsForPrompt(lastUser.parts);
+    if (config.preserveContext === true) {
+      const summary = extractContextSummary(messages, lastUser.messageID);
+      if (summary.length > 0) {
+        const failedModel = current ?? "unknown";
+        const recoveryPart: Part = {
+          type: "text",
+          text:
+            `[Context Recovery — auto-generated from failed turn, verify before acting] ` +
+            `Previous model (${failedModel}) failed mid-turn. ` +
+            `Assistant work already attempted in the failed turn:\n${summary}\n` +
+            `Do not blindly re-execute; verify current state before continuing.`,
+        };
+        promptParts = [recoveryPart, ...promptParts];
+      }
+    }
+
     try {
       await client.session.abort({ path: { id: sessionId } } as never);
     } catch (err) {
@@ -206,7 +232,7 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
         path: { id: sessionId },
         body: {
           model: { providerID, modelID },
-          parts: convertPartsForPrompt(lastUser.parts),
+          parts: promptParts,
           agent: agentName,
         },
       } as never);
