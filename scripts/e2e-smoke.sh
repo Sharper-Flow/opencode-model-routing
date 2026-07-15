@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end smoke test for the writer→reader contract on
-# agent.<name>.options.fallback_models.
+# plugin tuple options: plugin[].1.agents.<name>.fallback_models.
 #
 # 1. Build the e2e-helper Go binary (which calls ApplyPreferences with a
 #    known chain against $OPENCODE_CONFIG_DIR/opencode.json).
@@ -48,12 +48,16 @@ helper_out=$(cat "$TMPDIR/helper.out")
 [ "$helper_out" = "OK" ] || fail "helper printed: $helper_out (stderr: $(cat "$TMPDIR/helper.err"))"
 ok "helper applied preferences"
 
-# 4. Assert the written JSON contains the chain at the canonical path.
+# 4. Assert the written JSON contains the chain in routing plugin tuple options.
 got=$(python3 -c "
 import json, sys
 with open('$TMPDIR/opencode.json') as f:
     cfg = json.load(f)
-chain = cfg.get('agent', {}).get('adv-researcher', {}).get('options', {}).get('fallback_models')
+chain = next((
+    entry[1].get('agents', {}).get('adv-researcher', {}).get('fallback_models')
+    for entry in cfg.get('plugin', [])
+    if isinstance(entry, list) and len(entry) > 1 and isinstance(entry[1], dict)
+), None)
 if chain != ['openai/gpt-5', 'google/gemini-2.5-pro']:
     print('mismatch: ' + repr(chain))
     sys.exit(1)
@@ -64,7 +68,7 @@ if model != 'anthropic/claude-sonnet-4-5':
 print('chain+model OK')
 ")
 [ "$got" = "chain+model OK" ] || fail "JSON shape wrong: $got"
-ok "options.fallback_models written at canonical path"
+ok "plugin tuple fallback_models written at canonical path"
 
 # 5. Assert a backup file was created.
 backups=$(ls "$TMPDIR"/opencode.json.omr-backup.* 2>/dev/null | wc -l)
@@ -82,16 +86,15 @@ cat >"$E2E_TEST_FILE" <<'TS'
 import { test, expect } from "bun:test";
 import { loadFallbackChains } from "../src/config/loader.ts";
 
-test("e2e: loader reads chain at agent.<name>.options.fallback_models", () => {
-  const cfg = {
-    agent: {
+test("e2e: loader reads chain from plugin tuple options", () => {
+  const pluginOptions = {
+    agents: {
       "adv-researcher": {
-        model: "anthropic/claude-sonnet-4-5",
-        options: { fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"] },
+        fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"],
       },
     },
   };
-  const { chains, warnings } = loadFallbackChains(cfg);
+  const { chains, warnings } = loadFallbackChains({}, undefined, pluginOptions);
   expect(chains.get("adv-researcher")).toEqual(["openai/gpt-5", "google/gemini-2.5-pro"]);
   expect(warnings).toEqual([]);
 });
@@ -102,7 +105,7 @@ bun test test/.e2e-smoke-tmp.test.ts >"$TMPDIR/bun.out" 2>"$TMPDIR/bun.err" || {
 	cat "$TMPDIR/bun.out" "$TMPDIR/bun.err" >&2
 	fail "plugin loader e2e test failed"
 }
-ok "plugin loader picks up chain at canonical path"
+ok "plugin loader picks up chain from tuple options"
 
 cd "$REPO_ROOT"
 echo "e2e smoke: PASS"

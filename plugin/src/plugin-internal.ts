@@ -10,6 +10,9 @@
 // after plugin init and may re-fire on config reload) — see createPluginHooks
 // for the ordering guarantee against OpenCode's bus.subscribeAll().
 
+import { ExhaustionGuardRegistry, shouldSuppressReplay } from "./availability/guard.ts";
+import { applyAvailabilityPreflight } from "./availability/preflight.ts";
+import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
 import { loadFallbackChains } from "./config/loader.ts";
 import {
   classifyRetryStatusText,
@@ -51,6 +54,7 @@ export interface PluginHooks {
 export interface PluginContext {
   store: FallbackStore;
   ttft: TtftRegistry;
+  guard: ExhaustionGuardRegistry;
   chains: Map<string, ModelKey[]>;
   config: PluginConfig;
   logger: Logger;
@@ -77,6 +81,7 @@ export function createPluginContext(opts: {
   return {
     store: new FallbackStore(),
     ttft: new TtftRegistry(),
+    guard: new ExhaustionGuardRegistry(),
     chains: new Map(),
     config: merged,
     logger,
@@ -145,7 +150,26 @@ export async function handleChatMessage(
   const sessionId = input.sessionID ?? input.sessionId ?? "";
   if (!sessionId) return;
 
+  // A new user turn begins: clear the prior turn's exhaustion-suppression
+  // guard so a next valid user turn can proceed (AC5). Any replay entrance
+  // later this turn re-evaluates the snapshot and may re-record it.
+  ctx.guard.clearTurn(sessionId);
+
   const agentName = await resolveAgentName(sessionId, client, ctx.store);
+
+  // Availability preflight: consume one descriptor-validated snapshot per
+  // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
+  // Anthropic/Claude selection to the first healthy configured non-Anthropic
+  // chain entry before dispatch — no Claude child attempt starts on confirmed
+  // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
+  // snapshot → null → no-op; non-Anthropic selections are never touched.
+  const snapshot = readAvailabilitySnapshot();
+  applyAvailabilityPreflight(
+    { sessionId, agentName, output, snapshot },
+    ctx.store,
+    ctx.chains,
+    ctx.logger,
+  );
 
   applyPreemptiveSkip(
     { sessionId, agentName, output },
@@ -157,22 +181,37 @@ export async function handleChatMessage(
 
   // Arm the TTFT timer for this round. Cleared when the first token arrives
   // via the event hook (message.part.updated).
-  ctx.ttft.arm(sessionId, ctx.config.ttftMs, async () => {
-    const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
-    try {
-      await attemptFallback({
-        sessionId,
-        reason: "ttft_timeout",
-        chain,
-        client,
-        store: ctx.store,
-        config: ctx.config,
-        logger: ctx.logger,
-      });
-    } catch (err) {
-      ctx.logger.error("ttft.callback_failed", { sessionId, err: errorSummary(err) });
-    }
+  ctx.ttft.arm(sessionId, ctx.config.ttftMs, () => {
+    void handleTtftTimeout(ctx, client, sessionId, agentName);
   });
+}
+
+/**
+ * TTFT replay entrance. The centralized exhaustion guard runs synchronously
+ * before the first await: confirmed mid-task Claude exhaustion suppresses
+ * the replay with zero SDK calls (AC4/AC5).
+ */
+export async function handleTtftTimeout(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+  agentName: string | null,
+): Promise<void> {
+  if (shouldSuppressReplay(sessionId, ctx)) return;
+  const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+  try {
+    await attemptFallback({
+      sessionId,
+      reason: "ttft_timeout",
+      chain,
+      client,
+      store: ctx.store,
+      config: ctx.config,
+      logger: ctx.logger,
+    });
+  } catch (err) {
+    ctx.logger.error("ttft.callback_failed", { sessionId, err: errorSummary(err) });
+  }
 }
 
 interface EventInputShape {
@@ -291,6 +330,10 @@ export async function handleEvent(
       if (!props.error) return;
       const category = classifySessionError(props.error);
       if (!category) return;
+      // Centralized exhaustion guard, synchronously before the first await
+      // of this replay entrance (resolveAgentName may call session.messages).
+      // Confirmed mid-task Claude exhaustion → suppress with zero SDK calls.
+      if (shouldSuppressReplay(sessionId, ctx)) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
       await attemptFallback({
@@ -321,6 +364,10 @@ export async function handleEvent(
         category = classifyRetryStatusText(status?.message);
       }
       if (!category) return;
+      // Centralized exhaustion guard, synchronously before the first await
+      // of this replay entrance — retry status cannot bypass confirmed
+      // exhaustion (AC5).
+      if (shouldSuppressReplay(sessionId, ctx)) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
       await attemptFallback({
