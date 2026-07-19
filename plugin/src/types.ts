@@ -43,6 +43,18 @@ export interface PluginConfig {
   // of restarting from the bare user message. Defaults to true (safe-by-default);
   // any summary-extraction failure degrades to the bare prompt.
   preserveContext: boolean;
+  // Per-category cooldown overrides. When a model fails with a given
+  // ErrorCategory, the cooldown applied is `cooldownMsByCategory[category]`
+  // if present, otherwise the default `cooldownMs`. Categories absent from
+  // this map fall through to `cooldownMs`. Useful for treating persistent
+  // failure modes (quota exhaustion, auth) with longer windows than
+  // transient ones (rate_limit, server_error) — prevents thrash cycles
+  // where a 5-minute default cooldown expires, the model is retried, fails
+  // again immediately, and triggers another fallback cascade.
+  //
+  // Set an entry to `Number.POSITIVE_INFINITY` for permanent-block within
+  // the process lifetime (model never retried until plugin reload).
+  cooldownMsByCategory?: Partial<Record<ErrorCategory, number>>;
 }
 
 export interface ReplayResult {
@@ -50,6 +62,14 @@ export interface ReplayResult {
   fallbackModel?: ModelKey;
   fromModel?: ModelKey | null;
   error?: string;
+  // True when the recovery was short-circuited because the session is a
+  // subagent. The model was still marked unhealthy (with category-aware
+  // cooldown) and `fallbackModel` reflects the next healthy chain entry,
+  // but no abort/revert/prompt was issued. Consumers observing this flag
+  // should not expect the session to resume on `fallbackModel` — the
+  // parent's Task tool will spawn a replacement that hits preemptive
+  // redirect instead.
+  subagentSkipped?: boolean;
 }
 
 // Default config values. PluginConfig type doc lists units; this object
@@ -61,4 +81,16 @@ export const defaultConfig: PluginConfig = {
   dedupWindowMs: 3_000,
   abortWaitMs: 150,
   preserveContext: true,
+  // Category-aware defaults: persistent failure modes get longer cooldowns
+  // than the 5-minute default. Quota exhaustion typically lasts hours (plan
+  // reset cycle) — a 1-hour window prevents the thrash cycle while still
+  // allowing eventual retry if the plan resets mid-process. Auth errors
+  // rarely self-heal in 5 minutes; 30 minutes gives a reasonable window
+  // for credential rotation. Transient categories (rate_limit, server_error,
+  // ttft_timeout, unknown_model, unknown) intentionally fall through to the
+  // 5-minute default — they ARE likely to recover quickly.
+  cooldownMsByCategory: {
+    quota_exhausted: 60 * 60_000, // 1 hour
+    auth_error: 30 * 60_000, // 30 minutes
+  },
 };

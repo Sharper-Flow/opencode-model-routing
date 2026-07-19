@@ -578,3 +578,237 @@ describe("attemptFallback — preserve_context", () => {
     expect(recovery.text).toContain("edit");
   });
 });
+
+describe("attemptFallback — category-aware cooldown", () => {
+  test("quota_exhausted uses cooldownMsByCategory override when present", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const config = {
+      ...defaultConfig,
+      cooldownMs: 5 * 60_000,
+      cooldownMsByCategory: {
+        quota_exhausted: 60 * 60_000,
+        auth_error: 30 * 60_000,
+      },
+    };
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    // Health record reflects the category-aware cooldown (1 hour) rather
+    // than the default 5 minutes. We verify by checking the model is in
+    // cooldown at 5+1 minutes (would have expired under default) but not
+    // at 61 minutes (still active under the 1-hour override).
+    const health = store.health.get("a/one" as ModelKey);
+    expect(health.lastCategory).toBe("quota_exhausted");
+    // cooldownUntil should be ~now + 1h. Allow slack for test runtime.
+    const now = Date.now();
+    expect(health.cooldownUntil).toBeGreaterThan(now + 55 * 60_000);
+    expect(health.cooldownUntil).toBeLessThan(now + 65 * 60_000);
+  });
+
+  test("rate_limit falls through to default cooldownMs when not in override map", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const config = {
+      ...defaultConfig,
+      cooldownMs: 5 * 60_000,
+      cooldownMsByCategory: {
+        quota_exhausted: 60 * 60_000,
+      },
+    };
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const health = store.health.get("a/one" as ModelKey);
+    expect(health.lastCategory).toBe("rate_limit");
+    const now = Date.now();
+    // Default 5-minute cooldown applies — NOT the 1-hour quota override.
+    expect(health.cooldownUntil).toBeGreaterThan(now + 4 * 60_000);
+    expect(health.cooldownUntil).toBeLessThan(now + 6 * 60_000);
+  });
+
+  test("cooldownMsByCategory absent → default cooldownMs used for all categories", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    // Pre-fix config shape: no cooldownMsByCategory field at all.
+    const config = {
+      ttftMs: 60_000,
+      cooldownMs: 5 * 60_000,
+      maxDepth: 3,
+      dedupWindowMs: 3_000,
+      abortWaitMs: 150,
+      preserveContext: true,
+    };
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const health = store.health.get("a/one" as ModelKey);
+    const now = Date.now();
+    expect(health.cooldownUntil).toBeLessThan(now + 6 * 60_000);
+  });
+
+  test("Infinity override → model never exits cooldown within process lifetime", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const config = {
+      ...defaultConfig,
+      cooldownMsByCategory: {
+        quota_exhausted: Number.POSITIVE_INFINITY,
+      },
+    };
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    // Even after a year, model still in cooldown.
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+  });
+});
+
+describe("attemptFallback — subagent short-circuit", () => {
+  test("isSubagent=true → no abort/revert/prompt, model marked unhealthy, returns subagentSkipped", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      isSubagent: true,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.subagentSkipped).toBe(true);
+    expect(result.fallbackModel).toBe("b/two");
+    expect(result.fromModel).toBe("a/one");
+
+    // CRITICAL: no abort/revert/prompt issued — these would be orphaned
+    // work because the parent Task tool observes stream-error cancels as
+    // terminal regardless. Only session.messages may be called by
+    // upstream helpers (resolveAgentName) — not by the orchestrator
+    // short-circuit path itself.
+    const methodsCalled = client.calls.map((c) => c.method);
+    expect(methodsCalled).not.toContain("session.abort");
+    expect(methodsCalled).not.toContain("session.revert");
+    expect(methodsCalled).not.toContain("session.prompt");
+    expect(methodsCalled).not.toContain("session.messages");
+
+    // Model still marked unhealthy with category-aware cooldown — this
+    // is the lever that makes the parent's replacement spawn start
+    // cleanly on the fallback model via preemptive redirect.
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+    const health = store.health.get("a/one" as ModelKey);
+    expect(health.lastCategory).toBe("quota_exhausted");
+
+    // State bookkeeping still advances so a later same-session event
+    // doesn't re-enter recovery depth=0.
+    const st = store.sessions.get("s1");
+    expect(st.currentModel).toBe("b/two");
+    expect(st.fallbackDepth).toBe(1);
+    expect(st.originalModel).toBe("a/one");
+  });
+
+  test("isSubagent=true with exhausted chain → still no recovery; returns exhausted (no subagentSkipped)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    store.sessions.get("s1").fallbackDepth = 5; // exceeds maxDepth
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: { ...defaultConfig, maxDepth: 3 },
+      logger: silentLogger,
+      isSubagent: true,
+      sleepMs: async () => {},
+    });
+
+    // Chain exhausted check fires BEFORE subagent short-circuit — both
+    // paths are gated by having a healthy next model to redirect to.
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("exhausted");
+    expect(result.subagentSkipped).toBeUndefined();
+    expect(client.calls.map((c) => c.method)).not.toContain("session.abort");
+  });
+
+  test("isSubagent=false (default) → full recovery path preserved", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      // isSubagent omitted — defaults to undefined / falsy
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.subagentSkipped).toBeUndefined();
+    // Full recovery path executes.
+    const methods = client.calls.map((c) => c.method);
+    expect(methods).toContain("session.abort");
+    expect(methods).toContain("session.revert");
+    expect(methods).toContain("session.prompt");
+  });
+});

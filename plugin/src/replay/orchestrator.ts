@@ -20,6 +20,11 @@ export interface OrchestratorClient {
     abort(args: unknown): Promise<unknown>;
     revert(args: unknown): Promise<unknown>;
     prompt(args: unknown): Promise<unknown>;
+    // session.get is used to detect subagent sessions (presence of
+    // parentID) so the orchestrator can short-circuit recovery for
+    // sessions whose cancel events propagate terminally to the parent
+    // Task tool. Returns the session info envelope; callers unwrap.
+    get(args: unknown): Promise<unknown>;
   };
 }
 
@@ -33,6 +38,16 @@ export interface AttemptFallbackArgs {
   logger: Logger;
   // sleepMs is a test seam — production passes undefined and uses setTimeout.
   sleepMs?: (ms: number) => Promise<void>;
+  // When true, the session is a subagent (child of another session via
+  // parentID). Subagent sessions are observed by the parent's Task tool,
+  // which treats any cancel event (including the auto-cancel OpenCode
+  // emits on stream error) as terminal — so the abort→revert→prompt
+  // recovery sequence is wasted work: the parent will already have
+  // declared the task failed and spawned a replacement. Instead, just
+  // mark the model unhealthy (so the replacement spawn gets preemptively
+  // redirected to the next healthy chain entry via chat.message) and
+  // return without recovering.
+  isSubagent?: boolean;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -158,9 +173,39 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
       return { success: false, error: "exhausted" };
     }
 
-    // Mark the current model unhealthy and start its cooldown window.
+    // Category-aware cooldown: prefer per-category override when configured,
+    // otherwise fall through to the default cooldownMs. Applied uniformly
+    // to both subagent-skip and full-recovery paths — a quota_exhausted
+    // marker must outlast the default 5-minute window to break the thrash
+    // cycle where cooldown expires, the model is retried, fails again
+    // immediately (quota hasn't actually recovered), and re-triggers
+    // fallback.
+    const cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
     if (current) {
-      store.health.cooldown(current, config.cooldownMs, reason);
+      store.health.cooldown(current, cooldownMs, reason);
+    }
+
+    // Subagent short-circuit: mark unhealthy and exit without recovering.
+    // The parent Task tool observes the stream-error cancel as terminal
+    // regardless of what OMR does here, so abort→revert→prompt would be
+    // orphaned work. Marking the model unhealthy with the category-aware
+    // cooldown ensures the parent's replacement spawn hits preemptive
+    // redirect on chat.message and starts cleanly on the fallback model.
+    if (args.isSubagent) {
+      logger.info("fallback.subagent_skip", {
+        sessionId,
+        from: current,
+        reason,
+        cooldownMs,
+        nextHealthy: next,
+      });
+      // Still advance depth/original-model bookkeeping so a later
+      // same-session event (rare but possible) doesn't re-enter recovery.
+      state.currentModel = next;
+      state.fallbackDepth += 1;
+      state.lastFallbackAt = Date.now();
+      if (!state.originalModel && current) state.originalModel = current;
+      return { success: true, fallbackModel: next, fromModel: current, subagentSkipped: true };
     }
 
     let messages: unknown[];
