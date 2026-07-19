@@ -26,7 +26,7 @@ import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import { defaultConfig, type ErrorCategory, type ModelKey, type PluginConfig } from "./types.ts";
-import { isRecord } from "./utils/type-guards.ts";
+import { isRecord, unwrapSdkData } from "./utils/type-guards.ts";
 
 // Real OpenCode PluginInput shape per @opencode-ai/plugin@1.15.5 PluginInput
 // + packages/opencode/src/plugin/index.ts:134-150 source. NO `config` field —
@@ -112,7 +112,7 @@ export function isPluginInput(input: unknown): input is PluginInput {
   const client = input.client;
   if (!isRecord(client)) return false;
   if (!isRecord(client.session)) return false;
-  return ["messages", "abort", "revert", "prompt"].every((key) =>
+  return ["messages", "abort", "revert", "prompt", "get"].every((key) =>
     hasFunction(client.session as Record<string, unknown>, key),
   );
 }
@@ -136,6 +136,43 @@ export function isChatMessageOutputShape(output: unknown): output is ChatMessage
 function errorSummary(err: unknown): string {
   if (err instanceof Error) return err.name || "Error";
   return typeof err;
+}
+
+/**
+ * Detect whether a session is a subagent by fetching session info and
+ * checking for a non-empty parentID. Used by the session.error and
+ * session.status handlers to short-circuit recovery: OpenCode's parent
+ * Task tool observes stream-error cancels as terminal regardless of what
+ * OMR does, so abort→revert→prompt would be orphaned work. Instead, the
+ * orchestrator marks the model unhealthy (so the parent's replacement
+ * spawn hits preemptive redirect on chat.message) and skips recovery.
+ *
+ * Defensive: any fetch/shape/throw degrades to `false` (treat as primary
+ * session, recover normally). Subagent detection is an optimization that
+ * avoids wasted compute — never block fallback on it.
+ *
+ * Result is cached in the FallbackStore session-state record so subsequent
+ * errors on the same session don't re-fetch.
+ */
+export async function detectSubagent(
+  sessionId: string,
+  client: OrchestratorClient,
+  store: FallbackStore,
+): Promise<boolean> {
+  const state = store.sessions.get(sessionId);
+  if (state.isSubagent !== undefined) return state.isSubagent;
+  try {
+    const response = await client.session.get({ path: { id: sessionId } } as never);
+    const data = unwrapSdkData(response);
+    const parentID = isRecord(data) ? (data.parentID as unknown) : undefined;
+    const result = typeof parentID === "string" && parentID.length > 0;
+    state.isSubagent = result;
+    return result;
+  } catch {
+    // Defensive: leave isSubagent undefined so a later retry can re-attempt
+    // detection. Treat current call as "not a subagent" → recover normally.
+    return false;
+  }
 }
 
 export async function handleChatMessage(
@@ -336,6 +373,7 @@ export async function handleEvent(
       if (shouldSuppressReplay(sessionId, ctx)) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+      const isSubagent = await detectSubagent(sessionId, client, ctx.store);
       await attemptFallback({
         sessionId,
         reason: category,
@@ -344,6 +382,7 @@ export async function handleEvent(
         store: ctx.store,
         config: ctx.config,
         logger: ctx.logger,
+        isSubagent,
       });
       return;
     }
@@ -370,6 +409,7 @@ export async function handleEvent(
       if (shouldSuppressReplay(sessionId, ctx)) return;
       const agentName = await resolveAgentName(sessionId, client, ctx.store);
       const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+      const isSubagent = await detectSubagent(sessionId, client, ctx.store);
       await attemptFallback({
         sessionId,
         reason: category,
@@ -378,6 +418,7 @@ export async function handleEvent(
         store: ctx.store,
         config: ctx.config,
         logger: ctx.logger,
+        isSubagent,
       });
       return;
     }

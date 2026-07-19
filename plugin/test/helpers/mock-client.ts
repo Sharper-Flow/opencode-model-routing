@@ -14,6 +14,11 @@ export interface MockClientOptions {
   revertError?: Error;
   promptError?: Error;
   messagesError?: Error;
+  // Optional session info returned by session.get. When omitted, returns
+  // an empty object (no parentID → primary session). Set { parentID: "..." }
+  // to simulate a subagent session.
+  sessionInfo?: Record<string, unknown>;
+  getError?: Error;
 }
 
 export class MockClient {
@@ -28,7 +33,12 @@ export class MockClient {
     this.opts.messages = messages;
   }
 
-  // The narrow surface used by orchestrator + agent-resolver.
+  setSessionInfo(sessionInfo: Record<string, unknown>) {
+    this.opts.sessionInfo = sessionInfo;
+  }
+
+  // The narrow surface used by orchestrator + agent-resolver + subagent
+  // detection (session.get).
   session = {
     messages: async (args: unknown) => {
       this.calls.push({ method: "session.messages", args });
@@ -46,6 +56,13 @@ export class MockClient {
     prompt: async (args: unknown) => {
       this.calls.push({ method: "session.prompt", args });
       if (this.opts.promptError) throw this.opts.promptError;
+    },
+    get: async (args: unknown) => {
+      this.calls.push({ method: "session.get", args });
+      if (this.opts.getError) throw this.opts.getError;
+      // SDK wraps responses in { data: ... } — unwrapSdkData handles both
+      // wrapped and bare shapes. Return bare here for test simplicity.
+      return this.opts.sessionInfo ?? {};
     },
   };
 

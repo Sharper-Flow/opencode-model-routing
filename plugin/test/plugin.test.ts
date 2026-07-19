@@ -201,6 +201,131 @@ describe("handleEvent — session.error", () => {
     expect(ctx.store.sessions.get("s1").currentModel).toBe("a/one");
     expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(false);
   });
+
+  test("subagent session (parentID present) → skip recovery, mark unhealthy only", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg()],
+      // session.get returns a session with parentID → detectSubagent = true.
+      sessionInfo: { id: "s1", parentID: "ses_parent_abc" },
+    });
+
+    await handleEvent(ctx, client, {
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
+      },
+    });
+
+    // session.get called once for subagent detection (cached thereafter).
+    expect(client.callsTo("session.get").length).toBe(1);
+    // CRITICAL: no abort/revert/prompt — parent Task tool already saw
+    // the stream-error cancel as terminal; recovery would be orphaned.
+    expect(client.callsTo("session.abort").length).toBe(0);
+    expect(client.callsTo("session.revert").length).toBe(0);
+    expect(client.callsTo("session.prompt").length).toBe(0);
+    // Model still marked unhealthy — replacement spawn gets preemptive
+    // redirect via chat.message on the parent's next Task call.
+    expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+    // State advances so re-entry doesn't reset depth.
+    expect(ctx.store.sessions.get("s1").currentModel).toBe("b/two");
+    expect(ctx.store.sessions.get("s1").fallbackDepth).toBe(1);
+    // Detection result cached on session state.
+    expect(ctx.store.sessions.get("s1").isSubagent).toBe(true);
+  });
+
+  test("subagent detection cached — second error on same session skips session.get", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two", "c/three"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg()],
+      sessionInfo: { id: "s1", parentID: "ses_parent_abc" },
+    });
+
+    // First error: detects subagent via session.get.
+    await handleEvent(ctx, client, {
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: { name: "APIError", data: { statusCode: 429 } },
+      },
+    });
+    expect(client.callsTo("session.get").length).toBe(1);
+
+    // Reset call log to verify cache hit on second error.
+    client.calls.length = 0;
+    // Manually advance time past dedup window so the second error isn't
+    // collapsed (dedupWindowMs default = 3000ms).
+    const original = Date.now;
+    const baseTime = original();
+    Date.now = () => baseTime + 10_000;
+    try {
+      await handleEvent(ctx, client, {
+        type: "session.error",
+        properties: {
+          sessionID: "s1",
+          error: { name: "APIError", data: { statusCode: 429 } },
+        },
+      });
+    } finally {
+      Date.now = original;
+    }
+
+    // Cached: session.get NOT called again.
+    expect(client.callsTo("session.get").length).toBe(0);
+    // Still no recovery (subagent).
+    expect(client.callsTo("session.abort").length).toBe(0);
+  });
+
+  test("primary session (no parentID) → full recovery path", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg()],
+      // No parentID → primary session → full recovery.
+      sessionInfo: { id: "s1" },
+    });
+
+    await handleEvent(ctx, client, {
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: { name: "APIError", data: { statusCode: 429 } },
+      },
+    });
+
+    expect(client.callsTo("session.get").length).toBe(1);
+    expect(client.callsTo("session.abort").length).toBe(1);
+    expect(client.callsTo("session.revert").length).toBe(1);
+    expect(client.callsTo("session.prompt").length).toBe(1);
+    expect(ctx.store.sessions.get("s1").isSubagent).toBe(false);
+  });
+
+  test("session.get failure → degrades to full recovery (treat as primary)", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [userMsg()],
+      getError: new Error("network failure"),
+    });
+
+    await handleEvent(ctx, client, {
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: { name: "APIError", data: { statusCode: 429 } },
+      },
+    });
+
+    // Detection failed → fall through to full recovery.
+    expect(client.callsTo("session.abort").length).toBe(1);
+    expect(client.callsTo("session.revert").length).toBe(1);
+    expect(client.callsTo("session.prompt").length).toBe(1);
+    // isSubagent left undefined (cache miss) — retryable on next event.
+    expect(ctx.store.sessions.get("s1").isSubagent).toBeUndefined();
+  });
 });
 
 describe("plugin event hook boundary", () => {

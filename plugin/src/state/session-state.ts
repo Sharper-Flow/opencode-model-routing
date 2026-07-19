@@ -24,6 +24,13 @@ export interface SessionState {
   // notifications when the same fallback is still active).
   recoveryNotifiedForModel: ModelKey | null;
   fallbackActiveNotifiedKey: ModelKey | null;
+  // Cached subagent detection result: `true` if session.get returned a
+  // non-empty parentID (this session is a child of another, observed by
+  // the parent's Task tool). `false` if confirmed primary. `undefined`
+  // before first check. Used to short-circuit abort/recovery on subagent
+  // sessions where the parent Task tool observes cancel events as
+  // terminal — see detectSubagent() in plugin-internal.ts.
+  isSubagent?: boolean;
 }
 
 export function newSessionState(): SessionState {
@@ -36,5 +43,6 @@ export function newSessionState(): SessionState {
     lastFallbackAt: 0,
     recoveryNotifiedForModel: null,
     fallbackActiveNotifiedKey: null,
+    // isSubagent intentionally omitted — undefined until first detection.
   };
 }
