@@ -899,30 +899,18 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
 });
 
 describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", () => {
-  test("pluginOptions.cooldownMsByCategory reaches ctx.config via plugin init", async () => {
-    const client = new MockClient({});
-    const hooks = await pluginModule.server(
-      { client } as unknown as Parameters<typeof pluginModule.server>[0],
-      { cooldownMsByCategory: { rate_limit: 60 * 60_000 } } as Parameters<typeof pluginModule.server>[1],
+  test("pluginOptions.cooldownMsByCategory applies its override at failure time", async () => {
+    const client = new MockClient({ messages: [userMsg("msg-1", "adv")] });
+    const hooks = await createRuntimeHooks(
+      client,
+      { agent: { adv: { options: { fallback_models: ["a/one", "b/two"] } } } },
+      { cooldownMsByCategory: { rate_limit: 60 * 60_000 } },
     );
-    // Drive config hook to materialize ctx (matches real lifecycle)
-    const configHook = (hooks as HooksWithConfig).config;
-    if (configHook) await configHook({});
 
-    // Trigger a chat.message to expose ctx.config via observed behavior.
-    // Set up a session with model a/one, then emit rate_limit session.error,
-    // then verify the cooldown applied is 60min (override) not 30min (default).
-    // For this plumbing test, we only need to verify the override reached ctx;
-    // the full behavior test is in the plumbing-integration describe below.
-    //
-    // Direct verification: call createPluginContext indirectly by invoking the
-    // chat.message hook with a synthetic input; the resulting state.currentModel
-    // is set; subsequent session.error will read the cooldown from ctx.config.
+    // Establish a/one as the active model, then fail it with rate_limit.
     await callRuntimeChatMessage(hooks, { sessionID: "s1" }, {
       message: { model: { providerID: "a", modelID: "one" } },
-    } as unknown as Parameters<typeof callRuntimeChatMessage>[2]);
-
-    // Emit rate_limit session.error
+    });
     await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",
@@ -932,15 +920,22 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
         },
       },
     });
+    expect(client.callsTo("session.prompt")[0]?.args).toMatchObject({
+      body: { model: { providerID: "b", modelID: "two" } },
+    });
 
-    // The fallback attempt reads ctx.config.cooldownMsByCategory[rate_limit] to
-    // compute cooldown duration. With override = 60min, the applied cooldown
-    // must be 60min (NOT the 30min default).
-    // Verify via MockClient spy: session.prompt was called with the fallback
-    // model AND the health record (visible via subsequent chat.message redirect
-    // behavior) reflects the 60min cooldown.
-    // For a focused plumbing test, verify session.abort was called (recovery
-    // attempted) — proving the override didn't break the existing flow.
-    expect(client.callsTo("session.abort").length).toBeGreaterThanOrEqual(0);
+    // At +45 minutes, the 60-minute tuple override must still redirect a/one.
+    // This distinguishes it from the 30-minute default without reaching into
+    // the hook closure's private context.
+    const originalNow = Date.now;
+    const baseTime = originalNow();
+    Date.now = () => baseTime + 45 * 60_000;
+    try {
+      const output = { message: { model: { providerID: "a", modelID: "one" } } };
+      await callRuntimeChatMessage(hooks, { sessionID: "s1" }, output);
+      expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });
