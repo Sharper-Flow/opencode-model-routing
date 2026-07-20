@@ -5,6 +5,9 @@
 # Plugin (TypeScript)
 plugin/node_modules/
 plugin/dist/
+# pnpm v11+ generates these locally; not part of the source tree
+plugin/pnpm-lock.yaml
+plugin/pnpm-workspace.yaml
 
 # Per-run backups created by ApplyPreferences
 *.omr-backup.*

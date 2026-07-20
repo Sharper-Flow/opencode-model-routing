@@ -61,6 +61,71 @@ export interface PluginContext {
   pluginOptions?: unknown;
 }
 
+// Compile-time-exhaustive category set: adding/removing an ErrorCategory
+// member in types.ts fails the `satisfies Record<ErrorCategory, true>` check,
+// preventing drift between the runtime allow-list and the union type.
+const KNOWN_CATEGORIES = {
+  rate_limit: true,
+  server_error: true,
+  unknown_model: true,
+  auth_error: true,
+  ttft_timeout: true,
+  quota_exhausted: true,
+  unknown: true,
+} as const satisfies Record<ErrorCategory, true>;
+
+// Prototype-safe membership check. `s in KNOWN_CATEGORIES` would accept
+// inherited names like "toString", "constructor", "__proto__" — Object.hasOwn
+// does not traverse the prototype chain.
+function isErrorCategory(s: string): s is ErrorCategory {
+  return Object.hasOwn(KNOWN_CATEGORIES, s);
+}
+
+/**
+ * Extract and validate cooldownMsByCategory overrides from the plugin tuple
+ * option (`pluginOptions.cooldownMsByCategory`). Defensive: malformed entries
+ * are dropped with a warn log, never crash. Returns undefined when absent or
+ * entirely invalid — caller falls through to defaultConfig.
+ *
+ * Infinity handling: Number.POSITIVE_INFINITY is the documented "permanent
+ * block within process lifetime" sentinel (types.ts:55-56). It is accepted
+ * programmatically (tests, internal callers) but cannot be expressed in JSON
+ * configuration (RFC 8259 §6 forbids Infinity in JSON numbers) — users wishing
+ * permanent block must use a sufficiently large finite value (e.g., 10 years)
+ * or await a future JSON-representable sentinel contract (out of scope).
+ *
+ * Exported for direct unit testing.
+ */
+export function extractCooldownOverrides(
+  pluginOptions: unknown,
+  logger: Logger,
+): Partial<Record<ErrorCategory, number>> | undefined {
+  if (!isRecord(pluginOptions)) return undefined;
+  const raw = (pluginOptions as { cooldownMsByCategory?: unknown }).cooldownMsByCategory;
+  if (!isRecord(raw)) return undefined;
+  const out: Partial<Record<ErrorCategory, number>> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!isErrorCategory(k)) {
+      logger.warn("pluginOptions.cooldown.invalid_category", { category: k });
+      continue;
+    }
+    // Accept finite non-negative numbers OR +Infinity (programmatic sentinel).
+    // Reject NaN, -Infinity, negative, and non-number types.
+    if (
+      typeof v !== "number" ||
+      Number.isNaN(v) ||
+      v === Number.NEGATIVE_INFINITY ||
+      v < 0 ||
+      !(Number.isFinite(v) || v === Number.POSITIVE_INFINITY)
+    ) {
+      logger.warn("pluginOptions.cooldown.invalid_value", { category: k, value: v });
+      continue;
+    }
+    out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /**
  * createPluginContext — exposed for testing. Production wires this into the
  * default-exported plugin function below.
@@ -70,14 +135,36 @@ export interface PluginContext {
  * packages/opencode/src/plugin/index.ts:217-237 @ 7fe7b9f). Tests that need
  * pre-populated chains can mutate `ctx.chains` directly or call the config
  * hook synthetically via pluginModule.server({...}).then(hooks => hooks.config?.(cfg)).
+ *
+ * Cooldown overrides are merged in 3 layers (most-specific wins):
+ *   1. defaultConfig.cooldownMsByCategory (lowest)
+ *   2. opts.config?.cooldownMsByCategory (middle — programmatic/test injection)
+ *   3. opts.cooldownOverrides (highest — user-side via pluginOptions)
+ * The outer PluginConfig spread below is shallow; without the explicit 3-layer
+ * rebuild, supplying cooldownMsByCategory via opts.config would clobber the
+ * default inner map.
  */
 export function createPluginContext(opts: {
   config?: Partial<PluginConfig>;
+  cooldownOverrides?: Partial<Record<ErrorCategory, number>>;
   logger?: Logger;
   pluginOptions?: unknown;
 } = {}): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
+
+  // 3-layer cooldown merge: default → opts.config → pluginOptions overrides.
+  // Only rebuild when at least one override layer is present; otherwise the
+  // default from the spread above is correct.
+  const layerConfig = opts.config?.cooldownMsByCategory;
+  if (layerConfig !== undefined || opts.cooldownOverrides !== undefined) {
+    merged.cooldownMsByCategory = {
+      ...defaultConfig.cooldownMsByCategory,
+      ...(layerConfig ?? {}),
+      ...(opts.cooldownOverrides ?? {}),
+    };
+  }
+
   return {
     store: new FallbackStore(),
     ttft: new TtftRegistry(),
@@ -451,9 +538,17 @@ export async function handleEvent(
  * signatures. The runtime entry point wraps this in a V1 PluginModule object,
  * while hook payloads remain `unknown` and are narrowed inside handlers because
  * plugin types are not stable across versions per agreement.
+ *
+ * Tuple-option hot-reload caveat: `pluginOptions` is captured ONCE at plugin
+ * initialization. The config-hook reload path fires on OpenCode Config changes
+ * but is not guaranteed to re-invoke `pluginModule.server(input, pluginOptions)`
+ * with new tuple options; users observing cooldown changes not taking effect
+ * should restart OpenCode.
  */
 export async function createPluginHooks(opts: PluginInput, pluginOptions?: unknown): Promise<PluginHooks> {
-  const ctx = createPluginContext({ pluginOptions });
+  const logger = createLogger();
+  const cooldownOverrides = extractCooldownOverrides(pluginOptions, logger);
+  const ctx = createPluginContext({ pluginOptions, cooldownOverrides, logger });
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
