@@ -1,0 +1,16 @@
+{
+  "archived_at": "2026-07-20T05:02:37.873Z",
+  "capabilities": [],
+  "change_hash": "e04fe7fe517b5d70baabd0f7de2507a100c3a3f4e0656c8f9c0aad0c371a9d73",
+  "change_id": "fixRateLimitCooldownThrash",
+  "completed_tasks": 6,
+  "created_at": "2026-07-20T00:19:59.121Z",
+  "current_gate": "release",
+  "last_activity_at": "2026-07-20T05:01:26.251Z",
+  "lifecycle_state": "open",
+  "status": "archived",
+  "summary_hash": "242ee7d08829753e3a7b45f0e8ee93b4ccc3f6f7c253981e70fe1895d6f9650c",
+  "task_count": 6,
+  "title": "Fix rate_limit cooldown thrash",
+  "version": "1"
+}
