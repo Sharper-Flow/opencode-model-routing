@@ -618,18 +618,15 @@ describe("attemptFallback — category-aware cooldown", () => {
     expect(health.cooldownUntil).toBeLessThan(now + 65 * 60_000);
   });
 
-  test("rate_limit falls through to default cooldownMs when not in override map", async () => {
+  test("rate_limit uses 30min default override when not user-overridden", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({ messages: [userMsg()] });
 
-    const config = {
-      ...defaultConfig,
-      cooldownMs: 5 * 60_000,
-      cooldownMsByCategory: {
-        quota_exhausted: 60 * 60_000,
-      },
-    };
+    // CRITICAL: use defaultConfig unchanged so the new rate_limit default
+    // applies. Prior setup built a local map omitting rate_limit, which
+    // would mask the fix and leave the test asserting 5min (validator blocker).
+    const config = { ...defaultConfig };
 
     const result = await attemptFallback({
       sessionId: "s1",
@@ -646,9 +643,9 @@ describe("attemptFallback — category-aware cooldown", () => {
     const health = store.health.get("a/one" as ModelKey);
     expect(health.lastCategory).toBe("rate_limit");
     const now = Date.now();
-    // Default 5-minute cooldown applies — NOT the 1-hour quota override.
-    expect(health.cooldownUntil).toBeGreaterThan(now + 4 * 60_000);
-    expect(health.cooldownUntil).toBeLessThan(now + 6 * 60_000);
+    // 30min default — NOT the prior 5min fall-through.
+    expect(health.cooldownUntil).toBeGreaterThan(now + 25 * 60_000);
+    expect(health.cooldownUntil).toBeLessThan(now + 35 * 60_000);
   });
 
   test("cooldownMsByCategory absent → default cooldownMs used for all categories", async () => {

@@ -20,7 +20,9 @@ export type ErrorCategory =
   | "unknown";
 
 // Plugin behaviour configuration. Defaults defined in src/plugin.ts; values
-// may be overridden by a per-project `.opencode/model-routing.json` file.
+// may be overridden by the plugin tuple option in opencode.jsonc (canonical
+// path) or — out of scope for this codebase — a per-project
+// `.opencode/model-routing.json` sibling file.
 export interface PluginConfig {
   // Time-to-first-token window in ms. If no token arrives within this window,
   // the active model is aborted and the next chain entry is tried.
@@ -47,13 +49,19 @@ export interface PluginConfig {
   // ErrorCategory, the cooldown applied is `cooldownMsByCategory[category]`
   // if present, otherwise the default `cooldownMs`. Categories absent from
   // this map fall through to `cooldownMs`. Useful for treating persistent
-  // failure modes (quota exhaustion, auth) with longer windows than
-  // transient ones (rate_limit, server_error) — prevents thrash cycles
-  // where a 5-minute default cooldown expires, the model is retried, fails
-  // again immediately, and triggers another fallback cascade.
+  // or hour-scale failure modes (quota exhaustion, auth, rate_limit) with
+  // longer windows than the default cooldownMs — prevents thrash cycles
+  // where the default cooldown expires, the model is retried, fails again
+  // immediately (the underlying provider window hasn't actually recovered),
+  // and triggers another fallback cascade. With rate_limit now in the
+  // default override map, the thrash cycle for hour-scale provider windows
+  // (e.g., MiniMax Token Plan) is resolved out-of-the-box; users can tune
+  // further via the plugin tuple option in opencode.jsonc.
   //
   // Set an entry to `Number.POSITIVE_INFINITY` for permanent-block within
   // the process lifetime (model never retried until plugin reload).
+  // Note: Infinity is the programmatic sentinel only; RFC 8259 §6 forbids
+  // Infinity in JSON numbers, so users cannot express it via opencode.jsonc.
   cooldownMsByCategory?: Partial<Record<ErrorCategory, number>>;
 }
 
@@ -81,16 +89,22 @@ export const defaultConfig: PluginConfig = {
   dedupWindowMs: 3_000,
   abortWaitMs: 150,
   preserveContext: true,
-  // Category-aware defaults: persistent failure modes get longer cooldowns
-  // than the 5-minute default. Quota exhaustion typically lasts hours (plan
-  // reset cycle) — a 1-hour window prevents the thrash cycle while still
-  // allowing eventual retry if the plan resets mid-process. Auth errors
-  // rarely self-heal in 5 minutes; 30 minutes gives a reasonable window
-  // for credential rotation. Transient categories (rate_limit, server_error,
-  // ttft_timeout, unknown_model, unknown) intentionally fall through to the
-  // 5-minute default — they ARE likely to recover quickly.
+  // Category-aware defaults: persistent or hour-scale failure modes get
+  // longer cooldowns than the 5-minute default. Quota exhaustion typically
+  // lasts hours (plan reset cycle) — a 1-hour window prevents the thrash
+  // cycle while still allowing eventual retry if the plan resets mid-process.
+  // Auth errors rarely self-heal in 5 minutes; 30 minutes gives a reasonable
+  // window for credential rotation. Rate-limit windows vary by provider:
+  // MiniMax Token Plan exhaustion surfaces as HTTP 429 but recovers on
+  // hour-scale (not minutes), so a 30-minute default covers half the window
+  // — long enough to break the thrash, short enough to retry within a
+  // session. Users can tune via pluginOptions.cooldownMsByCategory. Other
+  // transient categories (server_error, ttft_timeout, unknown_model,
+  // unknown) intentionally fall through to the 5-minute default — they ARE
+  // likely to recover quickly.
   cooldownMsByCategory: {
     quota_exhausted: 60 * 60_000, // 1 hour
     auth_error: 30 * 60_000, // 30 minutes
+    rate_limit: 30 * 60_000, // 30 minutes — covers hour-scale provider windows (e.g. MiniMax Token Plan); user-tunable via pluginOptions.cooldownMsByCategory
   },
 };
