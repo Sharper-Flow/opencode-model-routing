@@ -173,7 +173,7 @@ describe("AC3: malformed/missing/wrong-perm cooldown file never blocks callers",
   test("preemptive redirect works when cooldown file is malformed JSON", async () => {
     fs.writeFileSync(cooldownPath, "{not valid json", { mode: 0o600 });
     fs.chmodSync(cooldownPath, 0o600);
-    const chains = new Map([["agent", ["kimi/k", "openai/o"]]]);
+    const chains = new Map<string, ModelKey[]>([["agent", ["kimi/k", "openai/o"]]]);
     const store = newProcessStore();
     const output = makeOutput("kimi", "k");
     // Should NOT throw; output mutated to next healthy since kimi appears
@@ -288,7 +288,7 @@ describe("AC5: subagent TTFT cooldown observable cross-process", () => {
 
     // Process B: independent process. Its preemptive redirect should skip kimi.
     const storeB = newProcessStore();
-    const chains = new Map([["agent", ["kimi/k", "openai/o"]]]);
+    const chains = new Map<string, ModelKey[]>([["agent", ["kimi/k", "openai/o"]]]);
     const output = makeOutput("kimi", "k");
     applyPreemptiveSkip(
       { sessionId: "sB", agentName: "agent", output },

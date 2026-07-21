@@ -411,7 +411,7 @@ describe("handleEvent — durable assistant error reconciliation", () => {
   test("malformed assistant error is ignored and TTFT stays armed", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
-    ctx.ttft.arm("s1", async () => {});
+    ctx.ttft.arm("s1", 60_000, () => {});
     const client = new MockClient({ messages: [userMsg()] });
 
     const normalized = normalizeEventInput({
@@ -432,7 +432,7 @@ describe("handleEvent — durable assistant error reconciliation", () => {
   test("accepted typed error clears TTFT", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
-    ctx.ttft.arm("s1", async () => {});
+    ctx.ttft.arm("s1", 60_000, () => {});
     const client = new MockClient({ messages: [userMsg()] });
 
     await handleEvent(ctx, client, {
