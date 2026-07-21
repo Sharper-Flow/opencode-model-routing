@@ -18,6 +18,7 @@ import {
   classifyRetryStatusText,
   classifySessionError,
   type SessionErrorData,
+  type SessionErrorLike,
 } from "./detection/classifier.ts";
 import { createLogger, type Logger } from "./logging/logger.ts";
 import { applyPreemptiveSkip } from "./preemptive.ts";
@@ -369,6 +370,13 @@ interface EventInputShape {
       };
     };
     part?: { type?: string; text?: string; sessionID?: string; sessionId?: string };
+    info?: {
+      id?: string;
+      sessionID?: string;
+      sessionId?: string;
+      role?: "user" | "assistant";
+      error?: SessionErrorLike;
+    };
   };
 }
 
@@ -424,6 +432,18 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     if (!isOptionalString(props.part.type) || !isOptionalString(props.part.text)) return false;
     if (!isOptionalString(props.part.sessionID) || !isOptionalString(props.part.sessionId)) return false;
   }
+  if (props.info !== undefined) {
+    if (!isRecord(props.info)) return false;
+    const info = props.info;
+    if (!isOptionalString(info.id)) return false;
+    if (!isOptionalString(info.sessionID) || !isOptionalString(info.sessionId)) return false;
+    if (info.role !== undefined && info.role !== "user" && info.role !== "assistant") return false;
+    if (info.error !== undefined) {
+      if (!isRecord(info.error)) return false;
+      if (!isOptionalString(info.error.name)) return false;
+      if (info.error.data !== undefined && !isRecord(info.error.data)) return false;
+    }
+  }
   return true;
 }
 
@@ -436,6 +456,92 @@ export function normalizeEventInput(input: unknown): EventInputShape | undefined
 
 function hasStreamingTextContent(part: { type?: string; text?: string }): boolean {
   return part.type === "text" && typeof part.text === "string" && part.text.length > 0;
+}
+
+type TypedFailureSource = "session_error" | "message_updated" | "session_status";
+
+function bounded(value: unknown, max: number): string | null {
+  return typeof value === "string" ? value.slice(0, max) : null;
+}
+
+export function failureFingerprint(error: SessionErrorLike): string {
+  const data = error.data ?? {};
+  return JSON.stringify({
+    name: error.name ?? null,
+    statusCode: typeof data.statusCode === "number" ? data.statusCode : null,
+    isRetryable: typeof data.isRetryable === "boolean" ? data.isRetryable : null,
+    message: bounded(data.message, 256),
+    responseBody: bounded(data.responseBody, 512),
+  });
+}
+
+interface TypedFailureInput {
+  source: TypedFailureSource;
+  sessionId: string;
+  messageId?: string;
+  category: ErrorCategory;
+  fingerprint: string;
+}
+
+async function handleFailureSignal(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  input: TypedFailureInput,
+): Promise<void> {
+  if (shouldSuppressReplay(input.sessionId, ctx)) return;
+
+  // Family correlation intentionally uses session+category rather than the
+  // mutable currentModel. attemptFallback advances currentModel before the
+  // terminal error/message update can arrive; including it would defeat the
+  // retry-status → terminal-error correlation validated in design review.
+  const familyKey = `${input.sessionId}\u0000${input.category}`;
+  const identity = {
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    fingerprint: input.fingerprint,
+    familyKey,
+  };
+  let duplicate = false;
+  try {
+    duplicate = ctx.store.failures.begin(identity) === "duplicate";
+  } catch (err) {
+    ctx.logger.warn("failure.dedup_failed", {
+      sessionId: input.sessionId,
+      source: input.source,
+      err: errorSummary(err),
+    });
+  }
+
+  if (ctx.ttft.has(input.sessionId)) ctx.ttft.clear(input.sessionId);
+  ctx.logger.debug("failure.signal", {
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    source: input.source,
+    category: input.category,
+    duplicate,
+  });
+  if (duplicate) return;
+
+  const agentName = await resolveAgentName(input.sessionId, client, ctx.store);
+  const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+  const isSubagent = await detectSubagent(input.sessionId, client, ctx.store);
+  const result = await attemptFallback({
+    sessionId: input.sessionId,
+    reason: input.category,
+    chain,
+    client,
+    store: ctx.store,
+    config: ctx.config,
+    logger: ctx.logger,
+    isSubagent,
+  });
+  // OpenCode may deliver an event before the Hooks.config callback has
+  // populated chains. Preserve the existing lifecycle behavior: the same
+  // signal may retry after config becomes available. Other failures remain
+  // deduped to prevent repeated recovery churn.
+  if (!result.success && result.error === "no chain") {
+    ctx.store.failures.forget(identity);
+  }
 }
 
 export function sanitizeChatParamsOutput(output: unknown): void {
@@ -459,22 +565,11 @@ export async function handleEvent(
       if (!props.error) return;
       const category = classifySessionError(props.error);
       if (!category) return;
-      // Centralized exhaustion guard, synchronously before the first await
-      // of this replay entrance (resolveAgentName may call session.messages).
-      // Confirmed mid-task Claude exhaustion → suppress with zero SDK calls.
-      if (shouldSuppressReplay(sessionId, ctx)) return;
-      const agentName = await resolveAgentName(sessionId, client, ctx.store);
-      const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
-      const isSubagent = await detectSubagent(sessionId, client, ctx.store);
-      await attemptFallback({
+      await handleFailureSignal(ctx, client, {
+        source: "session_error",
         sessionId,
-        reason: category,
-        chain,
-        client,
-        store: ctx.store,
-        config: ctx.config,
-        logger: ctx.logger,
-        isSubagent,
+        category,
+        fingerprint: failureFingerprint(props.error),
       });
       return;
     }
@@ -495,22 +590,31 @@ export async function handleEvent(
         category = classifyRetryStatusText(status?.message);
       }
       if (!category) return;
-      // Centralized exhaustion guard, synchronously before the first await
-      // of this replay entrance — retry status cannot bypass confirmed
-      // exhaustion (AC5).
-      if (shouldSuppressReplay(sessionId, ctx)) return;
-      const agentName = await resolveAgentName(sessionId, client, ctx.store);
-      const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
-      const isSubagent = await detectSubagent(sessionId, client, ctx.store);
-      await attemptFallback({
+      await handleFailureSignal(ctx, client, {
+        source: "session_status",
         sessionId,
-        reason: category,
-        chain,
-        client,
-        store: ctx.store,
-        config: ctx.config,
-        logger: ctx.logger,
-        isSubagent,
+        category,
+        fingerprint: JSON.stringify({
+          reason: status?.action?.reason ?? null,
+          provider: status?.action?.provider ?? null,
+          message: bounded(status?.message, 256),
+        }),
+      });
+      return;
+    }
+    case "message.updated": {
+      const info = props.info;
+      if (!info || info.role !== "assistant" || !info.error) return;
+      const sessionId = props.sessionID ?? props.sessionId ?? info.sessionID ?? info.sessionId ?? "";
+      if (!sessionId) return;
+      const category = classifySessionError(info.error);
+      if (!category) return;
+      await handleFailureSignal(ctx, client, {
+        source: "message_updated",
+        sessionId,
+        messageId: info.id,
+        category,
+        fingerprint: failureFingerprint(info.error),
       });
       return;
     }
@@ -533,6 +637,11 @@ export async function handleEvent(
       // Idle is informational; nothing to mutate. Recovery detection lives
       // here in production but is out of scope for v1 tests.
       return;
+    case "session.deleted": {
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      if (sessionId) ctx.store.failures.clearSession(sessionId);
+      return;
+    }
     default:
       return;
   }

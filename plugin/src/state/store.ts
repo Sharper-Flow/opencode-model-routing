@@ -9,17 +9,20 @@
 // per agreement.
 
 import { ModelHealthMap, type CooldownStoreLike, type NowFn } from "./model-health.ts";
+import { FailureDeduplicator } from "./failure-dedup.ts";
 import { newSessionState, type SessionState } from "./session-state.ts";
 
 export class FallbackStore {
   readonly sessions: SessionsAccessor;
   readonly health: ModelHealthMap;
+  readonly failures: FailureDeduplicator;
   private inFlight = new Set<string>();
   private now: NowFn;
 
   constructor(now: NowFn = () => Date.now(), cooldownStore?: CooldownStoreLike) {
     this.now = now;
     this.health = new ModelHealthMap(now, cooldownStore);
+    this.failures = new FailureDeduplicator({ now });
     this.sessions = new SessionsAccessor(this.now);
   }
 
