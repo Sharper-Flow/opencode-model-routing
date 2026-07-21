@@ -121,6 +121,115 @@ describe("classifySessionError", () => {
       expect(classifySessionError({ name: "APIError", data: {} })).toBe("unknown");
     });
   });
+
+  // Kimi Code documented error formats from
+  // kimi.com/code/docs/en/kimi-code/error-reference.html. Critical because
+  // Kimi returns HTTP 403 (typically auth) for billing-cycle quota
+  // exhaustion — without the 403 message scan, fallback would never fire
+  // for the most common Kimi quota scenario.
+  describe("Kimi Code error formats", () => {
+    test("HTTP 403 billing-cycle quota exhausted → quota_exhausted (not auth_error)", () => {
+      // Verbatim from Kimi Code error reference.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message:
+              "You've reached your usage limit for this billing cycle. Your quota will be refreshed in the next cycle.",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 403 with 'billing cycle' in responseBody JSON → quota_exhausted", () => {
+      // Defensive: if the message field is generic but the responseBody
+      // carries the Kimi wording, the body scan must still classify correctly.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message: "Request failed",
+            isRetryable: false,
+            responseBody:
+              '{"error":{"message":"You have reached your usage limit for this billing cycle"}}',
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 403 with no quota signal → auth_error (regression guard)", () => {
+      // Existing behavior preserved: 403 alone still classifies as auth_error
+      // so genuine forbidden/access-denied errors keep their semantics.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode: 403, isRetryable: false },
+        }),
+      ).toBe("auth_error");
+    });
+    test("HTTP 403 with quota in message but no Kimi-specific wording → quota_exhausted", () => {
+      // Other providers that might use 403 + quota wording also benefit
+      // from the message-scan path. Confirms the fix is provider-agnostic
+      // at the message level.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message: "quota exceeded for this account",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 429 5-hourly quota → rate_limit (statusCode precedence preserved)", () => {
+      // 429 keeps precedence — Kimi's 5-hourly wording still classifies as
+      // rate_limit, matching existing ChatGPT Pro precedent. Do NOT promote
+      // 429 to quota_exhausted based on message; the team's intentional
+      // design choice stands.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 429,
+            message: "You've reached your usage limit for this period",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("rate_limit");
+    });
+    test("HTTP 429 Kimi monthly quota → rate_limit (statusCode precedence)", () => {
+      // Monthly wording matches "kimi monthly" pattern in the body scan, but
+      // 429 status code short-circuits first. This is intentional — cooldown
+      // for 429 is 30min vs quota's 60min, and the Kimi monthly window
+      // rolls on hour-scale.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 429,
+            message: "You've reached kimi monthly usage limit for this billing cycle",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("rate_limit");
+    });
+    test("Kimi weekly-cap wording via classifyRetryStatusText → quota_exhausted", () => {
+      // Weekly cap is not documented with a status code; the literal wording
+      // is "weekly quota has been fully used up". If it surfaces via
+      // session.status text or responseBody, the patterns must catch it.
+      expect(classifyRetryStatusText("The account's weekly quota has been fully used up")).toBe(
+        "quota_exhausted",
+      );
+    });
+    test("Kimi 'fully used up' alone → quota_exhausted", () => {
+      expect(classifyRetryStatusText("Quota fully used up")).toBe("quota_exhausted");
+    });
+    test("Kimi 'kimi monthly' substring → quota_exhausted", () => {
+      expect(classifyRetryStatusText("You hit the kimi monthly limit")).toBe("quota_exhausted");
+    });
+  });
 });
 
 describe("classifyRetryStatusText", () => {
