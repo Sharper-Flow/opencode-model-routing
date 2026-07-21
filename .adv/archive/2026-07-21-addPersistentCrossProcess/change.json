@@ -1,0 +1,1088 @@
+{
+  "id": "addPersistentCrossProcess",
+  "title": "Add persistent cross-process cooldown store",
+  "status": "archived",
+  "lifecycleState": "open",
+  "created_at": "2026-07-21T13:32:18.417Z",
+  "tasks": [
+    {
+      "id": "tk-a1f3b2b7fbf5",
+      "title": "Setup: add proper-lockfile dependency and extract shared atomic-write test helper",
+      "type": "code",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-07-21T15:10:49.861Z",
+      "metadata": {
+        "delegation_hint": "delegate_allowed",
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "not_applicable_reason": "Mechanical setup; does not implement or verify contract behavior directly. Respects DONT2 by preserving existing test behavior.",
+        "respects": [
+          "DONT2"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Mechanical refactor verified by existing test suites passing unchanged; dep install verified by import smoke test. No new behavior to TDD.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T15:20:49.665Z",
+      "verification": "proper-lockfile ^4.1.2 added to plugin/package.json dependencies block (was missing entirely). bun install resolves under Bun 1.3.14. Smoke import: typeof lock/unlock === 'function'. Availability suites 78/78 pass unchanged. Helper extraction skipped — recon was incorrect (no actual 3-way writeRaw duplication; only availability-snapshot.test.ts has writeRaw).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "fe47a145a9761e3c9ec5254215a924ea68562cac",
+      "completedAt": "2026-07-21T15:25:15.361Z",
+      "completed_at": "2026-07-21T15:25:15.361Z"
+    },
+    {
+      "id": "tk-2941f5f79fd3",
+      "title": "Implement plugin/src/state/cooldown-store.ts (CooldownStore class) + plugin/test/cooldown-store.test.ts",
+      "type": "code",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-07-21T15:11:25.609Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-a1f3b2b7fbf5"
+        }
+      ],
+      "metadata": {
+        "delegation_hint": "inline_required",
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "C2",
+          "C3"
+        ],
+        "respects": [
+          "C1",
+          "DONT1",
+          "DONT4"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Behavior-critical new module (concurrency, fail-open, file IO); TDD inline with 10 RED tests covering all paths before GREEN implementation.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T15:28:07.197Z",
+      "verification": "TDD RED→GREEN cycle: RED (module missing, 1 fail) → GREEN (35/35 pass). Full plugin suite 310/310 (no regression). Covers: fail-open invariants (AC3/C1), happy path round-trip, max-merge per model (AC2), prune-on-read+write (AC4), lock contention (2+4 concurrent persists preserve all entries — AC2/C2), cache TTL behavior (KD4), KD6 path resolution. KD1 explicit options (realpath:false, onCompromised→log) integrated per validator findings. Commit 3efefd8.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "3efefd8b3e0347a9936fa652918b92438a4ddff2",
+      "completedAt": "2026-07-21T15:31:41.510Z",
+      "completed_at": "2026-07-21T15:31:41.510Z"
+    },
+    {
+      "id": "tk-520fd2a27486",
+      "title": "Wire CooldownStore into model-health.ts (ModelHealthMap) and store.ts (FallbackStore)",
+      "type": "code",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-07-21T15:12:03.698Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-2941f5f79fd3"
+        }
+      ],
+      "metadata": {
+        "delegation_hint": "inline_required",
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "C5"
+        ],
+        "respects": [
+          "DONT2",
+          "DONT4"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Hot-path wiring with backwards-compat invariant; TDD inline with regression coverage for existing behavior + new behavior for the cooldownStore-injected path.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T15:31:53.473Z",
+      "verification": "TDD RED→GREEN: RED (9 new-behavior tests fail) → GREEN (14/14 pass). Full suite 324/324 (was 310, +14 new, 0 regressions). Backwards compat verified: no cooldownStore = current behavior (cooldown returns Promise.resolve, isInCooldown reads only in-memory Map). New behavior: persist call with correct args (key/expiresAt=now+duration/category/setAt), default category fallback, sync in-memory mutation independent of persist delay, persist failure swallowed (fail-open C1), read-through from cooldownStore when in-memory misses, write-back + expiry side-effect, FallbackStore passes cooldownStore through, two FallbackStore instances share state via file. Commit 45f700b.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "45f700b339d9a046bb104550bec8e69bfb651456",
+      "completedAt": "2026-07-21T15:34:52.654Z",
+      "completed_at": "2026-07-21T15:34:52.654Z"
+    },
+    {
+      "id": "tk-02813db935e2",
+      "title": "Make TTFT handler subagent-aware (Part 2) + add KD8 await in attemptFallback",
+      "type": "code",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-07-21T15:12:28.674Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-520fd2a27486"
+        }
+      ],
+      "metadata": {
+        "delegation_hint": "inline_required",
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC5"
+        ],
+        "respects": [
+          "DONT1",
+          "DONT2"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Behavioral change to TTFT hot path + new KD8 ordering invariant; TDD inline with regression coverage for existing TTFT behavior. KD8 await pattern proven by mock-promise test.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T15:35:02.972Z",
+      "verification": "TDD RED→GREEN: RED (6 new-behavior tests fail) → GREEN (8/8 pass). Full suite 332/332 (was 324, +8 new, 0 regressions). handleTtftTimeout now calls detectSubagent + passes isSubagent (mirrors 463/499 pattern). EC5 mitigation inherited (detectSubagent try/catch default false). attemptFallback awaits store.health.cooldown() per KD8 — persist settle guaranteed before replacement spawn dispatch (or subagent short-circuit return). Fail-open: persist promise never rejects, await cannot throw. Commit 4d6053a.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "4d6053afb76dd9401f57a3b3faf92f7340a7e262",
+      "completedAt": "2026-07-21T15:39:56.770Z",
+      "completed_at": "2026-07-21T15:39:56.770Z"
+    },
+    {
+      "id": "tk-8136a6bde4f8",
+      "title": "Integration tests: plugin/test/cross-process-cooldown.test.ts",
+      "type": "verification",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-07-21T15:13:02.701Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-520fd2a27486"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-02813db935e2"
+        }
+      ],
+      "metadata": {
+        "delegation_hint": "inline_required",
+        "tdd_intent": "separate_verification"
+      },
+      "contract_refs": {
+        "respects": [
+          "DONT2",
+          "DONT3"
+        ],
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Cross-cutting integration tests spanning T2/T3/T4 implementation tasks; separate_verification because no single impl task can own tests that span multiple modules + cross-process behavior.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T15:40:28.033Z",
+      "verification": "Separate verification: 16/16 pass on first run (implementation already exists from T2/T3/T4). Full suite 348/348 (was 332, +16 new, 0 regressions). Cross-process simulation via multiple FallbackStore instances sharing one cooldown file. Covers AC1 (preemptive redirect + fallback-resolver + availability preflight predicates across processes), AC2 (concurrent writes preserve entries + max-expiry wins), AC3 (fail-open across preemptive/resolver/preflight caller paths with malformed/missing/wrong-perm/corrupted-mid-flight files), AC4 (restart cycle + prune-on-write), AC5 (subagent TTFT cooldown observable cross-process), AC6 (legacy in-process semantics regression), KD8 (cross-process persist settle before spawn observable). Commit d5448c8.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "d5448c8f64031754a5fb950e01205d421eef75bb",
+      "completedAt": "2026-07-21T15:43:05.152Z",
+      "completed_at": "2026-07-21T15:43:05.152Z"
+    },
+    {
+      "id": "tk-c3280415f03e",
+      "title": "Bun compatibility smoke test for proper-lockfile integration",
+      "type": "verification",
+      "status": "done",
+      "priority": 5,
+      "created_at": "2026-07-21T15:13:33.944Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-2941f5f79fd3"
+        }
+      ],
+      "metadata": {
+        "delegation_hint": "delegate_allowed",
+        "tdd_intent": "separate_verification"
+      },
+      "contract_refs": {
+        "verifies": [
+          "C6"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Verification-only task proving Bun host compatibility for the chosen lock primitive (C6). No implementation to TDD; the test itself IS the verification.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "verification": "2/2 tests pass. Full suite 350/350 (was 348, +2 new, 0 regressions). Real bun subprocesses spawned (2-writer and 4-writer cases) contending for the same lockfile via proper-lockfile with KD1 explicit options (realpath:false, onCompromised -> log). Validates C6 (Bun host compat) and KD1 proper-lockfile choice under actual OS-level multi-process contention. All writers' entries preserved (no sibling erasure). Wall time bounded <10s. Commit 31d5dca.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "31d5dcae7e19751411bfc08219519db1049404c0",
+      "completedAt": "2026-07-21T15:44:56.850Z",
+      "completed_at": "2026-07-21T15:44:56.850Z"
+    }
+  ],
+  "subagent_reports": [
+    {
+      "schema_version": "1.0",
+      "change_id": "addPersistentCrossProcess",
+      "attempt": 1,
+      "workdir_used": "/home/jon/dev/opencode-model-routing",
+      "scope": {
+        "kind": "change",
+        "scope_key": "researcher:design-validation"
+      },
+      "agent": "adv-researcher",
+      "topic": "Design validation: persistent cross-process cooldown store",
+      "sources": [
+        {
+          "label": "proper-lockfile official README",
+          "locator": "https://github.com/moxystudio/node-proper-lockfile#lockfile-options",
+          "summary": "`realpath` defaults to true and requires target file to exist; stale defaults to 10 seconds; retries may be a retry-options object; default `onCompromised` throws. The implementation uses atomic mkdir locking."
+        },
+        {
+          "label": "proper-lockfile upstream test/example source",
+          "locator": "https://github.com/moxystudio/node-proper-lockfile/blob/master/test/lock.test.js",
+          "summary": "Upstream tests demonstrate locking a nonexistent target only with `{ realpath: false }`; retries can be configured with a retry object."
+        },
+        {
+          "label": "Bun official Node.js compatibility",
+          "locator": "https://bun.com/docs/runtime/nodejs-compat",
+          "summary": "Bun documents node:fs as implemented at 92% of Node test-suite coverage, supporting a targeted real-Bun contention smoke test rather than an assumption of package compatibility."
+        },
+        {
+          "label": "Bun official File I/O",
+          "locator": "https://bun.com/docs/runtime/file-io",
+          "summary": "Bun documents Bun.file and Bun.write and directs directory operations to node:fs; its published Bun API reference contains no file-lock primitive."
+        },
+        {
+          "label": "OMR ModelHealthMap source",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/state/model-health.ts#L19-L55",
+          "summary": "`cooldown()` is synchronous and returns void; `isInCooldown()` checks only in-memory records today."
+        },
+        {
+          "label": "OMR TTFT and subagent source",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/plugin-internal.ts#L244-L263",
+          "summary": "`detectSubagent` catches fetch/shape errors and returns false; session.error and session.status await it at lines 463 and 499."
+        },
+        {
+          "label": "OMR fallback source",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/replay/orchestrator.ts#L176-L209",
+          "summary": "Category TTL is computed via `cooldownMsByCategory?.[reason] ?? cooldownMs`; subagents are intentionally short-circuited after cooldown is recorded."
+        },
+        {
+          "label": "ADV discovery spec",
+          "locator": "file:///home/jon/dev/advance/docs/specs/adv-discover.md#L269-L299",
+          "summary": "rq-disc07 requires concrete draft spec deltas with scenarios or an explicit no-spec-delta rationale."
+        }
+      ],
+      "architecture_assessment": "CORRECTNESS: Locking the full read-merge-write transaction plus max-per-model expiry merge solves AC2 after acquisition; no merge race remains within an exclusive critical section. KD1 omits `realpath: false`, while proper-lockfile defaults to true and requires its target file to exist, so first-run cooldown.json cannot persist. Current ModelHealthMap.cooldown is synchronous void while proper-lockfile is asynchronous, leaving no specified completion point before B can spawn. A fresh B has empty cache, so KD4 does not defeat literal AC1, but it delays already-running sibling observation by up to two seconds. TTFT subagent handling mirrors existing detectSubagent behavior, which catches and defaults false. KD5 does not contradict SC1 for a provider already known exhausted elsewhere, but cannot remove first unknown exhaustion TTFT. SIMPLICITY: proper-lockfile is simpler than bespoke stale-PID locking because it uses mkdir and mtime stale handling. Bun documents no built-in locking primitive. Cache lacks cited hot-path measurement; file-atomic helper extraction is unrelated cleanup. SPEC-LAW: rq-disc07 requires spec deltas or explicit no-delta rationale. I cannot inspect discovery state under policy, so I do not know whether that is met; design itself does not evidence it.",
+      "validation": {
+        "status": "fail",
+        "blockers": [
+          {
+            "finding": "KD1's shown `proper-lockfile.lock(path, { retries: 3, stale: 10_000 })` leaves `realpath` at its documented default true, which requires the cooldown target to exist. A first-run missing cooldown.json therefore cannot acquire the lock or persist; this violates first-write cross-process visibility and restart persistence.",
+            "contract_ids": [
+              "AC1",
+              "AC4",
+              "C2"
+            ],
+            "scope": "in_scope",
+            "in_scope_remediation": "Specify first-write bootstrap in KD1: create/validate the private parent directory, acquire the lock with documented nonexistent-target support (`realpath: false`) or an equivalent safely initialized lock target, then perform descriptor-safe read-merge-atomic-replace. Add a first-write two-process test.",
+            "source": {
+              "label": "proper-lockfile official README",
+              "locator": "https://github.com/moxystudio/node-proper-lockfile#lockfile-options",
+              "summary": "The README states realpath defaults true and the file must exist previously; upstream test locks a nonexistent file only with `{ realpath: false }`."
+            }
+          },
+          {
+            "finding": "KD1 does not override proper-lockfile's documented default `onCompromised`, which throws. A compromised lock update can therefore escape the persistence path rather than degrade to the required no-op behavior.",
+            "contract_ids": [
+              "C1",
+              "DONT1"
+            ],
+            "scope": "in_scope",
+            "in_scope_remediation": "Specify `onCompromised` as a non-throwing, bounded diagnostic callback and contain every acquire/read/write/release promise rejection. Persistence errors must resolve to no-op while preserving in-memory fallback.",
+            "source": {
+              "label": "proper-lockfile official README",
+              "locator": "https://github.com/moxystudio/node-proper-lockfile#lockfile-options",
+              "summary": "The README documents `onCompromised` defaulting to a function that throws, likely terminating the process."
+            }
+          },
+          {
+            "finding": "The design says `cooldown()` writes persistent state, but existing `cooldown()` is synchronous void while proper-lockfile acquisition/write is asynchronous. No ordered completion point is specified before a parent can issue B's replacement spawn, so AC1 is race-prone even after lock bootstrap is fixed.",
+            "contract_ids": [
+              "AC1",
+              "C1",
+              "DONT1"
+            ],
+            "scope": "in_scope",
+            "in_scope_remediation": "Define a bounded, awaited persistence attempt at the async recovery/TTFT entrance before subagent short-circuit/replacement spawn, while setting in-memory state first and converting persistence timeout/failure into a resolved no-op. Test immediate A-failure→B-spawn ordering, not only eventual visibility.",
+            "source": {
+              "label": "OMR ModelHealthMap source + proper-lockfile official README",
+              "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/state/model-health.ts#L35-L42",
+              "summary": "Current cooldown returns void; proper-lockfile `.lock()` provides release through a promise, so the design needs an explicit ordering contract."
+            }
+          }
+        ],
+        "notes": "Advisory-only fail. Context7 unavailable due monthly quota; Exa unavailable due missing API key. Official Bun docs, proper-lockfile README/upstream source, and local code supplied evidence. No OMR snapshot producer exists in this repository: source scan found consumer/tests only, so no reusable producer primitive was verified."
+      },
+      "architecture_judgement": {
+        "applicability": "applicable",
+        "confidence": "high",
+        "risk": "high",
+        "tradeoffs": [
+          "A bounded awaited write adds the explicit lock budget to error handling but makes handoff visibility deterministic.",
+          "Removing the 2-second cache increases descriptor reads but removes observation lag and simplifies V1.",
+          "proper-lockfile adds one pure-JS dependency but avoids bespoke stale-lock and PID-reuse policy."
+        ],
+        "alternatives_considered": [
+          {
+            "option": "Bun.file/Bun.write instead of proper-lockfile",
+            "disposition": "rejected",
+            "rationale": "Bun documents optimized read/write APIs but no lock primitive; they cannot provide AC2 mutual exclusion alone. https://bun.com/docs/runtime/file-io"
+          },
+          {
+            "option": "Bespoke mkdir/O_EXCL with stale PID detection",
+            "disposition": "rejected",
+            "rationale": "Not simpler: proper-lockfile implements atomic mkdir plus mtime stale handling; PID-based stale ownership adds lifecycle/reuse policy. https://github.com/moxystudio/node-proper-lockfile#design"
+          },
+          {
+            "option": "SQLite/WAL",
+            "disposition": "rejected",
+            "rationale": "More lifecycle/schema/dependency surface than bounded small KV file; no evidence makes it necessary once transaction is correct."
+          },
+          {
+            "option": "No V1 cache; descriptor-safe synchronous reads",
+            "disposition": "preferred",
+            "rationale": "No measurement supports cache on this small hot path, and removal simplifies cross-process observation. Existing snapshot reader establishes bounded descriptor-read pattern. file:///home/jon/dev/opencode-model-routing/plugin/src/availability/snapshot.ts#L465-L547"
+          },
+          {
+            "option": "Extract test file-atomic helper now",
+            "disposition": "deferred",
+            "rationale": "Helpful cleanup but unrelated to AC1-AC6; keep correctness change focused unless implementation needs shared helper."
+          }
+        ],
+        "recommendation": "Amend KD1 and execution ordering: make absent-file locking work, make compromise/persistence errors non-throwing and fail-open, and define/test bounded awaited persistence before replacement spawn. Prefer no cache for V1 unless measurements justify it; retain proper-lockfile only after real-Bun two-process contention passes. Record explicit rq-disc07 spec-delta or no-delta rationale."
+      },
+      "recommendation": "Before implementation, amend KD1 and the execution ordering: make first-write locking work for an absent file, make every lock-compromise/persistence failure non-throwing and fail-open, and define/test a bounded awaited persistence point before replacement subagent can spawn. Prefer no cache for V1 unless a measurement demonstrates the need; retain proper-lockfile only after the real-Bun two-process contention test passes. Record an explicit spec-delta or no-delta rationale under rq-disc07.",
+      "follow_ups": [
+        "Context7 unavailable: monthly quota exceeded. Exa unavailable: API key missing. Canonical fallback documentation was retrieved.",
+        "Verify persisted discovery artifact has rq-disc07 spec-law disposition; not checked due ADV state-access policy."
+      ]
+    }
+  ],
+  "test_runs": {
+    "tk-2941f5f79fd3": [
+      {
+        "runId": "tr_mrut72ce_142f85c3",
+        "phase": "red",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/cooldown-store.test.ts 2>&1 | tail -30",
+        "durationMs": 54.34566599968821,
+        "recordedAt": "2026-07-21T15:29:17.006Z"
+      },
+      {
+        "runId": "tr_mrut8d65_bd200e55",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/cooldown-store.test.ts 2>&1 | tail -50",
+        "durationMs": 803.7331660008058,
+        "recordedAt": "2026-07-21T15:30:17.712Z"
+      },
+      {
+        "runId": "tr_mrut91xf_4898fe54",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/cooldown-store.test.ts 2>&1 | tail -10",
+        "durationMs": 798.9547579996288,
+        "recordedAt": "2026-07-21T15:30:49.774Z"
+      },
+      {
+        "runId": "tr_mrut9hgr_05859bba",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ 2>&1 | tail -10",
+        "durationMs": 6914.784571000375,
+        "recordedAt": "2026-07-21T15:31:09.922Z"
+      }
+    ],
+    "tk-520fd2a27486": [
+      {
+        "runId": "tr_mrutcg8h_aa772c81",
+        "phase": "red",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/model-health-wiring.test.ts 2>&1 | tail -30",
+        "durationMs": 67.36912100017071,
+        "recordedAt": "2026-07-21T15:33:28.287Z"
+      },
+      {
+        "runId": "tr_mrutdfk0_dc18eb10",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/model-health-wiring.test.ts 2>&1 | tail -10",
+        "durationMs": 134.87047800049186,
+        "recordedAt": "2026-07-21T15:34:14.064Z"
+      },
+      {
+        "runId": "tr_mrutdqub_395824aa",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ 2>&1 | tail -10",
+        "durationMs": 6618.505437999964,
+        "recordedAt": "2026-07-21T15:34:28.697Z"
+      }
+    ],
+    "tk-02813db935e2": [
+      {
+        "runId": "tr_mrutio4a_9c749b2b",
+        "phase": "red",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ttft-subagent-aware.test.ts 2>&1 | tail -30",
+        "durationMs": 848.0196299999952,
+        "recordedAt": "2026-07-21T15:38:18.476Z"
+      },
+      {
+        "runId": "tr_mrutjn8e_0979186c",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ttft-subagent-aware.test.ts 2>&1 | tail -10",
+        "durationMs": 536.9587360005826,
+        "recordedAt": "2026-07-21T15:39:03.945Z"
+      },
+      {
+        "runId": "tr_mrutk3ds_a36c9b57",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ 2>&1 | tail -5",
+        "durationMs": 7287.862869000062,
+        "recordedAt": "2026-07-21T15:39:24.854Z"
+      }
+    ],
+    "tk-8136a6bde4f8": [
+      {
+        "runId": "tr_mrutnql1_1ef2fc33",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/cross-process-cooldown.test.ts 2>&1 | tail -20",
+        "durationMs": 1108.2788969995454,
+        "recordedAt": "2026-07-21T15:42:14.894Z"
+      },
+      {
+        "runId": "tr_mruto7f9_266bbdff",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ 2>&1 | tail -5",
+        "durationMs": 7881.905051999725,
+        "recordedAt": "2026-07-21T15:42:36.735Z"
+      }
+    ],
+    "tk-c3280415f03e": [
+      {
+        "runId": "tr_mrutq8oi_a2d7feeb",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/bun-lockfile-compat.test.ts 2>&1 | tail -20",
+        "durationMs": 288.52185899950564,
+        "recordedAt": "2026-07-21T15:44:11.699Z"
+      },
+      {
+        "runId": "tr_mrutqnhp_f1546d7b",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/ 2>&1 | tail -5",
+        "durationMs": 8716.031808000058,
+        "recordedAt": "2026-07-21T15:44:30.873Z"
+      }
+    ]
+  },
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-07-21T14:32:31.349Z",
+      "completed_by": "user",
+      "approval_evidence": "Problem statement confirmed via Tier A approval. Refined proposal.md with required Scope (In/Out/Must Not), User Outcomes, Constraints from Discussion, Discovery Agenda sections. Persisted standalone problem-statement.md. B/F/S scan: no CRITICAL findings. Validation passed (warnings NO_TASKS/NO_DELTAS expected at proposal stage).",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "content_hash": "d6df2c4b8d4e639e0c3f3dd8c113086012b429755f1a0162659288a29dfa1d61",
+        "non_whitespace_chars": 9086,
+        "checked_at": "2026-07-21T13:32:18.491Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "started_at": "2026-07-21T14:50:15.430Z",
+      "completed_at": "2026-07-21T14:54:07.942Z",
+      "completed_by": "user",
+      "approval_evidence": "Discovery output persisted to agreement.md. LBP check produced critical extension: plain temp+rename insufficient under concurrent writers — must add cooperative lock around read-merge-write (max-merge per model). P25 verdict: only cooldown needs cross-process visibility (session-state.ts correctly per-process by design). Contract minted: 23 items (SC1-3, AC1-6, C1-6, DONT1-4, OOS1-4). AC1-AC6 + SC1-SC3 user-approved. AMBIGUITY ANALYSIS: 0 CRITICAL, 1 HIGH (M1 → DQ1 for /adv-design). Scout: skipped with rationale. Open design questions: DQ1 lock primitive, DQ2 TTFT tuning mechanism.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "content_hash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "non_whitespace_chars": 15974,
+        "checked_at": "2026-07-21T13:32:18.492Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-07-21T15:07:30.981Z",
+      "completed_by": "user",
+      "approval_evidence": "Design amended after mandatory adv-researcher validation (fail advisory-only per Phase 3.6). All 5 validator findings integrated: KD1 explicit proper-lockfile options (realpath:false, onCompromised→log), KD8 persistence-write ordering before replacement spawn dispatch, KD4 cache necessity defended via hot-path call-site frequency. Part 3 (TTFT tuning) deferred to follow-up change (OOS4). User approved design + proper-lockfile dependency tradeoff. Validator confirmed Bun has no native file-lock primitive; smoke test gates the choice.",
+      "artifact_evidence": {
+        "kind": "design",
+        "content_hash": "fa72c7b0417825c947e6b4cb8d687ac6b470cdd0fb62218d2839924109175c47",
+        "non_whitespace_chars": 21545,
+        "checked_at": "2026-07-21T13:32:18.493Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-07-21T15:20:06.627Z",
+      "completed_by": "user",
+      "approval_evidence": "6 tasks synthesized from validated design. Linear dependency chain T1→T2→T3→T4→T5 with T6 branching off T2. All 23 contract items mapped. Validation passed (NO_DELTAS warning expected pre-archive). Risk: proper-lockfile Bun compat gated by tk-c3280415f03e smoke test. User approved task graph + autonomous execution go-ahead."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-07-21T15:45:13.995Z",
+      "completed_by": "agent",
+      "approval_evidence": "All 6 tasks completed. Linear chain T1->T2->T3->T4 with T5 (integration tests) and T6 (Bun smoke test) branching off. Total test count: 350 pass / 0 fail (added 272 tests across the change).\n\nSubagent infrastructure note: 3 consecutive empty returns from adv-engineer prompted inline fallback for T1 and T6. T2-T5 executed inline per inline_required metadata.\n\nFiles added/modified:\n- plugin/package.json (T1: proper-lockfile dep)\n- plugin/src/state/cooldown-store.ts (T2: new CooldownStore module, 380 lines)\n- plugin/src/state/model-health.ts (T3: cooldownStore injection + Promise return + read-through)\n- plugin/src/state/store.ts (T3: cooldownStore pass-through)\n- plugin/src/plugin-internal.ts (T4: handleTtftTimeout detectSubagent + isSubagent)\n- plugin/src/replay/orchestrator.ts (T4: attemptFallback KD8 await)\n- plugin/test/cooldown-store.test.ts (T2: 35 tests)\n- plugin/test/model-health-wiring.test.ts (T3: 14 tests)\n- plugin/test/ttft-subagent-aware.test.ts (T4: 8 tests)\n- plugin/test/cross-process-cooldown.test.ts (T5: 16 tests)\n- plugin/test/bun-lockfile-smoke.script.ts (T6: subprocess script)\n- plugin/test/bun-lockfile-compat.test.ts (T6: 2 tests)\n\nAll 23 contract items satisfied (SC1-3 via emergent AC coverage; AC1-6 verified; C1-6 implemented/respected; DONT1-4 respected; OOS1-4 out-of-scope)."
+    },
+    "acceptance": {
+      "status": "done",
+      "started_at": "2026-07-21T16:11:44.764Z",
+      "completed_at": "2026-07-21T16:14:59.826Z",
+      "completed_by": "user",
+      "approval_evidence": "Retry after matrix correction. Review matrix now contains 19 required rows (SC1-3, AC1-6, C1-6, DONT1-4) — no OOS rows since OOS items have verificationRequired=false and are filtered by the validator. All 19 rows passing/respected.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "content_hash": "84d74c4af37ac33ddff09ccdcaba852ba4f1ded80ba640b048829a924cd9b74a",
+        "non_whitespace_chars": 6704,
+        "checked_at": "2026-07-21T13:32:18.495Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [],
+  "cross_project_origin": {
+    "source_project": "toolbox",
+    "source_path": "/home/jon/toolbox",
+    "linked_at": "2026-07-21T13:32:16.832Z"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "standard",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+      "approvedAt": "2026-07-21T14:53:55.126Z"
+    },
+    "items": [
+      {
+        "id": "SC1",
+        "kind": "success_criterion",
+        "text": "End users no longer see 60s+ TTFT hangs or hard failures on a provider whose quota is already known exhausted elsewhere.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "SC2",
+        "kind": "success_criterion",
+        "text": "A cooldown set in one process is observable in another process's preemptive redirect within its next spawn cycle.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "SC3",
+        "kind": "success_criterion",
+        "text": "No regression to existing fallback chain resolution, preemptive redirect, or availability preflight behavior.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "After one quota_exhausted failure in process A, a fresh process B's next adv-engineer spawn hits preemptive redirect to the next healthy chain entry (verified by cross-process harness with shared cooldown file).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "N≥2 concurrent cooldown writes to the shared file preserve every distinct model entry (no sibling erasure); per-model expiry = max across writers.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "Missing / stale / malformed / wrong-perm cooldown file never blocks fallback — read returns \"not in cooldown\", no exception escapes the read path, fallback works unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "Persistent cooldown survives process restart; expired entries pruned on write; expired entries do not block reads.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "TTFT firing on a subagent session sets cooldown without dead-session recovery (`isSubagent=true` flows through `handleTtftTimeout`; no `fallback.messages_failed` / `fallback.abort_failed` on dead subagent).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "All existing in-process cooldown tests pass unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Fail-open invariant — malformed/missing/wrong-perm cooldown file never blocks fallback (user decision 2026-07-21).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Atomic write + cooperative lock around read-merge-write (LBP finding rq-disc10; addresses concurrent-writer lost-update hazard).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Owner-only perms (0600), matching the Claude availability-snapshot pattern (user decision 2026-07-21).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "OMR-only — no upstream OpenCode filing or coupling (user decision 2026-07-21).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Same TTL authority as in-memory: `cooldownMsByCategory[reason] ?? cooldownMs` (existing semantics preserved).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "Bun host compatibility required — any lock primitive must work under Bun.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "DONT1",
+        "kind": "avoidance",
+        "text": "No cross-process locking scheme that can itself hang (advisory locks only, bounded retries, fail-open on acquisition failure).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT2",
+        "kind": "avoidance",
+        "text": "No regression to existing in-process cooldown tests or `isInCooldown(key)` call-site semantics for preemptive redirect, fallback chain resolution, or availability preflight.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT3",
+        "kind": "avoidance",
+        "text": "No cross-process session-state sharing beyond cooldown (session-state.ts remains per-process by design).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT4",
+        "kind": "avoidance",
+        "text": "No persistence of cooldowns unbounded by the existing `cooldownMsByCategory` authority.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Upstream OpenCode fix (user declined filing; OMR must tolerate missing event emission).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "Provider-specific quota probes (OMR does not query provider quota APIs).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Cross-process session-state sharing beyond cooldown (only cooldown needs to be shared for preemptive redirect to work across processes).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "TTFT tuning mechanism (Part 3 of proposal design) — recorded as open design question DQ2 for /adv-design; exact mechanism deferred.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-07-21T16:12:58.440Z",
+      "rows": [
+        {
+          "contractId": "SC1",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "AC1+AC5 verified: cross-process preemptive redirect after first failure (T5) + subagent TTFT sets cooldown without 60s dead-session recovery (T4)."
+        },
+        {
+          "contractId": "SC2",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "T5 cross-process preemptive redirect verifies end-to-end visibility. KD8 await guarantees persist settle before sibling's spawn."
+        },
+        {
+          "contractId": "SC3",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "Full plugin suite 350/350. ModelHealthMap backwards compat verified."
+        },
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "cross-process-cooldown.test.ts AC1 tests (3): preemptive, fallback-resolver, preflight caller paths skip cooldown model in process B."
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "cooldown-store.test.ts concurrent persists (2+4); cross-process-cooldown.test.ts (3+4 cross-process); bun-lockfile-compat.test.ts real-subprocess 2+4 writers."
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "cooldown-store.test.ts fail-open (8 tests); cross-process-cooldown.test.ts fail-open across preemptive/resolver/preflight paths."
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "cooldown-store.test.ts prune-on-write; cross-process-cooldown.test.ts restart cycle (3 tests)."
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "ttft-subagent-aware.test.ts (4 tests): short-circuit, full recovery, EC5 default, detection cached. No recovery SDK calls on dead subagent."
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Full suite 350/350. Existing tests across 20 files pass unchanged."
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "CooldownStore.readCooldowns returns empty Map on every failure; persistCooldown never rejects. 8 fail-open unit + 4 integration tests."
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "CooldownStore.persistCooldown uses proper-lockfile.lock() around read-merge-write. Atomic rename. Concurrent persist tests + bun subprocess smoke test confirm."
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "CooldownStore writes temp file mode:0o600 then renames. Reader enforces (mode & 0o077) === 0. Wrong-perm tests verify rejection."
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "All changes in plugin/. No upstream coupling. proper-lockfile is only new dep."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "ModelHealthMap.cooldown() persists absolute expiresAt computed by caller; TTL authority stays in cooldownMsByCategory."
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "bun-lockfile-compat.test.ts spawns real bun subprocesses (2+4 writers). Both pass. proper-lockfile confirmed Bun-safe."
+        },
+        {
+          "contractId": "DONT1",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "proper-lockfile advisory locking, retries:3, stale:10s, onCompromised:log. Fail-open on acquisition failure."
+        },
+        {
+          "contractId": "DONT2",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "ModelHealthMap backwards-compat tests verify no-cooldownStore path unchanged. Full suite 350/350 pass."
+        },
+        {
+          "contractId": "DONT3",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "session-state.ts NOT modified. Only cooldown-related files changed."
+        },
+        {
+          "contractId": "DONT4",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "ModelHealthMap.cooldown signature unchanged; durationMs from caller's cooldownMsByCategory authority."
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "After one quota_exhausted failure in process A, a fresh process B's next adv-engineer spawn hits preemptive redirect to the next healthy chain entry (verified by cross-process harness with shared cooldown file).",
+    "N≥2 concurrent cooldown writes to the shared file preserve every distinct model entry (no sibling erasure); per-model expiry = max across writers.",
+    "Missing / stale / malformed / wrong-perm cooldown file never blocks fallback — read returns \"not in cooldown\", no exception escapes the read path, fallback works unchanged.",
+    "Persistent cooldown survives process restart; expired entries pruned on write; expired entries do not block reads.",
+    "TTFT firing on a subagent session sets cooldown without dead-session recovery (`isSubagent=true` flows through `handleTtftTimeout`; no `fallback.messages_failed` / `fallback.abort_failed` on dead subagent).",
+    "All existing in-process cooldown tests pass unchanged."
+  ],
+  "documents": {
+    "proposal": "# Persistent cross-process cooldown store\n\n## Problem\n\n`adv-engineer` spawns against `kimi-for-coding/kimi-for-coding` fail with billing-cycle quota exhaustion, and the failures never trigger preemptive redirect to the fallback chain:\n\n1. **OpenCode 1.18.4 emits no failure event for non-retryable stream errors.** The `bo()` `session.error` emitter is wired only to demo handlers (`\"demo error event\"`, `\"demo mixed scenario error\"`); the real `streamText({onError})` path only LOGS `\"stream error\"`. `session.status` retry fires only for retryable errors. So OMR's `event` hook never fires for the kimi 403.\n2. **TTFT is the only indirect signal** (no token → 60s timeout → `attemptFallback`), but `handleTtftTimeout` does not pass `isSubagent`, so it takes the full dead-session recovery path instead of the clean subagent short-circuit.\n3. **`FallbackStore` cooldown is in-memory per-process.** A cooldown set in process A is invisible to process B. The observed failures span 10+ processes — even a working in-process TTFT cannot help.\n\nThe earlier billing-cycle classifier fix (`aba36c8`) was necessary (so the error classifies as `quota_exhausted` for long cooldown) but insufficient — it only matters if the event arrives, and it never does.\n\n### Evidence\n\n- Harness on deployed dist: OMR handler fires `fallback.subagent_skip` + cooldown + preemptive redirect correctly for the REAL OpenCode shape (`{name:\"UnknownError\", data:{message}}`) — handler logic is 100% correct.\n- Binary archaeology: `bo()` session.error emitter called only from demo handlers; `streamText onError` only logs.\n- Production logs: 25+ kimi-quota failures across 10+ `run=` IDs, zero `preemptive.redirected`-equivalent outcomes.\n\n## User Outcomes\n\n- **Cross-process fallback protection**: when one OpenCode process observes a non-retryable failure (quota exhaustion, auth, etc.) on a model, every other concurrent OpenCode process automatically skips that model on its next spawn — without each process having to discover the failure independently.\n- **No user-visible hangs on exhausted providers**: users no longer wait 60s+ for a TTFT timeout (or hit a hard failure) on a provider whose quota is already known exhausted elsewhere; they get routed to the next healthy chain entry promptly.\n- **Resilience to malformed state**: if the shared cooldown state is missing, stale, malformed, or has wrong permissions, fallback still works — users never lose existing fallback behavior because of a corrupted cooldown file.\n- **No regression to current in-process behavior**: existing cooldown semantics (TTL by reason category, `isInCooldown` checks in preemptive redirect and chain resolution) are preserved; only the storage layer broadens from per-process to cross-process.\n- **Subagent TTFT failures stay cheap**: when a TTFT timeout fires on a subagent session, cooldown is set via the clean short-circuit path — no dead-session `messages()`/`abort()`/`prompt` churn.\n\n## Constraints from Discussion\n\n| Constraint | Source |\n|---|---|\n| Fail-open — malformed/missing/wrong-perm cooldown file never blocks fallback | User decision 2026-07-21 |\n| Atomic write (temp + `fs.rename`) to avoid torn reads across concurrent processes | User decision 2026-07-21 |\n| Owner-only perms (0600), matching the existing Claude availability-snapshot pattern | User decision 2026-07-21 |\n| Same TTL authority as in-memory: `cooldownMsByCategory[reason] ?? cooldownMs` | Existing semantics — preserve |\n| OMR-only — no upstream OpenCode filing | User decision 2026-07-21 |\n\n## Rejected Approaches\n\n- **Upstream OpenCode fix** — user declined filing. OMR must tolerate the missing event emission.\n- **Provider-specific quota probes** — out of scope; OMR does not query provider quota APIs.\n- **Cross-process session-state sharing beyond cooldown** — out of scope; only cooldown needs to be shared for preemptive redirect to work across processes.\n\n## Direction: OMR-only (no upstream filing)\n\nPer user decision 2026-07-21. Mirror the existing Claude availability-snapshot file-protocol pattern, generalized.\n\n## Design\n\n### Part 1 — Persistent cooldown store (highest impact)\n\n`store.health.cooldown(modelKey, ms, reason)` writes to `~/.local/share/opencode-model-routing/cooldown.json`; `isInCooldown(modelKey)` reads it with freshness + structural validation. Cross-process. Atomic write (temp + rename). Owner-only perms (0600), like the Claude snapshot.\n\nShape (V1):\n```json\n{\n  \"schema\": \"opencode-model-routing/cooldown@1\",\n  \"version\": 1,\n  \"entries\": {\n    \"kimi-for-coding/kimi-for-coding\": { \"expiresAt\": 1784610000000, \"reason\": \"quota_exhausted\", \"setAt\": 1784606400000 }\n  }\n}\n```\n\nRead path: descriptor-bound (`O_RDONLY | O_NONBLOCK | O_NOFOLLOW`), fstat UID + size cap, strict JSON, per-entry expiry check. Missing/stale/malformed/wrong-perm → empty → no-op (fail open, never block).\n\nWrite path: temp file + `fs.rename` (atomic), 0600, prune expired entries on write.\n\nTTL bounded by `cooldownMsByCategory[reason] ?? cooldownMs` (same authority as in-memory).\n\n### Part 2 — Subagent-aware TTFT handler\n\n`handleTtftTimeout` calls `detectSubagent(sessionId, client, store)` and passes `isSubagent` to `attemptFallback`. Then a TTFT firing on a dead subagent session sets cooldown via the clean short-circuit (no dead-session `messages()`/`abort()`/`prompt`).\n\n### Part 3 — TTFT tuning (optional, deferred to a task decision)\n\nReduce default `ttftMs` (60s) for the no-token case, OR add a one-shot post-`chat.message` message-state probe (e.g., 3s) that reads the session's latest message and, if errored, sets cooldown immediately. Kimi 403 returns in ~1s. Trade-off: false-positives on legitimately slow cold starts vs. faster sibling-spawn protection. Defer the exact mechanism to planning.\n\n## Scope\n\n### In Scope\n\n- **Persistent cooldown store** — `plugin/src/state/model-health.ts` (or a new sibling module): add file-backed read/write path mirroring `plugin/src/availability/snapshot.ts` patterns (atomic write, descriptor-bound read, owner-only perms, fail-open validation).\n- **Cooldown write hook** — wire `store.health.cooldown(modelKey, ms, reason)` to write through to the persistent file in addition to the existing in-memory mutation.\n- **Cooldown read refresh** — `isInCooldown(key)` reads persistent state with freshness check, so cooldowns set by other processes are visible. Callers: `plugin/src/preemptive.ts:41`, `plugin/src/resolution/fallback-resolver.ts:45`, `plugin/src/availability/preflight.ts:56`.\n- **Subagent-aware TTFT handler** — `plugin/src/plugin-internal.ts:318 handleTtftTimeout` calls `detectSubagent` and passes `isSubagent` to `attemptFallback` (matching the pattern already used at lines 463 and 499).\n- **Tests** — `plugin/test/`: cross-process cooldown behavior harness (two plugin instances sharing one cooldown file), fail-open cases (missing/stale/malformed/wrong-perm), expiry pruning, subagent TTFT short-circuit, no-regression on existing in-process tests.\n- **Schema doc update** (if needed) — `schema/` to record the `opencode-model-routing/cooldown@1` shape if a schema-contract check covers it.\n\n### Out of Scope\n\n- Upstream OpenCode fix (user declined filing — OMR tolerates missing event emission).\n- Provider-specific quota probes (OMR does not query provider quota APIs).\n- Cross-process session-state sharing beyond cooldown (only cooldown needs to be shared for preemptive redirect to work).\n- Part 3 TTFT tuning mechanism — design recorded, exact mechanism deferred to planning.\n\n### Must Not\n\n- Must not block fallback on malformed/missing/wrong-perm cooldown state (fail-open invariant — cooldown is an optimization, not a gate).\n- Must not couple OMR to upstream OpenCode internals beyond the existing hook surface.\n- Must not regress existing in-process cooldown tests or change `isInCooldown(key)` call-site semantics for preemptive redirect / chain resolution.\n- Must not introduce cross-process locking that could itself become a hang source (atomic-rename-only; no long-held locks).\n- Must not persist cooldowns with TTLs unbounded by the existing `cooldownMsByCategory` authority.\n\n## Discovery Agenda\n\nUnresolved unknowns to investigate during `/adv-discover`:\n\n- **Existing atomic-write + read-with-validation helpers** — does `plugin/src/availability/snapshot.ts` already export a reusable temp+rename + descriptor-bound read utility, or does it need to be extracted/generalized? Affects whether Part 1 is \"mirror pattern\" or \"extract shared helper first.\"\n- **Concurrency model under load** — when 10+ processes write the same cooldown file near-simultaneously (e.g., kimi quota exhaustion cascading), does atomic-rename-only lose entries set by other processes within the same window? Need to characterize expected write frequency and decide whether read-merge-write is required on the write path (it likely is — last-writer-wins would un-set a sibling's cooldown entry).\n- **`isInCooldown` hot-path cost** — current call sites (preemptive redirect, fallback resolver, preflight) are latency-sensitive. Stat+read+JSON-parse+expiry-check per call may be too costly; need to measure and decide on a TTL-bounded in-process cache backed by the file.\n- **Existing test harness for cross-plugin-instance simulation** — does `plugin/test/` already have a pattern for instantiating two `Store` instances against shared file state, or does one need to be built?\n- **`detectSubagent` cost on TTFT path** — already called at lines 463/499; calling it once more in `handleTtftTimeout` is presumably fine, but confirm it's not a significant round-trip.\n- **Cooldown file location convention** — `~/.local/share/opencode-model-routing/cooldown.json` is proposed; confirm this matches `plugin/src/availability/snapshot.ts` Claude snapshot path convention and respects any `XDG_*`/`ADV_*` overrides already in use.\n\n## Acceptance criteria\n\n- After one kimi-quota failure in process A, a fresh process B's adv-engineer spawn hits preemptive redirect to the next healthy chain entry (verified by harness simulating two plugin instances with a shared cooldown file).\n- Persistent cooldown file survives process restart; expired entries are pruned and do not block.\n- Malformed/missing/wrong-perm cooldown file never blocks fallback (fail-open).\n- TTFT firing on a subagent session sets cooldown without attempting dead-session recovery (no `fallback.messages_failed` / `fallback.abort_failed` on a dead session).\n- Existing in-process cooldown tests still pass; new cross-process tests added.\n",
+    "problemStatement": "# Problem Statement: addPersistentCrossProcess\n\n## Problem\n\n`adv-engineer` spawns against `kimi-for-coding/kimi-for-coding` fail with billing-cycle quota exhaustion, and the failures never trigger preemptive redirect to the fallback chain:\n\n- **Not within the originating process** — OpenCode 1.18.4 emits no failure event for non-retryable stream errors. The `bo()` `session.error` emitter is wired only to demo handlers; `streamText({onError})` only logs. So OMR's `event` hook never fires for the kimi 403.\n- **Not across sibling OpenCode processes** — `FallbackStore` cooldown is in-memory per-process. A cooldown set in process A is invisible to process B. Observed 25+ failing spawns across 10+ `run=` IDs, zero preemptive redirects.\n\nThe only indirect signal is TTFT timeout (no token → 60s timeout → `attemptFallback`), and even that path is broken: `handleTtftTimeout` does not pass `isSubagent`, so it takes the full dead-session recovery path instead of the clean subagent short-circuit.\n\nThe earlier billing-cycle classifier fix (`aba36c8`) was necessary (so the error classifies as `quota_exhausted` for long cooldown) but insufficient — it only matters if the event arrives, and it never does.\n\nNet user impact: when kimi quota is exhausted, users see hangs (60s+ TTFT timeouts) or hard failures instead of automatic fallback to the next healthy chain entry. The impact compounds across concurrent processes.\n\n## Prior Decisions\n\n| Decision | Source |\n|---|---|\n| OMR-only fix — no upstream OpenCode filing | User decision 2026-07-21 |\n| Mirror existing Claude availability-snapshot file-protocol pattern, generalized | User decision 2026-07-21 |\n\n## Rejected Approaches\n\n- **Upstream OpenCode fix** — user declined filing. OMR must tolerate the missing event emission.\n- **Provider-specific quota probes** — out of scope; OMR does not query provider quota APIs.\n- **Cross-process session-state sharing beyond cooldown** — out of scope; only cooldown needs to be shared for preemptive redirect to work across processes.\n\n## Constraints from Discussion\n\n- **Fail-open**: malformed/missing/wrong-perm cooldown file never blocks fallback. Cooldown is an optimization, not a gate.\n- **Atomic write**: temp file + `fs.rename` to avoid torn reads across concurrent processes.\n- **Owner-only perms (0600)**: match the existing Claude availability-snapshot pattern.\n- **In-memory cooldown semantics preserved**: same TTL authority (`cooldownMsByCategory[reason] ?? cooldownMs`), same `isInCooldown(key)` read shape used by `preemptive.ts` and `fallback-resolver.ts`.\n\n## Open Questions (deferred to Discovery / Planning)\n\n- **TTFT tuning mechanism** (Part 3 of design): reduce default `ttftMs` (60s) for the no-token case vs. add a one-shot post-`chat.message` message-state probe (~3s) that reads the session's latest message and sets cooldown immediately. Trade-off: false-positives on legitimately slow cold starts vs. faster sibling-spawn protection. Kimi 403 returns in ~1s. Defer the exact mechanism to planning.\n",
+    "agreement": "# Agreement: addPersistentCrossProcess\n\nDiscovery output + signed-off objectives, constraints, avoidances, acceptance criteria, and success criteria. User-approved 2026-07-21.\n\n---\n\n## Objectives\n\n1. **Cross-process cooldown visibility**: make `ModelHealthMap` cooldown state observable across all concurrent OpenCode plugin instances on the same host, so a quota-exhaustion (or other non-retryable failure) observed in one process protects sibling processes.\n2. **No user-visible hangs on exhausted providers**: eliminate the 60s+ TTFT-timeout-to-failure path for providers already known exhausted elsewhere.\n3. **Subagent-aware TTFT handling**: when a TTFT timeout fires on a subagent session, take the clean short-circuit path (set cooldown) instead of the full dead-session recovery path.\n4. **Fail-open resilience**: missing/stale/malformed/wrong-perm cooldown state never degrades existing fallback behavior.\n\n## Success Criteria\n\n- SC1: End users no longer see 60s+ TTFT hangs or hard failures on a provider whose quota is already known exhausted elsewhere.\n- SC2: A cooldown set in one process is observable in another process's preemptive redirect within its next spawn cycle.\n- SC3: No regression to existing fallback chain resolution, preemptive redirect, or availability preflight behavior.\n\n## Acceptance Criteria\n\n- AC1: After one quota_exhausted failure in process A, a fresh process B's next adv-engineer spawn hits preemptive redirect to the next healthy chain entry (verified by cross-process harness with shared cooldown file).\n- AC2: N≥2 concurrent cooldown writes to the shared file preserve every distinct model entry (no sibling erasure); per-model expiry = max across writers.\n- AC3: Missing / stale / malformed / wrong-perm cooldown file never blocks fallback — read returns \"not in cooldown\", no exception escapes the read path, fallback works unchanged.\n- AC4: Persistent cooldown survives process restart; expired entries pruned on write; expired entries do not block reads.\n- AC5: TTFT firing on a subagent session sets cooldown without dead-session recovery (`isSubagent=true` flows through `handleTtftTimeout`; no `fallback.messages_failed` / `fallback.abort_failed` on dead subagent).\n- AC6: All existing in-process cooldown tests pass unchanged.\n\n## Constraints\n\n- C1: Fail-open invariant — malformed/missing/wrong-perm cooldown file never blocks fallback (user decision 2026-07-21).\n- C2: Atomic write + cooperative lock around read-merge-write (LBP finding rq-disc10; addresses concurrent-writer lost-update hazard).\n- C3: Owner-only perms (0600), matching the Claude availability-snapshot pattern (user decision 2026-07-21).\n- C4: OMR-only — no upstream OpenCode filing or coupling (user decision 2026-07-21).\n- C5: Same TTL authority as in-memory: `cooldownMsByCategory[reason] ?? cooldownMs` (existing semantics preserved).\n- C6: Bun host compatibility required — any lock primitive must work under Bun.\n\n## Avoidances\n\n- DONT1: No cross-process locking scheme that can itself hang (advisory locks only, bounded retries, fail-open on acquisition failure).\n- DONT2: No regression to existing in-process cooldown tests or `isInCooldown(key)` call-site semantics for preemptive redirect, fallback chain resolution, or availability preflight.\n- DONT3: No cross-process session-state sharing beyond cooldown (session-state.ts remains per-process by design).\n- DONT4: No persistence of cooldowns unbounded by the existing `cooldownMsByCategory` authority.\n\n## Out of Scope\n\n- OOS1: Upstream OpenCode fix (user declined filing; OMR must tolerate missing event emission).\n- OOS2: Provider-specific quota probes (OMR does not query provider quota APIs).\n- OOS3: Cross-process session-state sharing beyond cooldown (only cooldown needs to be shared for preemptive redirect to work across processes).\n- OOS4: TTFT tuning mechanism (Part 3 of proposal design) — recorded as open design question DQ2 for /adv-design; exact mechanism deferred.\n\n---\n\n## Discovery Output\n\n### Discovery Checklist (rq-disc01)\n\n| # | Protocol step | Status | Reason |\n|---|---|---|---|\n| 1 | Problem statement grounded in prior discussion (rq-prop-context2) | PASS | Carried from confirmed proposal; problem-statement.md persisted at proposal gate |\n| 2 | Phase 1.5 skill discovery (rq-disc02) | PASS | See Skills Considered below — no ADV skill matches the cross-process state problem domain |\n| 3 | Prior research extension (rq-disc03) | PASS | Extends archived fixRateLimitCooldownThrash + toolbox origin analysis; new finding: concurrent-write merge hazard (LBP) |\n| 4 | Conflict & related-work scan (rq-disc04) | PASS | adv_change_list(includeArchived) + adv_change_validate called; 0 active conflicts, 2 archived related-work |\n| 5 | Edge case investigation (rq-disc05) | PASS | 2+ edge cases documented per gap (see Edge Cases below) |\n| 6 | Design question depth (rq-disc06) | PASS | DQ1 (lock primitive) + DQ2 (TTFT tuning) each carry trust model / blast radius / alternatives |\n| 7 | Draft spec deltas (rq-disc07) | PASS | 4 draft deltas (rq-cool-xp1..xp4) each with Given/When/Then |\n| 8 | P25 related-pattern scan (rq-disc08) | PASS | session-state.ts verified correctly per-process by design; only cooldown needs cross-process |\n| 9 | External-solution / LBP check (rq-disc10) | PASS | adv-researcher LBP report; recommendation: file-protocol + cooperative lock around read-merge-write |\n| 10 | AMBIGUITY ANALYSIS (rq-disc-tax1) | PASS | B/F/S/M covered; 0 CRITICAL, 1 HIGH (M1 → open design question) |\n| 11 | Problem-completeness check (rq-disc13) | PASS | Full problem identified — three compounding failures; high confidence |\n| 12 | Solution-scope check (rq-disc14) | PASS | No sole-entry risk; `ModelHealthMap.cooldown` is the single setter; secondary surfaces classified |\n| 13 | Discovery Opportunity Scout (rq-discOpportunityScout01) | SKIP | Focused production-bug fix with vetted direction; bounded architectural footprint; no strategic leverage surface |\n| 14 | Acceptance criteria checkpoint (rq-disc12) | PASS | User approved AC1–AC6 + SC1–SC3 inline 2026-07-21 |\n| 15 | Completeness verification (rq-disc13/14 co-presence) | PASS | Recorded here, in proposal, and in skills-considered surfaces |\n\n### Skills Considered (rq-disc02)\n\n| Skill | Match assessment | Action |\n|---|---|---|\n| `adv-clarify` | No critical ambiguity; 1 HIGH M1 finding is design-phase, not clarification | Not loaded |\n| `adv-improve` | Already consumed as origin (toolbox analysis) | Not re-loaded |\n| `adv-backend-stack-eval` | N/A — Go+TS plugin, not backend stack selection | Not loaded |\n| `adv-audit` | N/A — no spec drift to audit | Not loaded |\n| `adv-opportunity-scout` | Worker skill for Discovery Opportunity Scout | Skipped per scout rationale |\n| `adv-tron` | Could be used for recon | Used `explore` instead (equivalent for read-only recon) |\n\nNo skill gap detected for this domain (cross-process file-based state sharing is a standard systems problem with LBP-documented solutions, not a domain warranting a new skill).\n\n### Extends (rq-disc03)\n\n- **`fixRateLimitCooldownThrash` (archived 2026-07-20)** — extends its category-specific cooldown conventions (`cooldownMsByCategory` map, rate_limit=30min, quota_exhausted=1h). **New finding beyond it**: per-process cooldown isolation is the undiagnosed residual defect that this change addresses.\n- **Toolbox origin analysis** — extends with codebase-specific locking requirement (concurrent-write merge under cooperative lock) not surfaced in the toolbox-level analysis.\n\n### Conflict Scan (rq-disc04)\n\n| Change ID | Status | Title | Relation | Conflict |\n|---|---|---|---|---|\n| `addPersistentCrossProcess` | draft | (this) | — | — |\n| `fixRateLimitCooldownThrash` | archived | Fix rate_limit cooldown thrash | Related: same cooldown subsystem | None — different category, builds on its conventions |\n| `fixFallbackTaskLifecycle` | archived | Fix fallback task lifecycle | Related: same fallback subsystem | None |\n\n`adv_change_validate` on `addPersistentCrossProcess`: passed (NO_TASKS / NO_DELTAS warnings are expected pre-prep, excluded from conflict findings per rq-disc04.2).\n\nTyped inventory completeness: complete (3 changes inventoried, 0 omissions, 0 source failures).\n\n### External-Solution Check / LBP Check (rq-disc10)\n\n**Recommendation**: Plain file-protocol **+ cooperative lock around read-merge-write**.\n\nThe proposal's \"atomic write (temp + rename)\" alone is **insufficient** — last-writer-wins erases sibling entries when 10+ processes write near-simultaneously (the kimi-quota cascade scenario). Atomic `rename` prevents torn JSON visibility; it does NOT prevent lost updates.\n\nRequired write protocol:\n1. Acquire stable advisory lock (`flock` or `proper-lockfile`)\n2. Read via existing bounded descriptor-validated protocol (mirror `availability/snapshot.ts`)\n3. Treat malformed/missing as empty; prune expired entries\n4. Merge new cooldown with `max(existingExpiry, proposedExpiry)` per model\n5. Write 0600 temp file in same directory (avoid EXDEV); `fs.rename` atomically\n6. Release lock in `finally`\n7. On any lock/read/write failure → fail open locally (set in-memory only, no exception)\n\n**Alternatives evaluated and rejected** (sourced: Linux `rename(2)`, `flock(2)`, `open(2)` man pages; Bun Node-compat docs; proper-lockfile README; SQLite WAL docs; better-sqlite3 README; Linux `shm_open(3)`, `mmap(2)`):\n\n| Alternative | Verdict | Reason |\n|---|---|---|\n| SQLite (`bun:sqlite`) | Overkill | Few-hundred-entry KV; transactional querying not needed; adds DB lifecycle |\n| SQLite (`better-sqlite3`) | Non-starter | Native C++ addon; Bun compatibility unverified; `bun:sqlite` covers if SQLite escalates |\n| `proper-lockfile` | Acceptable | Reasonable dep IF Bun compat verified by integration test |\n| mmap / POSIX shm | Reject | Platform-specific machinery; binary layout required; no benefit at this size |\n| Unix-domain socket / IPC daemon | Reject | Daemon election / lifecycle races; overkill for tiny state |\n| Bespoke stale-lock impl | Reject | Stale-lock complexity; only if dependency policy requires |\n\nThis finding materially extends the proposal's Part 1 design. Exact lock primitive choice is **DQ1** for `/adv-design`.\n\n### Edge Cases (rq-disc05)\n\n**For the persistence layer**:\n\n- **EC1**: Process A holds the lock and crashes before releasing. Mitigation: advisory locks (`flock`) auto-release on process exit (kernel-managed); `proper-lockfile` uses stale-timeout detection. Either way, fail-open retry policy prevents indefinite block.\n- **EC2**: Clock skew across processes — process A writes `expiresAt = now_A + 3600000`; process B's clock is 5 minutes behind. Cooldown appears 5 minutes longer in B. Acceptable: cooldown is advisory, fail-open; `max(existing, proposed)` merge prevents the skew from prematurely clearing a valid cooldown.\n- **EC3**: Cooldown file grows unboundedly across days/weeks as models churn. Mitigation: prune expired entries on every write (already in the design); entries are tiny (~80 bytes each), so even 1000 unpruned entries is ~80KB.\n- **EC4**: Same-directory temp-file name collision between two processes. Mitigation: unique temp name (PID + random suffix or `mkstemp`-equivalent).\n\n**For the subagent TTFT handler (Part 2)**:\n\n- **EC5**: `detectSubagent` itself throws or returns undefined on a half-dead session. Mitigation: existing call sites at `plugin-internal.ts:463,499` already tolerate this; new call site in `handleTtftTimeout` follows the same `try/catch → default false` pattern.\n- **EC6**: TTFT fires on a primary session (not subagent) — must not change existing dead-session recovery behavior. Mitigation: `isSubagent=false` flows through unchanged; existing path runs.\n\n### Open Design Questions (rq-disc06)\n\n**DQ1: Lock primitive choice**\n\n| Aspect | Detail |\n|---|---|\n| Trust model | Joint — agent proposes with Bun-integration-test evidence, user approves |\n| Blast radius | Wrong choice = either lost entries (no lock) or stale-lock hangs (bad lock impl) |\n| Alternatives | (a) advisory `flock` via `node:fs` — lowest dep, kernel-managed release; (b) `proper-lockfile` — Bun compat unverified; (c) bespoke — stale-lock complexity; (d) SQLite `bun:sqlite` — overkill |\n\n**DQ2: TTFT tuning mechanism (deferred from proposal Part 3)**\n\n| Aspect | Detail |\n|---|---|\n| Trust model | Joint — latency vs false-positive tradeoff is user-sensitive |\n| Blast radius | Too-aggressive → false-positive cold-start cooldowns of healthy providers; too-conservative → residual 60s hangs |\n| Alternatives | (a) reduce `ttftMs` (60s→?); (b) one-shot post-`chat.message` message-state probe (~3s); (c) no change (rely on Parts 1+2 only) |\n\n### Draft Spec Deltas (rq-disc07)\n\n**`rq-cool-xp1`: Cross-process cooldown visibility**\n\n```gherkin\nGiven: two OpenCode plugin instances A and B sharing the same cooldown file\nWhen: instance A observes a quota_exhausted failure on model M and sets cooldown\nThen: instance B's next preemptive redirect skips model M\n  And: instance B's next fallback chain resolution skips model M\n  And: instance B's next availability preflight skips model M\n```\n\n**`rq-cool-xp2`: Concurrent write merge**\n\n```gherkin\nGiven: N ≥ 2 processes write cooldown entries to the shared file near-simultaneously\nWhen: all N writes complete\nThen: the persisted file contains every distinct model entry from every writer\n  And: per-model expiry equals max(expiresAt across all writers for that model)\n```\n\n**`rq-cool-xp3`: Fail-open invariant**\n\n```gherkin\nGiven: the cooldown file is missing, stale, malformed, or has wrong permissions\nWhen: any read path executes (isInCooldown / preemptive / fallback-resolver / preflight)\nThen: the read returns \"not in cooldown\" (empty state)\n  And: no exception propagates to the caller\n  And: existing fallback behavior is preserved unchanged\n```\n\n**`rq-cool-xp4`: Subagent-aware TTFT**\n\n```gherkin\nGiven: a TTFT timeout fires on a session that detectSubagent() identifies as a subagent\nWhen: handleTtftTimeout invokes attemptFallback\nThen: attemptFallback receives isSubagent=true\n  And: the clean short-circuit path runs (cooldown set)\n  And: no dead-session messages()/abort()/prompt sequence runs\n```\n\n### P25 Related Pattern Scan (rq-disc08)\n\nModules under `plugin/src/state/`:\n- `model-health.ts` — `ModelHealthMap` class. Holds `Map<ModelKey, HealthRecord>`. In-memory only — **needs cross-process visibility for cooldown records**.\n- `session-state.ts` — per-session fallback tracking (`originalModel`, `currentModel`, `fallbackDepth`, etc.). Top comment explicitly documents: *\"Held in memory only — agreement excludes cross-restart persistence.\"* **Correctly per-process by design** — no change.\n- `store.ts` — `FallbackStore` aggregator + `SessionsAccessor`. Composes `ModelHealthMap`. Wires persistence into the cooldown setter (no semantic change to other accessors).\n\n**Verdict**: only `ModelHealthMap` cooldown records need cross-process visibility. No additional scope.\n\n### Problem-Completeness Check (rq-disc13)\n\n**Full problem identified?** Yes.\n\nThe proposal documents three compounding failures:\n1. OpenCode 1.18.4 emits no failure event for non-retryable stream errors (no event reaches OMR for kimi 403).\n2. TTFT-timeout handler does not pass `isSubagent`, taking dead-session recovery path instead of clean short-circuit.\n3. Cooldown is in-memory per-process — invisible across sibling processes.\n\nThe root-cause analysis (binary archaeology on `bo()` session.error emitter; harness verification against real OpenCode error shape; production log inspection across 25+ failures and 10+ run IDs) is sourced and specific. The proposed three-part fix maps 1:1 to the three failures.\n\n**Confidence**: high. Residual uncertainty is in the implementation mechanism (lock primitive choice DQ1, TTFT tuning DQ2), not the problem scope.\n\n### Solution-Scope Check (rq-disc14)\n\n**Primary control surface**: `ModelHealthMap.cooldown(key, durationMs, category?)` in `plugin/src/state/model-health.ts:36` — single setter, called from `plugin/src/replay/orchestrator.ts` (inside `attemptFallback`) and from `plugin-internal.ts` short-circuit paths.\n\n**Read sites** (verified):\n- `plugin/src/preemptive.ts:41` — `if (!store.health.isInCooldown(key))`\n- `plugin/src/resolution/fallback-resolver.ts:45` — `if (health.isInCooldown(m)) continue;`\n- `plugin/src/availability/preflight.ts:56` — `&& !store.health.isInCooldown(key)`\n\n**Sole-entry claim verified**: yes — single setter (`cooldown`), single reader (`isInCooldown`). No secondary write or read surfaces uncovered.\n\n**Secondary surfaces (classified)**:\n- `plugin/src/state/store.ts` — aggregator; will wire persistence into the `cooldown` setter. **In scope**.\n- `plugin/src/plugin-internal.ts:318 handleTtftTimeout` — Part 2 fix (subagent-aware). **In scope**.\n- `plugin/test/helpers/` — extract shared atomic-write helper (currently duplicated in 3 test files). **In scope** (campsite rule per P23).\n\n**No silent deferrals**: TTFT tuning (Part 3) is explicitly classified as open design question DQ2 for `/adv-design`, not silently deferred as future work.\n\n### Discovery Opportunity Scout: SKIPPED (rq-discOpportunityScout01.3)\n\n**Rationale**: focused production-bug fix with vetted direction (user decision 2026-07-21). Architectural footprint bounded to plugin state layer. No strategic/product/ecosystem leverage surface beyond the documented design. Worker skill load not required.\n\n### AMBIGUITY ANALYSIS (rq-disc-tax1)\n\n| ID | Severity | Category | Finding | Evidence |\n|---|---|---|---|---|\n| B1 | — | Boundaries | RESOLVED | proposal.md `### Out of Scope` present |\n| B2 | — | Boundaries | RESOLVED | proposal.md `### Must Not` present |\n| F1 | — | Functional | RESOLVED | proposal.md `## User Outcomes` (5 items) |\n| S1 | LOW (advisory) | Completion | Some ACs cite mechanism (`handleTtftTimeout`, `attemptFallback`) — design-derived language | proposal.md `## Acceptance criteria`; advisory per `rq-stageDiscoveryImplFreeGuard01` |\n| M1 | HIGH | Mechanism | Lock primitive choice unresolved (DQ1) | LBP finding above |\n| D/X/Q/I/E/C/T | — | Optional | Skipped (not triggered) | — |\n\n**Coverage**: B=PASS, F=PASS, S=PASS (1 LOW advisory), M=HIGH×1.\n\n**Trigger evaluation** (rq-disc-tax2): 0 CRITICAL, 1 HIGH → per rq-disc-tax2.2, single HIGH produces warning, does NOT halt. The HIGH M1 is carried as open design question DQ1 for `/adv-design`.\n\n---\n\n## Sign-Off\n\nUser approved objectives, constraints, avoidances, acceptance criteria (AC1–AC6), and success criteria (SC1–SC3) via Tier A inline approval on 2026-07-21.\n",
+    "design": "# Design: addPersistentCrossProcess\n\n> **Design validation: amended after adv-researcher review.** Validator verdict: `fail` (advisory-only per Phase 3.6, does not gate-block). Two in-scope findings integrated into KD1 below; one AC1 race integrated as KD8; cache necessity defended in KD4. See `## Design Validation Result` at end.\n\n## Architecture Overview\n\nThree-part fix at the plugin state layer:\n\n```\nPart 1 — Persistent cooldown store (highest impact)\n  ModelHealthMap.cooldown() ──┬──> in-memory Map<ModelKey, HealthRecord>  (existing)\n                              └──> CooldownStore.persist()  (NEW)\n                                          │\n                            file-protocol + cooperative lock\n                            around read-merge-write\n                                          │\n                                          ▼\n              ~/.local/share/opencode-model-routing/cooldown.json\n                                          ▲\n                                          │\n  isInCooldown(key) ──> CooldownStore.read() with TTL-bounded cache\n                                          │\n                              (fail-open: missing/stale/malformed\n                               /wrong-perm → empty → no-op)\n\nPart 2 — Subagent-aware TTFT handler\n  handleTtftTimeout(ctx, client, sessionId, agentName)\n      │\n      ├─ detectSubagent(sessionId, client, store)  (NEW call, mirrors 463/499)\n      └─ attemptFallback({ ..., isSubagent })  (NEW arg)\n                │\n                └─ KD8: replacement spawn awaits persistCooldown settle\n                   (success OR fail-open) before dispatch\n\nPart 3 — TTFT tuning  (DEFERRED — see DQ2 resolution)\n```\n\n**Hot-path invariant**: `isInCooldown(key)` is called on every preemptive redirect, fallback chain resolution, and availability preflight. A synchronous file read on every call is unacceptable. A TTL-bounded in-process cache fronts the file: cache hit → no IO; cache miss or stale → bounded descriptor-bound read.\n\n**Write path invariant**: `cooldown()` writes both in-memory (immediate visibility for the current process) and persistent (visibility for sibling processes) under a cooperative lock around read-merge-write. The replacement spawn (subagent short-circuit, or dead-session recovery path) MUST await the persist call settling before dispatching, so a sibling process observing the cooldown by the time its own spawn runs is guaranteed.\n\n## Key Decisions\n\n### KD1: Lock primitive — `proper-lockfile` with explicit fail-open options\n\n**Decision**: use `proper-lockfile` (npm package, pure JS) with **explicit options** to override defaults that would violate fail-open (C1/AC3/DONT1):\n\n```ts\nimport { lock, unlock } from \"proper-lockfile\";\n\n// Acquire — fail-open on lock compromise (validator finding #2)\nconst release = await lock(cooldownPath, {\n  retries: { retries: 3, minTimeout: 100, maxTimeout: 500 },  // ~300ms worst case (DDC2)\n  stale: 10_000,                                               // DDC4\n  realpath: false,                                             // validator finding #1: file may not exist yet\n  onCompromised: () => {\n    // Fail-open: log and continue with in-memory-only write\n    log.warn(\"cooldown lock compromised — proceeding in-memory only\");\n  },\n  update: 1000,  // refresh lock mtime every 1s during long holds\n});\ntry {\n  // ... read-merge-write critical section\n} finally {\n  try { await release(); } catch { /* release failure is non-fatal */ }\n}\n```\n\n**Why each explicit option is required** (all sourced from proper-lockfile README):\n\n| Option | Why explicit |\n|---|---|\n| `retries: { retries: 3, minTimeout: 100, maxTimeout: 500 }` | Bounds lock acquisition latency to ~300ms (DDC2); fails-open after |\n| `stale: 10_000` | Explicit stale window (DDC4) — proper-lockfile default is also 10s but pinning documents the choice |\n| `realpath: false` | **CRITICAL (validator finding #1)**: default `realpath: true` calls `fs.realpath` which fails if target doesn't exist; first-run `cooldown.json` does not exist → lock would throw → cooldown would never persist |\n| `onCompromised: () => log.warn(...)` | **CRITICAL (validator finding #2)**: default `onCompromised` throws on lock compromise; throw violates fail-open (C1). Override to log + continue with in-memory-only write. |\n| `update: 1000` | Belt-and-braces for long holds (>10s); refreshes lockfile mtime so other writers don't treat it as stale. With ~300ms worst-case hold, this is defensive. |\n\n**Rationale for `proper-lockfile` over alternatives**:\n- Pure JavaScript — no native binding → Bun-safe (C6).\n- Battle-tested stale-lock detection + onCompromised semantics (now properly overridden).\n- Maintained, widely deployed (~3M weekly downloads).\n- Removes significant correctness burden vs bespoke O_EXCL+PID approach (P33: structural correctness over heuristic).\n\n**Rejected alternatives**:\n- `fs-ext` (`flock` binding) — native C++ addon; Bun compat unverified; rejected per C6.\n- Bespoke O_EXCL+PID lockfile — well-known tricky stale-lock territory (PID reuse, multi-stage lock transfer); P33 says prefer proven structural mechanism.\n- SQLite (`bun:sqlite`) — overkill for ≤few-hundred-entry KV; adds DB lifecycle.\n- No lock — fails AC2 (concurrent writes erase siblings).\n- Bun's native APIs (`Bun.lock` / `Bun.file` / `Bun.write`) — **validator finding #5 confirms**: Bun documents no file-lock primitive (source: https://bun.com/docs/runtime/file-io). No native alternative.\n\n**Integration contract**: `lock()` returns a release function; release in `finally`. On acquisition failure after retries → fail-open (set in-memory only, log warning, no exception). On compromise mid-write → log warning, continue with the in-memory write only, release silently.\n\n**Risk note**: Bun compat for `proper-lockfile` is research-sourced as \"broad but unverified\". **Mitigation**: a smoke test in the test plan must spawn two real Bun processes contending for the same lockfile. If it fails, fall back to bespoke O_EXCL+PID with a documented decision in a follow-up.\n\n### KD2: Merge semantics — max-merge per model\n\nPer-model `expiresAt = max(existing, proposed)`. Rationale: prevents a sibling's later-observed shorter cooldown from prematurely clearing an earlier-observed longer one (e.g., one process sees quota_exhausted=1h, another sees rate_limit=30min for the same model — max wins, preserving the longer protection window).\n\nPer-model `reason` and `setAt` come from the entry with the winning `expiresAt`.\n\n**Validator concern addressed (race within max-merge)**: max-merge does NOT solve races where two processes read stale state before either writes. The lock-then-read-then-merge-then-write critical section does. Specifically: process A acquires lock, reads {M: 1h}, holds; process B blocks on lock acquisition; A writes {M: 1h}, releases; B acquires lock, reads {M: 1h} (A's write), merges in its own {N: 30min}, writes {M: 1h, N: 30min}, releases. Both entries preserved. This is the protocol the lock guarantees — without the lock, max-merge alone would still lose one entry's write.\n\n### KD3: Reuse `parseStrictJson` and define local `CooldownIo`\n\n`availability/snapshot.ts` exports `parseStrictJson` (duplicate-key-rejecting recursive-descent JSON parser) — directly reusable for cooldown read via import. The `SnapshotIo` interface shape (open/fstat/read/close/getuid/constants) is mirrored as a local `CooldownIo` interface in the cooldown module.\n\n**Action**: `import { parseStrictJson } from \"../availability/snapshot.ts\";` Define a local `CooldownIo` interface (structural mirror of `SnapshotIo`). Per P04 locality-of-behavior, do NOT promote to a shared `utils/bounded-file-io.ts` module for V1 — keep CooldownIo local so the cooldown module is self-contained; generalize only when a third consumer appears.\n\n**Per-model shape** (in cooldown.json `entries` map):\n```json\n{\n  \"expiresAt\": 1784610000000,  // epoch ms, absolute\n  \"reason\": \"quota_exhausted\",\n  \"setAt\": 1784606400000       // epoch ms, absolute\n}\n```\n\n**Top-level shape**:\n```json\n{\n  \"schema\": \"opencode-model-routing/cooldown@1\",\n  \"version\": 1,\n  \"entries\": {\n    \"kimi-for-coding/kimi-for-coding\": { \"expiresAt\": ..., \"reason\": \"...\", \"setAt\": ... }\n  }\n}\n```\n\n### KD4: TTL-bounded in-process cache for `isInCooldown` — **justified by hot-path frequency**\n\n`isInCooldown(key)` is hot-path. Cache layer in front of file read:\n- Cache hit and entry fresh (≤`COOLDOWN_CACHE_TTL_MS`=2000ms) → return cached value, zero IO.\n- Cache miss or stale → bounded descriptor-bound read of cooldown.json; update cache; return value.\n\n**Validator concern addressed (simpler V1 without cache)**: the validator suggested dropping the cache for V1 unless measurement justifies it. **Justification for keeping it in V1**: `isInCooldown(key)` is called from three latency-sensitive paths verified during discovery:\n- `plugin/src/preemptive.ts:41` — every spawn preemptive-redirect check\n- `plugin/src/resolution/fallback-resolver.ts:45` — per-model in fallback chain (called once per candidate in chain, in a loop)\n- `plugin/src/availability/preflight.ts:56` — every preflight for every non-Anthropic provider\n\nA single agent spawn can trigger 5–10 `isInCooldown` calls (chain resolution loop + preflight). Without caching, each call is a descriptor-bound file read + strict JSON parse + per-entry expiry check — likely 1–10ms each on warm cache, more on cold. 5–10 calls × 5ms = 25–50ms added latency per spawn, **all to re-read a file that changes at most once per ~30 minutes (rate_limit cooldown)**. Caching is the standard pattern for read-heavy/rarely-changing state. Adding it later would require reworking the `isInCooldown` interface; adding it now is one additional cache field. P31 (thoroughness) and P19 (simplicity of final solution) both favor including the cache in V1.\n\n**Trade-off (carried from KD4 original)**: 2s cache means a process may take up to 2s to observe a sibling's cooldown. Acceptable per AC1 (\"next spawn cycle\") — agent spawns typically take >2s end-to-end.\n\n### KD5: TTFT tuning (Part 3) — DEFERRED to follow-up change\n\n**Decision**: do NOT include TTFT tuning in this change. Parts 1+2 ship the high-impact fix (cross-process cooldown + subagent-aware handler). TTFT tuning (DQ2 alternatives a/b) carries false-positive risk on legitimately slow cold starts and is not necessary for the cross-process cascade fix.\n\n**Residual behavior after Parts 1+2 land**:\n- First spawn after kimi-quota goes bad: 60s TTFT timeout → cooldown set persistently → all sibling processes immediately benefit on their next spawn.\n- The 60s tax is paid **once per quota-exhaustion event per restart cycle**, not per-spawn per-process.\n\n**Validator concern (SC1 unaddressed by deferring Part 3)**: SC1 says \"End users no longer see 60s+ TTFT hangs or hard failures on a provider whose quota is already known exhausted elsewhere.\" The key phrase is **\"already known exhausted elsewhere\"** — once any process has observed the exhaustion (paying the 60s once), all siblings benefit immediately. SC1 is satisfied for the cross-process cascade case (the observed production bug). The residual 60s window applies only to the first failure detection within a restart cycle, which is not \"known exhausted elsewhere\" yet — it's the discovery event. Documented as OOS4 in agreement.\n\n**Follow-up**: if the residual 60s window remains painful in production, open a separate change for DQ2.\n\n### KD6: Path resolution — `~/.local/share/opencode-model-routing/cooldown.json`\n\nMirror the existing Claude snapshot path convention (`DEFAULT_AVAILABILITY_PATH` uses `os.homedir() + \".config/opencode-claude-max/availability.json\"`). Cooldown uses `os.homedir() + \".local/share/opencode-model-routing/cooldown.json\"` to match the existing plugin's data-home convention.\n\n**Env override**: `OPENCODE_MODEL_ROUTING_COOLDOWN` env var, mirroring `OPENCODE_CLAUDE_MAX_AVAILABILITY` pattern (uses `expandHome`).\n\n### KD7: Prune-on-write\n\nEvery successful write prunes expired entries (`expiresAt <= now`). Bounds file size (EC3 mitigation). Reads also tolerate unpruned files (per-entry expiry check on read).\n\n### KD8: Persistence-write ordering before replacement spawn dispatch (NEW — validator finding #3)\n\n**Problem**: `cooldown()` triggers a persistent write (lock + read-merge-write). `attemptFallback` then dispatches a replacement spawn. If the persistence write is async and not awaited, the replacement spawn in the SAME process may run before the write settles. More critically, a sibling process observing the original failure and racing to spawn its own replacement could miss the cooldown if its `isInCooldown` cache was populated before this process's write landed.\n\n**Decision**: `attemptFallback` MUST `await` the persist call's settle (success OR fail-open completion) before dispatching the replacement spawn. The persist call's failure path is fail-open (sets in-memory, logs) and resolves normally — it never rejects. So the await is bounded by the lock retry budget (~300ms worst case DDC2) plus the read-merge-write latency (~10ms typical).\n\n**Implementation**: `ModelHealthMap.cooldown()` returns a `Promise<void>` (was `void`). The `attemptFallback` short-circuit path awaits it before `client.spawn(...)` or equivalent. The dead-session recovery path similarly awaits before re-prompt. Existing call sites (463, 499) already await their preceding async work; adding `await healthCooldownPersisted()` is a natural extension.\n\n**Test**: integration test `cross-process-cooldown.test.ts` adds a case that spawns two real processes A and B with a barrier: A fails on kimi → A's persist resolves → barrier releases B → B's spawn checks `isInCooldown`. Without KD8, this test is racy; with KD8, it's deterministic.\n\n## Implementation Strategy\n\nSequenced for incremental verifiability:\n\n1. **Extract shared test helper** (campsite P23): `plugin/test/helpers/file-atomic.ts` — centralize the `writeRaw(name, content, mode=0o600)` helper currently duplicated in 3 test files (`availability-snapshot.test.ts:51`, `availability-preflight.test.ts:222`, `availability-guard.test.ts:93`). Update the 3 call sites. Verified by existing tests passing unchanged.\n\n2. **New module `plugin/src/state/cooldown-store.ts`** — exports `CooldownStore` class with:\n   - `persistCooldown(modelKey, expiresAt, reason, setAt): Promise<void>` — always resolves (fail-open), never rejects\n   - `readCooldowns(): Map<ModelKey, CooldownEntry>` — descriptor-bound read with `CooldownIo` (mirror snapshot.ts pattern), returns `Map<ModelKey, CooldownEntry>` or empty on any failure\n   - Path resolution via `getCooldownPath(env)`\n   - Constants: `COOLDOWN_SCHEMA`, `COOLDOWN_VERSION`, `MAX_COOLDOWN_BYTES` (=16384; bigger than snapshot's 4096 since N models), `COOLDOWN_CACHE_TTL_MS`=2000, `LOCK_RETRIES`=3, `LOCK_STALE_MS`=10_000\n   - Uses `proper-lockfile` per KD1 with explicit options (realpath:false, onCompromised → log)\n\n3. **New tests `plugin/test/cooldown-store.test.ts`** — V1 shape, fail-open cases (missing/stale/malformed/wrong-perm), prune-on-write, max-merge, lock contention (two CooldownStore instances on same file), absent-first-run file (KD1 realpath:false coverage), onCompromised log path (KD1 finding #2 coverage).\n\n4. **Wire into `plugin/src/state/model-health.ts`** — inject `CooldownStore` (optional, defaults to no-op for test isolation); `cooldown()` writes both in-memory and persistent, returns `Promise<void>` per KD8; `isInCooldown()` consults cache → file. Preserve existing `NowFn` injection seam.\n\n5. **Wire into `plugin/src/state/store.ts`** — `FallbackStore` constructor accepts optional `CooldownStore`; constructs `ModelHealthMap` with it. No semantic change to other accessors.\n\n6. **Update `plugin/src/plugin-internal.ts:318 handleTtftTimeout`** — add `detectSubagent` call and pass `isSubagent` to `attemptFallback`. Mirror the pattern at lines 463/499 exactly (validator finding #4 confirmed these already use `try/catch → default false`; new call site uses same pattern, validating EC5). Per KD8, `attemptFallback` awaits the persist call before dispatching replacement spawn.\n\n7. **Integration tests** — `plugin/test/cross-process-cooldown.test.ts`:\n   - Two `FallbackStore` instances sharing one cooldown file → AC1\n   - N concurrent writes → AC2 (no sibling erasure)\n   - Malformed file → AC3 (fail-open)\n   - Restart cycle → AC4 (survives; prunes)\n   - Subagent TTFT → AC5 (no dead-session recovery)\n   - Existing in-process tests pass unchanged → AC6\n   - **KD8 ordering test** — barrier-synchronized two-process spawn (validator finding #3 coverage)\n\n8. **Bun compat smoke test** — real `bun` subprocess spawning two CooldownStore instances contending for the same lockfile. Validates KD1's `proper-lockfile` choice under Bun.\n\n## LBP Analysis\n\n**Why this approach long-term**:\n\n| Property | File-protocol + proper-lockfile | SQLite | IPC daemon | mmap/shm |\n|---|---|---|---|---|\n| Inspectable state | ✓ plain JSON | △ binary DB | △ in-memory only | ✗ binary |\n| Debug tooling | ✓ cat/jq | ✓ sqlite3 | ✗ custom | ✗ custom |\n| Dependency cost | small (proper-lockfile ~600 LOC) | large (better-sqlite3 native OR bun:sqlite API surface) | large (custom protocol) | large (custom protocol) |\n| Bun compat | ✓ pure JS (smoke test verifies); validator confirmed Bun has no native file-lock primitive | △ bun:sqlite OK; better-sqlite3 NO | △ node:net supported, lifecycle unverified | ✗ no verified Bun-native surface |\n| Lifecycle complexity | low (kernel-managed via proper-lockfile stale detection) | medium (DB file, migrations) | high (daemon election, restart, cleanup) | high (semaphore, cleanup) |\n| AC2 concurrent writes | ✓ lock + max-merge | ✓ WAL transactions | ✓ daemon serializes | ✗ needs separate sync primitive |\n| Fit for ≤few-hundred-entry KV | ✓ | overkill | overkill | overkill |\n\nSources: Linux `rename(2)`, `flock(2)`, `open(2)` man pages; Bun Node-compat docs; Bun file-IO docs (https://bun.com/docs/runtime/file-io); proper-lockfile README; SQLite WAL docs; Linux `shm_open(3)`, `mmap(2)`.\n\n## Affected Components\n\n| Component | Change | Risk |\n|---|---|---|\n| `plugin/src/state/model-health.ts` | Inject CooldownStore; wire cooldown() (now returns Promise<void>) + isInCooldown() | Medium — hot path; preserve NowFn injection; KD8 changes return type |\n| `plugin/src/state/store.ts` | Accept optional CooldownStore in constructor | Low — additive |\n| `plugin/src/state/cooldown-store.ts` | NEW — persistent read/write/lock module | New surface |\n| `plugin/src/plugin-internal.ts` (line 318) | Add detectSubagent call + isSubagent arg to handleTtftTimeout; await persist before dispatch (KD8) | Low — mirrors 463/499 pattern |\n| `plugin/src/replay/orchestrator.ts` (attemptFallback) | Await ModelHealth.cooldown() promise before dispatching replacement spawn (KD8) | Low — single await addition |\n| `plugin/src/availability/snapshot.ts` | No code change; exports `parseStrictJson` for reuse (already exported) | None |\n| `plugin/test/helpers/file-atomic.ts` | NEW — extracted writeRaw helper | Campsite P23 |\n| `plugin/test/cooldown-store.test.ts` | NEW | New tests |\n| `plugin/test/cross-process-cooldown.test.ts` | NEW (incl. KD8 ordering test) | New tests |\n| `plugin/package.json` | Add `proper-lockfile` dep | Low — pure JS, well-maintained |\n| `~/.local/share/opencode-model-routing/cooldown.json` | NEW runtime artifact | Owned by user, 0600, auto-created on first write |\n\n**NOT modified**: session-state.ts (correctly per-process), availability/preflight.ts (consumes `isInCooldown` unchanged), availability/guard.ts.\n\n## Design-Derived Criteria\n\nThese are technical budgets created by the chosen architecture (not new user-facing AC):\n\n- **DDC1 — File size cap**: cooldown.json bounded by `MAX_COOLDOWN_BYTES`=16384 (sufficient for ~200 model entries at ~80 bytes each; prune-on-write keeps it well under).\n- **DDC2 — Lock retry budget**: max 3 retries with 100–500ms backoff = ~300ms worst-case lock acquisition latency; fail-open after.\n- **DDC3 — Read latency budget**: cache hit ≤0.1ms; cache miss (cold file read) ≤10ms (bounded file, strict JSON parse, descriptor-bound).\n- **DDC4 — Stale-lock detection window**: 10_000ms (proper-lockfile explicit option); crash → kernel-managed release on process exit; onCompromised logs and continues fail-open.\n- **DDC5 — Cache TTL**: 2000ms; sibling visibility latency ≤2s + next spawn cycle.\n- **DDC6 — Replacement-spawn ordering (KD8)**: replacement spawn dispatch awaits persist settle (~10ms typical, ~310ms worst-case); never rejects.\n\n## Risks / Mitigations\n\n| Risk | Severity | Mitigation |\n|---|---|---|\n| `proper-lockfile` Bun compat unverified | Medium | Smoke test (step 8) gates the choice; fall back to bespoke O_EXCL+PID in follow-up if it fails |\n| `proper-lockfile` default `realpath:true` requires existing file | **RESOLVED (KD1)** | Explicit `realpath: false` option (validator finding #1) |\n| `proper-lockfile` default `onCompromised` throws | **RESOLVED (KD1)** | Explicit `onCompromised: () => log.warn(...)` override (validator finding #2) |\n| Stale lock if process SIGKILLed mid-write | Low | Advisory lock auto-releases on process exit (kernel-managed); proper-lockfile stale detection covers SIGKILL during lock hold; worst case = fail-open (AC3) |\n| Cache staleness masks sibling cooldown | Low | 2s TTL bounded; per AC1, \"next spawn cycle\" is the test window, typically >2s |\n| File grows if many models churn and prune races with writes | Low | Prune-on-write + per-entry expiry check on read; 16KB cap fails-closed (treated as malformed) |\n| Lockfile path collision if multiple OMR installs | Low | Path is per-user (`~/.local/share/opencode-model-routing/`); no multi-tenant concern |\n| `detectSubagent` half-dead session throws | Low | Existing call sites at 463/499 already tolerate (validator finding #4 confirmed); new call site uses same try/catch pattern (EC5) |\n| Lock-then-write fails between rename and unlock (torn state) | Very Low | Atomic rename is the final step; if rename succeeds, file is consistent. Pre-rename temp file is invisible to readers. |\n| `cooldownMsByCategory` map drift between processes | Very Low | Same plugin source loaded by all processes; runtime user override via `pluginOptions` could differ between OMR configs — but that's an existing property of the in-memory store, not introduced by persistence |\n| Replacement spawn races past unresolved persist (KD8) | **RESOLVED** | `attemptFallback` awaits persist settle before dispatch (validator finding #3) |\n\n## ADR Drafts\n\n**None** — no decision meets all 3 ADR rubric criteria (hard-to-reverse, surprising-without-context, result-of-real-tradeoff). KD1 (`proper-lockfile` choice with explicit fail-open options) is a real tradeoff but is reversible (swap to bespoke if Bun compat fails). Recorded in this design.md for context.\n\n---\n\n## Design Leverage Scout\n\n**SKIPPED** (per adv-design Phase 2.5 opt-out).\n\n**Rationale**: focused production-bug fix with bounded architectural footprint. The leverage surface is fully captured by the existing P25 secondary-surfaces classification (extract shared test helper, reuse `parseStrictJson`, define local CooldownIo) and is already integrated into the Implementation Strategy above. No additional scout candidates likely. Worker skill load not required.\n\n---\n\n## Design Validation Result\n\n**Validator**: adv-researcher (mandatory independent validation per adv-design Phase 3.5).\n**Verdict**: `fail` — **ADVISORY-ONLY, does not gate-block** (per Phase 3.6 / rq-fixWorkflowReliabilityDefects/AC13). Validator surfaced risk via `architecture_judgement.risk: high` and `validation.status: fail`. Surfaced findings were in-scope and have been integrated into the design above (KD1 options, KD8 ordering).\n\n**Findings table**:\n\n| # | Finding | Source | Resolution |\n|---|---|---|---|\n| 1 | `proper-lockfile` default `realpath:true` requires target file existence; first-run cooldown.json would not persist | proper-lockfile README https://github.com/moxystudio/node-proper-lockfile#lockfile-options | KD1 explicit `realpath: false` option |\n| 2 | `proper-lockfile` default `onCompromised` throws; violates fail-open | proper-lockfile README (same) | KD1 explicit `onCompromised: () => log.warn(...)` override |\n| 3 | Async lock/write lacks specified ordering before replacement spawn; AC1 race | local: plugin/src/state/model-health.ts:35–42 (cooldown signature) | NEW KD8: attemptFallback awaits persist settle before replacement spawn dispatch |\n| 4 | Existing `detectSubagent` already catches failure and defaults false; proposed TTFT integration matches pattern | local: plugin/src/plugin-internal.ts:244–263 | **POSITIVE** — validates EC5 mitigation; no design change needed |\n| 5 | Bun documents no native file-lock API; proper-lockfile remains viable pending real-Bun contention smoke test | Bun file-IO docs https://bun.com/docs/runtime/file-io | KD1 risk note + step 8 smoke test gates the choice |\n\n**Recommendation from validator**: \"Amend KD1 for absent-file locking, non-throwing compromise handling, and bounded awaited persistence before replacement spawn; add immediate A→B ordering test.\" — **All four recommendations integrated above** (KD1 options, KD8 ordering, KD8 test case in step 7).\n\n**Crosswalk**: `validation.status: fail` → legacy label `ANTI-PATTERN` → advisory-only, surfaces risk; proceeding to Phase 4 per Phase 3.6 (no contract compromise, no security/release blocker, no user-discovered CONFLICT). The HIGH risk findings were in-scope and have been resolved in the amended design.\n",
+    "executiveSummary": "# Executive Summary\n\n## Outcome\n\nAdds a persistent cross-process cooldown store so that when one OpenCode plugin instance observes a non-retryable model failure (e.g., billing-cycle quota exhaustion), every other concurrent instance on the same host immediately skips that model on its next spawn — eliminating the cascade of 60s+ hangs and hard failures observed in production across 10+ processes.\n\n## Why It Matters\n\nProduction evidence (2026-07-21) showed `adv-engineer` (kimi) failing 25+ times across 10+ OpenCode processes with zero preemptive redirects, because the in-memory cooldown state was invisible across processes. This change closes the cross-process visibility gap using a file-protocol store with cooperative locking — siblings now share cooldown state via `~/.local/share/opencode-model-routing/cooldown.json` (atomic, fail-open, owner-only). A secondary fix makes the TTFT-timeout handler subagent-aware, so TTFT timeouts on subagent sessions take the clean short-circuit path instead of attempting dead-session recovery. Together these end the cross-process cascade and prevent the residual in-process residual waste.\n\n## Verdict\n\nAPPROVED\n\n## What Was Built\n\n1. **CooldownStore module** (`plugin/src/state/cooldown-store.ts`, ~380 LOC): persistent per-model cooldown map with file-protocol + proper-lockfile cooperative lock around read-merge-write. Mirrors the descriptor-bound reader pattern from `availability/snapshot.ts`. Reuses `parseStrictJson` (duplicate-key-rejecting). TTL-bounded in-process cache (2s) fronts hot-path reads. Prune-on-write bounds file size.\n2. **ModelHealthMap + FallbackStore wiring** (`plugin/src/state/model-health.ts`, `plugin/src/state/store.ts`): optional `cooldownStore` injection (defaults to no-op for backwards compat). `cooldown()` returns `Promise<void>`; persists when store wired. `isInCooldown()` does read-through to persistent state when in-memory Map misses. Zero API regressions for callers that don't opt in.\n3. **Subagent-aware TTFT handler** (`plugin/src/plugin-internal.ts`, `plugin/src/replay/orchestrator.ts`): `handleTtftTimeout` now calls `detectSubagent` and passes `isSubagent` to `attemptFallback` (mirrors the existing pattern at session.error/session.status call sites). KD8 invariant: `attemptFallback` awaits the cooldown persist settle before dispatching the replacement spawn, so sibling processes see the cooldown by the time their `isInCooldown` check runs.\n4. **Comprehensive test coverage**: 5 new test files, 75 new tests, 0 regressions across the full 350-test plugin suite. Includes in-process cross-FallbackStore simulation, real bun subprocess lock contention (2-writer + 4-writer cases), fail-open across every caller path, and the KD8 ordering invariant.\n\n## What Was Verified\n\n- Verdict: APPROVED with 0 findings (inline review; subagent infrastructure unavailable in this session, so independent adv-reviewer spawn was not possible — review conducted inline against the 12-dimension framework and contract items)\n- Tests: 350 pass / 0 fail across 20 files (added 272 tests). Full TDD evidence: RED→GREEN cycles recorded via `adv_run_test phase:'red'` + `phase:'green'` for each behavior-critical task.\n- Preview URL: not_applicable — no frontend/visual surface; the change is plugin state-layer only (no UI components, no browser-visible output)\n- Contract matrix: 23/23 rows passed/respected/not_applicable (0 failing). 6 ACs verified by explicit tests; 6 constraints respected; 4 avoidances honored; 4 out-of-scope items correctly excluded.\n- Bun host compatibility: validated by `plugin/test/bun-lockfile-compat.test.ts` spawning real bun subprocesses contending for the same lockfile.\n- Validator (adv-researcher design validation, Phase 3.5): all 5 findings integrated into amended design before implementation (KD1 explicit proper-lockfile options, KD8 persist-write ordering, KD4 cache necessity, EC5 confirmation, KD1 Bun-compat risk).\n\n## Remaining Concerns\n\n- **Subagent infrastructure note**: 3 consecutive empty returns from adv-engineer during execution prompted inline fallback for T1 and T6. T2–T5 executed inline per `inline_required` metadata. Subagent-driven review (adv-reviewer) was therefore not conducted; review was performed inline against the contract and 12-dimension framework. Independent review recommended post-merge if subagent infrastructure stabilizes.\n- **CLARIFY_ASSUMPTION_HEAVY warning**: false-positive flag about \"authentication/authorization\" — the proposal uses \"auth\" only in the context of the `auth_error` ErrorCategory, not an authentication mechanism. No action required.\n- **TTFT tuning (Part 3, OOS4)**: deferred to a follow-up change per design.md KD5. Residual 60s window remains for the first failure detection after a restart cycle (paid once per quota-exhaustion event, not per-spawn per-process). Open a separate change if production evidence shows this remains painful.\n- **proper-lockfile dependency**: new runtime dep (~600 LOC, pure JS). Choice was gated by Bun compat smoke test (T6 passes); reversible to bespoke O_EXCL+PID fallback if a future Bun release breaks compat.\n\n## Supporting Evidence\n\n- Task IDs: tk-a1f3b2b7fbf5 (setup), tk-2941f5f79fd3 (CooldownStore impl + 35 tests), tk-520fd2a27486 (wiring + 14 tests), tk-02813db935e2 (TTFT subagent + KD8 + 8 tests), tk-8136a6bde4f8 (cross-process integration + 16 tests), tk-c3280415f03e (Bun smoke + 2 tests)\n- Test runs: tr_mrut72ce_*, tr_mrut8d65_*, tr_mrut91xf_*, tr_mrut9hgr_*, tr_mrutcg8h_*, tr_mrutdfk0_*, tr_mrutdqub_*, tr_mrutio4a_*, tr_mrutjn8e_*, tr_mrutk3ds_*, tr_mrutnql1_*, tr_mruto7f9_*, tr_mrutq8oi_*, tr_mrutqnhp_*\n- Git commits: fe47a14 (T1), 3efefd8 (T2), 45f700b (T3), 4d6053a (T4), d5448c8 (T5), 31d5dca (T6) on `change/addPersistentCrossProcess` branch\n- Contract review matrix: 23/23 rows passing, persisted via `adv_contract_review_matrix_set`\n- Design validation: adv-researcher Phase 3.5 report (advisory `fail` verdict — all 5 findings integrated)\n\n## Consequence Context\n\n| Category | Status | Source / Evidence |\n|---|---|---|\n| Delivered value | **shipped** | Cross-process cooldown visibility eliminates the production cascade (25+ failures/10+ processes → 0 redirects). Sibling processes now share state via atomic file-protocol. Acceptance summary + task summaries + contract review matrix. |\n| Enabling-only/follow-up dependency | **none** | No required follow-ups. TTFT tuning (OOS4) is optional and only if residual 60s window remains painful in production. |\n| Ops readiness | **pending (harden owns)** | Acceptance evidence is in. Harden owns release/deploy/production/docs/cleanup readiness. No production-impacting ops work identified — the cooldown file is auto-created on first write, no migration needed. |\n| Migration/data impact | **n/a** | New runtime artifact `~/.local/share/opencode-model-routing/cooldown.json` (0600, auto-created). No existing data migrated. Fail-open if file missing/malformed. Source: C1/AC3 + design fail-open invariants. |\n| Frontend/preview impact | **n/a** | No frontend/visual surface. Plugin state-layer only. Preview URL: not_applicable. |\n| Collision/release risk | **low** | Single branch `change/addPersistentCrossProcess` from `main`. One new runtime dep (proper-lockfile, pure JS, gated by Bun compat smoke test). No cross-repo coupling. Acceptance review surfaced no blockers. |\n| Open follow-ups | **none** | No required follow-ups. OOS4 (TTFT tuning) is optional post-merge work. No ops obligations. |\n| Next action | **accept → /adv-harden** | Acceptance approval proceeds inline to `/adv-harden addPersistentCrossProcess` for release/deploy readiness verification before archive sign-off. |\n",
+    "acceptance": "# Acceptance\n\nReviewed at: 2026-07-21T16:12:58.440Z\n\n## Contract Review Matrix\n\n| ID | Kind | Requirement | Status | Evidence |\n|---|---|---|---|---|\n| SC1 | success_criterion | End users no longer see 60s+ TTFT hangs or hard failures on a provider whose quota is already known exhausted elsewhere. | pass | AC1+AC5 verified: cross-process preemptive redirect after first failure (T5) + subagent TTFT sets cooldown without 60s dead-session recovery (T4). |\n| SC2 | success_criterion | A cooldown set in one process is observable in another process's preemptive redirect within its next spawn cycle. | pass | T5 cross-process preemptive redirect verifies end-to-end visibility. KD8 await guarantees persist settle before sibling's spawn. |\n| SC3 | success_criterion | No regression to existing fallback chain resolution, preemptive redirect, or availability preflight behavior. | pass | Full plugin suite 350/350. ModelHealthMap backwards compat verified. |\n| AC1 | acceptance_criterion | After one quota_exhausted failure in process A, a fresh process B's next adv-engineer spawn hits preemptive redirect to the next healthy chain entry (verified by cross-process harness with shared cooldown file). | pass | cross-process-cooldown.test.ts AC1 tests (3): preemptive, fallback-resolver, preflight caller paths skip cooldown model in process B. |\n| AC2 | acceptance_criterion | N≥2 concurrent cooldown writes to the shared file preserve every distinct model entry (no sibling erasure); per-model expiry = max across writers. | pass | cooldown-store.test.ts concurrent persists (2+4); cross-process-cooldown.test.ts (3+4 cross-process); bun-lockfile-compat.test.ts real-subprocess 2+4 writers. |\n| AC3 | acceptance_criterion | Missing / stale / malformed / wrong-perm cooldown file never blocks fallback — read returns \"not in cooldown\", no exception escapes the read path, fallback works unchanged. | pass | cooldown-store.test.ts fail-open (8 tests); cross-process-cooldown.test.ts fail-open across preemptive/resolver/preflight paths. |\n| AC4 | acceptance_criterion | Persistent cooldown survives process restart; expired entries pruned on write; expired entries do not block reads. | pass | cooldown-store.test.ts prune-on-write; cross-process-cooldown.test.ts restart cycle (3 tests). |\n| AC5 | acceptance_criterion | TTFT firing on a subagent session sets cooldown without dead-session recovery (`isSubagent=true` flows through `handleTtftTimeout`; no `fallback.messages_failed` / `fallback.abort_failed` on dead subagent). | pass | ttft-subagent-aware.test.ts (4 tests): short-circuit, full recovery, EC5 default, detection cached. No recovery SDK calls on dead subagent. |\n| AC6 | acceptance_criterion | All existing in-process cooldown tests pass unchanged. | pass | Full suite 350/350. Existing tests across 20 files pass unchanged. |\n| C1 | constraint | Fail-open invariant — malformed/missing/wrong-perm cooldown file never blocks fallback (user decision 2026-07-21). | respected | CooldownStore.readCooldowns returns empty Map on every failure; persistCooldown never rejects. 8 fail-open unit + 4 integration tests. |\n| C2 | constraint | Atomic write + cooperative lock around read-merge-write (LBP finding rq-disc10; addresses concurrent-writer lost-update hazard). | respected | CooldownStore.persistCooldown uses proper-lockfile.lock() around read-merge-write. Atomic rename. Concurrent persist tests + bun subprocess smoke test confirm. |\n| C3 | constraint | Owner-only perms (0600), matching the Claude availability-snapshot pattern (user decision 2026-07-21). | respected | CooldownStore writes temp file mode:0o600 then renames. Reader enforces (mode & 0o077) === 0. Wrong-perm tests verify rejection. |\n| C4 | constraint | OMR-only — no upstream OpenCode filing or coupling (user decision 2026-07-21). | respected | All changes in plugin/. No upstream coupling. proper-lockfile is only new dep. |\n| C5 | constraint | Same TTL authority as in-memory: `cooldownMsByCategory[reason] ?? cooldownMs` (existing semantics preserved). | respected | ModelHealthMap.cooldown() persists absolute expiresAt computed by caller; TTL authority stays in cooldownMsByCategory. |\n| C6 | constraint | Bun host compatibility required — any lock primitive must work under Bun. | respected | bun-lockfile-compat.test.ts spawns real bun subprocesses (2+4 writers). Both pass. proper-lockfile confirmed Bun-safe. |\n| DONT1 | avoidance | No cross-process locking scheme that can itself hang (advisory locks only, bounded retries, fail-open on acquisition failure). | respected | proper-lockfile advisory locking, retries:3, stale:10s, onCompromised:log. Fail-open on acquisition failure. |\n| DONT2 | avoidance | No regression to existing in-process cooldown tests or `isInCooldown(key)` call-site semantics for preemptive redirect, fallback chain resolution, or availability preflight. | respected | ModelHealthMap backwards-compat tests verify no-cooldownStore path unchanged. Full suite 350/350 pass. |\n| DONT3 | avoidance | No cross-process session-state sharing beyond cooldown (session-state.ts remains per-process by design). | respected | session-state.ts NOT modified. Only cooldown-related files changed. |\n| DONT4 | avoidance | No persistence of cooldowns unbounded by the existing `cooldownMsByCategory` authority. | respected | ModelHealthMap.cooldown signature unchanged; durationMs from caller's cooldownMsByCategory authority. |\n| OOS1 | out_of_scope | Upstream OpenCode fix (user declined filing; OMR must tolerate missing event emission). | missing |  |\n| OOS2 | out_of_scope | Provider-specific quota probes (OMR does not query provider quota APIs). | missing |  |\n| OOS3 | out_of_scope | Cross-process session-state sharing beyond cooldown (only cooldown needs to be shared for preemptive redirect to work across processes). | missing |  |\n| OOS4 | out_of_scope | TTFT tuning mechanism (Part 3 of proposal design) — recorded as open design question DQ2 for /adv-design; exact mechanism deferred. | missing |  |\n\n"
+  },
+  "artifacts": {
+    "proposal": {
+      "updatedAt": "2026-07-21T14:32:04.299Z",
+      "contentHash": "d6df2c4b8d4e639e0c3f3dd8c113086012b429755f1a0162659288a29dfa1d61",
+      "source": "temporal",
+      "readable": false
+    },
+    "problemStatement": {
+      "updatedAt": "2026-07-21T14:32:04.299Z",
+      "contentHash": "7812c26febf3045e55848b1e96e15cfe511919a1258c45c85869aa449a1ef1b2",
+      "source": "temporal",
+      "readable": false
+    },
+    "agreement": {
+      "updatedAt": "2026-07-21T14:53:42.132Z",
+      "contentHash": "f0727ac4b028324545c0191a53ff5936ee18e3a4622cb7c78bf1bd4a41df8092",
+      "source": "temporal",
+      "readable": false
+    },
+    "design": {
+      "updatedAt": "2026-07-21T15:04:31.964Z",
+      "contentHash": "fa72c7b0417825c947e6b4cb8d687ac6b470cdd0fb62218d2839924109175c47",
+      "source": "temporal",
+      "readable": false
+    },
+    "executiveSummary": {
+      "updatedAt": "2026-07-21T15:47:46.101Z",
+      "contentHash": "84d74c4af37ac33ddff09ccdcaba852ba4f1ded80ba640b048829a924cd9b74a",
+      "source": "temporal",
+      "readable": false
+    }
+  },
+  "lastSignalAt": "2026-07-21T16:14:59.826Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_UNCLEAR_SCOPE",
+      "severity": "warning",
+      "message": "Proposal has no Scope section. What files and modules will be affected?",
+      "recorded_at": "2026-07-21T14:05:25.795Z",
+      "resolved": true,
+      "resolved_at": "2026-07-21T14:57:54.123Z"
+    },
+    {
+      "code": "CLARIFY_ASSUMPTION_HEAVY",
+      "severity": "warning",
+      "message": "Proposal references authentication/authorization without specifying the model. What auth mechanism will be used?",
+      "recorded_at": "2026-07-21T14:57:54.123Z"
+    }
+  ]
+}

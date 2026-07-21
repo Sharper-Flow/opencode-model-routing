@@ -1,0 +1,16 @@
+{
+  "archived_at": "2026-07-21T16:21:27.451Z",
+  "capabilities": [],
+  "change_hash": "ee523eeb80a6bc5850e13f0c6a80b5bf7851c2f97681eb811f640c159e25f35e",
+  "change_id": "addPersistentCrossProcess",
+  "completed_tasks": 6,
+  "created_at": "2026-07-21T13:32:18.417Z",
+  "current_gate": "release",
+  "last_activity_at": "2026-07-21T16:14:59.826Z",
+  "lifecycle_state": "open",
+  "status": "archived",
+  "summary_hash": "9596746b449aad6d52b3d9cd4465666330b76ffc4161b98d70cb21f26bd2e3ab",
+  "task_count": 6,
+  "title": "Add persistent cross-process cooldown store",
+  "version": "1"
+}
