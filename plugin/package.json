@@ -31,6 +31,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "1.4.8",
     "@opencode-ai/sdk": "1.4.17",
