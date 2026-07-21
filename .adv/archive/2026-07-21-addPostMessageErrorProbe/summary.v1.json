@@ -1,0 +1,16 @@
+{
+  "archived_at": "2026-07-21T17:40:51.587Z",
+  "capabilities": [],
+  "change_hash": "8f462998eca0638898435963d0b84038dedbed481b029438962eeeca0e4c1c9a",
+  "change_id": "addPostMessageErrorProbe",
+  "completed_tasks": 4,
+  "created_at": "2026-07-21T16:44:17.673Z",
+  "current_gate": "done",
+  "last_activity_at": "2026-07-21T17:40:40.681Z",
+  "lifecycle_state": "open",
+  "status": "archived",
+  "summary_hash": "2f848d0d8a72f1bef01c496685aabdd8b3a6590901d8f41de1d371617e71239d",
+  "task_count": 4,
+  "title": "Add post-message error probe",
+  "version": "1"
+}

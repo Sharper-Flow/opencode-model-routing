@@ -1,0 +1,1132 @@
+{
+  "id": "addPostMessageErrorProbe",
+  "title": "Add post-message error probe",
+  "status": "archived",
+  "lifecycleState": "open",
+  "created_at": "2026-07-21T16:44:17.673Z",
+  "tasks": [
+    {
+      "id": "tk-18eb35774e89",
+      "title": "Implement bounded structural FailureDeduplicator with RED/GREEN tests",
+      "type": "code",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-07-21T17:16:40.717Z",
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC3",
+          "C5"
+        ],
+        "respects": [
+          "C2",
+          "DONT3"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Behavior-critical idempotency state machine; unit tests must establish ordering, TTL, capacity, and cleanup before implementation.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T17:19:32.268Z",
+      "verification": "TDD RED tr_mrux5mc1_ffcd7b8d (module absent) -> GREEN tr_mrux6f6b_71127e44 (9/9 pass). Covers error/message ordering, retry family correlation, session isolation, family isolation, TTL, cap, cleanup, deterministic injected clock.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/state/failure-dedup.ts",
+        "plugin/test/failure-dedup.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/state/failure-dedup.ts",
+        "plugin/test/failure-dedup.test.ts"
+      ],
+      "checkpointSha": "25429cbbe7a78866a5f018fc953824e0fc4ce02b",
+      "completedAt": "2026-07-21T17:20:56.509Z",
+      "completed_at": "2026-07-21T17:20:56.509Z"
+    },
+    {
+      "id": "tk-015aba543d06",
+      "title": "Normalize EventV2 failure signals and reconcile assistant message errors",
+      "type": "code",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-07-21T17:16:57.814Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-18eb35774e89"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC1",
+          "AC2",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7"
+        ],
+        "respects": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT4",
+          "DONT5"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Core behavior changes plugin event handling; TDD proves payload normalization and fallback semantics without provider calls.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T17:21:49.486Z",
+      "verification": "TDD RED tr_mrux9con_69251764 -> GREEN tr_mruxd5bo_2cf61700. 73/73 focused tests pass. Legacy+V2 message.updated errors trigger fallback; user/aborted/malformed ignored; typed accepted signal clears TTFT; event-before-config lifecycle preserved via targeted no-chain dedup rollback.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/state/failure-dedup.ts",
+        "plugin/src/state/store.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/state/failure-dedup.ts",
+        "plugin/src/state/store.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "3754878e34c35f27a7a153c7ee33cbabf81846b4",
+      "completedAt": "2026-07-21T17:26:10.883Z",
+      "completed_at": "2026-07-21T17:26:10.883Z"
+    },
+    {
+      "id": "tk-6a586de36d8a",
+      "title": "Verify exactly-once fallback across EventV2 ordering permutations",
+      "type": "verification",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-07-21T17:17:14.401Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-015aba543d06"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "inline_required"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7"
+        ],
+        "respects": [
+          "DONT3"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Cross-cutting ordering verification spans dedup, event normalization, TTFT, and fallback dispatch modules.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T17:26:26.321Z",
+      "verification": "Integration verification tr_mruxexqi_e531c997: 90/90 pass across plugin, dedup, and TTFT suites. Exactly-one dispatch proven for error→message, message→error, status→error, status→message, duplicate message, and concurrent delivery. Per-session isolation, cooldown category propagation, session.deleted cleanup, malformed/aborted and TTFT regressions covered.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "1517f741c79102a0a47fe9c11afcd5e842804864",
+      "completedAt": "2026-07-21T17:27:35.078Z",
+      "completed_at": "2026-07-21T17:27:35.078Z"
+    },
+    {
+      "id": "tk-33ce438e109b",
+      "title": "Run full regression and no-network scope verification",
+      "type": "verification",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-07-21T17:17:28.451Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-6a586de36d8a"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification",
+        "delegation_hint": "delegate_allowed"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC8"
+        ],
+        "respects": [
+          "C1",
+          "C3",
+          "C6",
+          "DONT1",
+          "DONT2",
+          "DONT4",
+          "DONT5"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "rationale": "Final full-suite and static scope verification proves AC8 and zero-token/no-SSE constraints across the complete change.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-21T17:27:42.913Z",
+      "verification": "Final verification: full suite tr_mruxmd74_cac19c2b 374/374 pass; typecheck tr_mruxlfpn_e4b82209 pass; build tr_mruxlgg9_ea2dae80 pass. Static main..HEAD production diff contains no probeDelayMs, polling timer, direct EventSource/SSE subscription, provider fetch/health probe, or synthetic health prompt. TTFT default unchanged. Added missing @types/proper-lockfile and repaired two pre-existing ModelKey test annotations surfaced by typecheck.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Task checkpoint completed",
+      "filesTouched": [
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/test/cross-process-cooldown.test.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/bun.lock",
+        "plugin/package.json",
+        "plugin/test/cross-process-cooldown.test.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "6b28c611f8c815e84553954d458a81c6eb8021a7",
+      "completedAt": "2026-07-21T17:33:21.165Z",
+      "completed_at": "2026-07-21T17:33:21.165Z"
+    }
+  ],
+  "subagent_reports": [
+    {
+      "schema_version": "1.0",
+      "change_id": "addPostMessageErrorProbe",
+      "attempt": 1,
+      "workdir_used": "/home/jon/dev/opencode-model-routing",
+      "scope": {
+        "kind": "change",
+        "scope_key": "researcher:design-validation"
+      },
+      "agent": "adv-researcher",
+      "topic": "Durable failure reconciliation design validation",
+      "sources": [
+        {
+          "label": "OpenCode plugin documentation",
+          "locator": "https://opencode.ai/docs/plugins/",
+          "summary": "Documents plugin event hooks and lists message.updated, session.error, session.status, and session.deleted as available events."
+        },
+        {
+          "label": "OpenCode current plugin runtime",
+          "locator": "https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/plugin/index.ts",
+          "summary": "Plugin runtime listens through EventV2Bridge and forwards each event to hook.event; it does not provide replay/cursor metadata to the hook."
+        },
+        {
+          "label": "OpenCode EventV2 bridge",
+          "locator": "https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/event-v2-bridge.ts",
+          "summary": "Bridge decorates/publishes events and separately emits durable sync envelopes to GlobalBus; normal plugin hooks receive normal event payloads."
+        },
+        {
+          "label": "OpenCode session processor",
+          "locator": "https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/processor.ts",
+          "summary": "halt sets assistantMessage.error and publishes transient Session.Event.Error; ensuring(cleanup()) subsequently persists the assistant message via updateMessage."
+        },
+        {
+          "label": "OpenCode session schema",
+          "locator": "https://github.com/anomalyco/opencode/blob/dev/packages/schema/src/v1/session.ts",
+          "summary": "message.updated is durable by sessionID and contains {sessionID, info}; session.error has no durable options and its sessionID is optional. Assistant errors are typed, including MessageAbortedError."
+        },
+        {
+          "label": "Installed OMR SDK declarations",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/node_modules/.pnpm/@opencode-ai+sdk@1.4.17/node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts",
+          "summary": "Legacy EventMessageUpdated has properties.info; installed V2 declaration adds properties.sessionID plus info. Both assistant types carry typed error unions including MessageAbortedError."
+        },
+        {
+          "label": "OpenCode SDK documentation",
+          "locator": "https://opencode.ai/docs/sdk/",
+          "summary": "Documents event.subscribe as an SSE stream, supporting rejection of a parallel plugin SSE lifecycle."
+        }
+      ],
+      "architecture_assessment": "PASS WITH ONE CAUTION. The plugin event hook is the canonical integration point: OpenCode's plugin runtime listens through EventV2Bridge and forwards {id,type,properties} to hook.event (https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/plugin/index.ts). OpenCode's processor publishes session.error before ensuring(cleanup()) persists assistantMessage through updateMessage (https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/processor.ts); the durable message.updated path therefore correctly reconciles missed transient delivery. The schema makes message.updated durable by sessionID and session.error transient, while providing typed assistant-error variants including MessageAbortedError (https://github.com/anomalyco/opencode/blob/dev/packages/schema/src/v1/session.ts). Exact-plus-provisional indexing is the smallest structural mechanism that bridges a no-message-ID transient signal to a persisted message-ID signal in either order. Caution: the design does not explicitly specify whether a session.status retry signal is deduplicated against a subsequent same-cause session.error. Its stated status fingerprint shape can differ from the error fingerprint, so a test/explicit key policy is needed to prove SC1/DONT3 for that transition.",
+      "validation": {
+        "status": "caution",
+        "blockers": [],
+        "notes": "SC2/AC2, C1-C6, DONT1-2/4-5, and OOS1-5 align with the documented/source architecture. SC1/AC3/DONT3 need a specified and tested session.status-retry→session.error identity policy; AC8 remains unverified because this is design review before implementation. MessageAbortedError exclusion matches installed SDK types and current classifier behavior. TTFT remains correctly separate for silence; clear it only after FailureDeduplicator.begin accepts a classifiable signal."
+      },
+      "architecture_judgement": {
+        "applicability": "applicable",
+        "confidence": "high",
+        "risk": "medium",
+        "tradeoffs": [
+          "Two map indexes add bounded state and eviction tests, but remove dependence on timing alone for event reordering.",
+          "A 30-second provisional alias can suppress a genuinely separate identical no-message-ID failure in the same session; bounded TTL and existing cooldown make this conservative tradeoff reasonable.",
+          "Direct SSE could offer another consumer path but duplicates delivery/reconnect lifecycle already owned by OpenCode."
+        ],
+        "alternatives_considered": [
+          {
+            "option": "Existing per-session lock plus 3-second time-window",
+            "disposition": "rejected",
+            "rationale": "It serializes concurrent work but does not identify a specific assistant failure after lock release or window expiry."
+          },
+          {
+            "option": "message.updated only",
+            "disposition": "rejected",
+            "rationale": "It loses the documented transient fast path; processor publishes session.error before cleanup persists message.updated."
+          },
+          {
+            "option": "session.error only",
+            "disposition": "rejected",
+            "rationale": "session.error is non-durable whereas message.updated is durable by sessionID."
+          },
+          {
+            "option": "Direct EventV2/SSE consumer",
+            "disposition": "rejected",
+            "rationale": "Plugin event hook already receives EventV2Bridge events; SDK SSE is a separate lifecycle without hook replay/cursor contract."
+          },
+          {
+            "option": "Local session.messages reconciliation read",
+            "disposition": "rejected",
+            "rationale": "message.updated already carries the typed persisted assistant error; no read is necessary."
+          }
+        ],
+        "recommendation": "Proceed with the two-index FailureDeduplicator, but before implementation specify a status-retry dedup key/relationship and add ordering tests for status retry then terminal session.error, session.error then message.updated, reverse delivery, and aborted/malformed signals."
+      },
+      "recommendation": "Implement the design with a synchronous begin() before any await or SDK call; make accepted typed failure the only path that clears TTFT; preserve normalized category unchanged into attemptFallback/cooldown. Add an explicit status policy: either correlate status retries to the error alias when their normalized typed identity matches, or document/test them as distinct retry attempts so SC1/DONT3 cannot be interpreted as violated.",
+      "follow_ups": [
+        "Packet omitted TASK_SCOPE, IN_SCOPE, OUT_OF_SCOPE, DONE_WHEN, STOP_WHEN, and VERIFICATION anchors; research proceeded using the user request and authoritative briefing packet.",
+        "No implementation exists yet, so AC8/full-suite evidence is intentionally pending."
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "addPostMessageErrorProbe",
+      "attempt": 1,
+      "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/addPostMessageErrorProbe",
+      "scope": {
+        "kind": "change",
+        "scope_key": "review:acceptance"
+      },
+      "agent": "adv-reviewer",
+      "phase": "review",
+      "verdict": "READY",
+      "blocking_findings": [],
+      "nonblocking_findings": [],
+      "changes_made": [],
+      "wisdom_candidates": [
+        {
+          "type": "success",
+          "content": "A synchronous bounded alias registry ahead of async fallback dispatch proves EventV2 transient/durable ordering idempotency without adding a polling or SSE lifecycle."
+        }
+      ],
+      "verification": {
+        "tests_run": [
+          "bun test",
+          "bun run typecheck",
+          "bun run build",
+          "git diff --check main...HEAD"
+        ],
+        "results": "pass",
+        "evidence": "374/374 tests passed across 21 files; TypeScript typecheck passed; tsup ESM and DTS build passed. Diff check passed. Source review found EventV2 handling remains in the existing event hook; no provider probe, direct SSE, polling timer, or OpenCode downgrade was added. failure.signal logs source/session/message/category/duplicate only; responseBody remains fingerprint input and is not logged."
+      },
+      "scope_drift": null,
+      "risks": [
+        "The accepted 30-second family alias intentionally coalesces same-session same-category retry/terminal signals; independent same-category failures during that window are suppressed as documented in the approved design."
+      ],
+      "required_main_agent_actions": [
+        "No remediation required. Record this independent acceptance evidence and proceed with acceptance-gate evaluation.",
+        "Leave unrelated availability/preflight, persistent cooldown architecture, and upstream OpenCode changes untouched."
+      ],
+      "consumer_warnings": [
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun test"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run typecheck"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run build"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: git diff --check main...HEAD"
+        }
+      ]
+    }
+  ],
+  "test_runs": {
+    "tk-18eb35774e89": [
+      {
+        "runId": "tr_mrux5mc1_ffcd7b8d",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test plugin/test/failure-dedup.test.ts",
+        "durationMs": 34.91440799832344,
+        "recordedAt": "2026-07-21T17:20:08.107Z"
+      },
+      {
+        "runId": "tr_mrux6f6b_71127e44",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/failure-dedup.test.ts",
+        "durationMs": 55.32739100046456,
+        "recordedAt": "2026-07-21T17:20:45.472Z"
+      }
+    ],
+    "tk-015aba543d06": [
+      {
+        "runId": "tr_mrux9con_69251764",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test plugin/test/plugin.test.ts",
+        "durationMs": 1892.6598620004952,
+        "assertionDensity": 1.3642857142857143,
+        "mockSurface": [],
+        "behaviorSurface": "large",
+        "recordedAt": "2026-07-21T17:23:02.220Z"
+      },
+      {
+        "runId": "tr_mruxbelj_dc9b8ae8",
+        "phase": "green",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test plugin/test/plugin.test.ts",
+        "durationMs": 2508.6840710006654,
+        "assertionDensity": 1.3642857142857143,
+        "mockSurface": [],
+        "behaviorSurface": "large",
+        "recordedAt": "2026-07-21T17:24:38.013Z"
+      },
+      {
+        "runId": "tr_mruxd5bo_2cf61700",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/plugin.test.ts plugin/test/failure-dedup.test.ts",
+        "durationMs": 2509.8782069999725,
+        "assertionDensity": 1.3642857142857143,
+        "mockSurface": [],
+        "behaviorSurface": "large",
+        "recordedAt": "2026-07-21T17:25:59.259Z"
+      }
+    ],
+    "tk-6a586de36d8a": [
+      {
+        "runId": "tr_mruxexqi_e531c997",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test plugin/test/plugin.test.ts plugin/test/failure-dedup.test.ts plugin/test/ttft-subagent-aware.test.ts",
+        "durationMs": 4541.705494001508,
+        "assertionDensity": 1.3642857142857143,
+        "mockSurface": [],
+        "behaviorSurface": "large",
+        "recordedAt": "2026-07-21T17:27:22.785Z"
+      }
+    ],
+    "tk-33ce438e109b": [
+      {
+        "runId": "tr_mruxjymh_b0ab6684",
+        "phase": "verify",
+        "exitCode": 2,
+        "classification": "failed",
+        "command": "bun run typecheck",
+        "durationMs": 2369.2893429994583,
+        "recordedAt": "2026-07-21T17:31:17.199Z"
+      },
+      {
+        "runId": "tr_mruxk535_97625592",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test",
+        "durationMs": 11145.664158001542,
+        "recordedAt": "2026-07-21T17:31:25.563Z"
+      },
+      {
+        "runId": "tr_mruxlfpn_e4b82209",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 2064.301625000313,
+        "recordedAt": "2026-07-21T17:32:26.006Z"
+      },
+      {
+        "runId": "tr_mruxlgg9_ea2dae80",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run build",
+        "durationMs": 2842.1409539990127,
+        "recordedAt": "2026-07-21T17:32:26.948Z"
+      },
+      {
+        "runId": "tr_mruxmd74_cac19c2b",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun test",
+        "durationMs": 11098.021488999948,
+        "recordedAt": "2026-07-21T17:33:09.406Z"
+      }
+    ]
+  },
+  "deltas": {},
+  "wisdom": [],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:06:41.836Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved pivot to true long-term solution. Replaced timer-probe proposal with durable failure reconciliation: transient session.error fast path + persisted assistant-error message.updated reconciliation + TTFT true-silence fallback. No provider probes, no token burn, no OpenCode downgrade, no direct SSE duplication. Source verified: EventV2Bridge publish/listen routing; session.error transient; message.updated durable by session aggregate. Validation passed.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "content_hash": "dc70f13a20612870c9c3c7bee3c86491003e2ad427964e08896f43d2d26cdbb9",
+        "non_whitespace_chars": 5105,
+        "checked_at": "2026-07-21T16:44:17.740Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:09:22.175Z",
+      "completed_by": "user",
+      "approval_evidence": "Discovery agreement approved and persisted. Typed strict contract minted: 28 items (SC1-4, AC1-8, C1-6, DONT1-5, OOS1-5). Source verified EventV2Bridge architecture, plugin forwarding, transient session.error, durable message.updated, installed legacy+v2 SDK payload shapes. No active conflicts. Existing lock/time-window dedup insufficient; structural failure fingerprint required. AMBIGUITY: 0 CRITICAL, 1 HIGH design question (bounded registry retention).",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "content_hash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "non_whitespace_chars": 5643,
+        "checked_at": "2026-07-21T16:44:17.741Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:16:13.917Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved EventV2 durable reconciliation design. Mandatory validator verdict caution; finding integrated via failure-family alias correlating session.status retry with terminal session.error/message.updated. No unresolved conflict or contract compromise.",
+      "artifact_evidence": {
+        "kind": "design",
+        "content_hash": "ab9bc522e22b0fc6284d33210205c8fe4b193ef19bd41d7c00bebeae8fee8e05",
+        "non_whitespace_chars": 5841,
+        "checked_at": "2026-07-21T16:44:17.742Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:19:26.086Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved 4-task graph. 28/28 contract items mapped. T1-T2 inline TDD; T3 integration verification; T4 full regression/static scope verification."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:33:30.669Z",
+      "completed_by": "agent",
+      "approval_evidence": "All 4 tasks complete. Implemented EventV2 durable failure reconciliation with bounded structural dedup. Tests 374/374 pass; typecheck pass; build pass. Exactly-one fallback verified across error↔message and status→terminal ordering, duplicate and concurrent delivery. No polling probe, direct SSE, provider health call, synthetic prompt, TTFT change, or OpenCode downgrade."
+    },
+    "acceptance": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:39:40.976Z",
+      "completed_by": "user",
+      "approval_evidence": "User accepted durable failure reconciliation. Independent reviewer READY, no findings. Contract matrix 23/23 passing. Full tests 374/374, typecheck/build pass. No token/provider probes, polling, direct SSE, TTFT change, or downgrade.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "content_hash": "2fbb2386c425cff511fba654548e90c69bedf8863f1ff3c31369e965aa49d701",
+        "non_whitespace_chars": 2744,
+        "checked_at": "2026-07-21T16:44:17.743Z"
+      }
+    },
+    "release": {
+      "status": "done",
+      "completed_at": "2026-07-21T17:40:40.681Z",
+      "completed_by": "user",
+      "approval_evidence": "Direct merge/no-PR workflow approved. Branch merged to main and pushed as 356ad76 on origin/main. Full verification pre-merge: 374/374 tests, typecheck/build pass, independent reviewer READY."
+    }
+  },
+  "reentry_history": [
+    {
+      "from_gate": "proposal",
+      "reason": "Source-level EventV2 research disproved the proposal's core assumption that session.error is not forwarded. Long-term solution is dual-signal failure reconciliation: transient session.error fast path + persistence-backed message.updated error path + TTFT liveness fallback.",
+      "scope_delta": "Remove post-message timer probe, probeDelayMs, and per-turn session.messages polling. Add normalized idempotent failure handling across session.error and message.updated; retain persistent cooldown projection and TTFT only for true silence. No direct EventV2 SSE subscription inside plugin.",
+      "reopened_by": "agent",
+      "reopened_at": "2026-07-21T17:05:41.965Z",
+      "gates_reset": [
+        "proposal",
+        "discovery",
+        "design",
+        "planning",
+        "execution",
+        "acceptance",
+        "release"
+      ]
+    }
+  ],
+  "origin": {
+    "kind": "adhoc"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "strict",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+      "approvedAt": "2026-07-21T17:09:11.523Z"
+    },
+    "items": [
+      {
+        "id": "SC1",
+        "kind": "success_criterion",
+        "text": "Every typed provider failure triggers at most one fallback, regardless of EventV2 ordering or duplicate delivery.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "SC2",
+        "kind": "success_criterion",
+        "text": "A missed transient `session.error` is recovered through assistant-error `message.updated`.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "SC3",
+        "kind": "success_criterion",
+        "text": "No synthetic provider request or token/usage consumption is introduced.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "SC4",
+        "kind": "success_criterion",
+        "text": "True silence still falls back through TTFT unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "`session.error` with a classifiable typed error triggers fallback through the normalized failure handler.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "Assistant-error `message.updated` triggers fallback when no matching `session.error` was handled.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "When `session.error` and assistant-error `message.updated` describe the same failure in either order, exactly one fallback dispatch occurs.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "Legacy and V2 `message.updated` shapes normalize correctly (`properties.info.sessionID` and optional `properties.sessionID`).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "`MessageAbortedError` remains a non-fallback signal.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "Malformed or unsupported errors are ignored safely and TTFT remains armed.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "Persistent cooldown receives the normalized error category unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "All existing plugin tests pass unchanged.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "Zero provider-token or provider-rate-limit usage; event handling and any reconciliation read remain local to OpenCode.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "Typed structural parsing owns correctness; prose/text heuristics are fallback-only when typed fields are absent.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "Existing plugin `event` hook remains the EventV2 integration surface; no parallel SSE subscription.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "Persistent cooldown file remains the cross-process durable projection.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "Handled-failure registry is bounded by size/time and cleaned deterministically.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "Support current/latest OpenCode; no downgrade.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "DONT1",
+        "kind": "avoidance",
+        "text": "No per-message delayed polling timer or `probeDelayMs` configuration.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT2",
+        "kind": "avoidance",
+        "text": "No direct `/event` SSE consumer, reconnect loop, or second EventV2 lifecycle inside OMR.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT3",
+        "kind": "avoidance",
+        "text": "No duplicate fallback dispatch for one assistant failure.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT4",
+        "kind": "avoidance",
+        "text": "No removal or shortening of TTFT protection.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT5",
+        "kind": "avoidance",
+        "text": "No provider health prompt, synthetic completion, or provider API probe.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Replacing the persistent cooldown file with EventV2 event sourcing.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "Adding OpenCode plugin-level replay/cursor support.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Lowering global TTFT or adding adaptive provider timeouts.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "Downgrading OpenCode.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS5",
+        "kind": "out_of_scope",
+        "text": "Filing or implementing an upstream OpenCode fix.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-07-21T17:36:47.974Z",
+      "rows": [
+        {
+          "contractId": "SC1",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "Ordering integration tests prove exactly one fallback for error→message, message→error, status→error, status→message, duplicate, and concurrent delivery."
+        },
+        {
+          "contractId": "SC2",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "Assistant-error message.updated legacy+V2 tests trigger fallback independently of session.error."
+        },
+        {
+          "contractId": "SC3",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "Static review found no provider request, synthetic prompt, polling probe, fetch, or health call."
+        },
+        {
+          "contractId": "SC4",
+          "kind": "success_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "TTFT registry/default unchanged; malformed/unclassified signals leave TTFT armed; existing TTFT tests pass."
+        },
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Existing session.error tests and unified handler tests pass."
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Legacy and V2 assistant-error message.updated tests trigger fallback."
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Exactly-once ordering suite covers both orders, status transitions, duplicate and concurrent delivery."
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Installed legacy info.sessionID and V2 properties.sessionID shapes tested."
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "MessageAbortedError session.error and message.updated tests produce no fallback."
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Malformed assistant error rejected by normalization; prompt not called; TTFT remains armed."
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Cooldown health record retains exact normalized rate_limit category."
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Full plugin suite 374/374; typecheck and build pass."
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No provider calls added; all signals use plugin events and local state."
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "Event normalization validates typed roles, IDs, error object/data before handling."
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "Existing plugin event hook retained; no direct SSE/EventSource client."
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "Persistent cooldown module and cross-process projection behavior retained."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "FailureDeduplicator: 30s TTL, 512 cap, prune-on-begin, oldest eviction, session cleanup; tests pass."
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "static_check",
+          "evidence": "No OpenCode dependency downgrade or downgrade path added."
+        },
+        {
+          "contractId": "DONT1",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No delayed polling timer or probeDelayMs exists."
+        },
+        {
+          "contractId": "DONT2",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No /event SSE consumer or reconnect lifecycle added."
+        },
+        {
+          "contractId": "DONT3",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Exactly-one fallback proven across all required ordering permutations."
+        },
+        {
+          "contractId": "DONT4",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "TTFT remains 60s/default unchanged."
+        },
+        {
+          "contractId": "DONT5",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "No provider health prompt, synthetic completion, or API probe."
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "`session.error` with a classifiable typed error triggers fallback through the normalized failure handler.",
+    "Assistant-error `message.updated` triggers fallback when no matching `session.error` was handled.",
+    "When `session.error` and assistant-error `message.updated` describe the same failure in either order, exactly one fallback dispatch occurs.",
+    "Legacy and V2 `message.updated` shapes normalize correctly (`properties.info.sessionID` and optional `properties.sessionID`).",
+    "`MessageAbortedError` remains a non-fallback signal.",
+    "Malformed or unsupported errors are ignored safely and TTFT remains armed.",
+    "Persistent cooldown receives the normalized error category unchanged.",
+    "All existing plugin tests pass unchanged."
+  ],
+  "documents": {
+    "proposal": "# Add durable failure reconciliation\n\n> Pivoted from the original post-message timer probe after source-level EventV2 research disproved its core assumption. Change ID remains `addPostMessageErrorProbe` for continuity.\n\n## Problem\n\nOMR should not depend on one transient failure event. OpenCode publishes non-retryable LLM failures through EventV2Bridge and plugins already subscribe to that bridge; there is no missing toggle to enable. However, `session.error` is transient, while the assistant message containing the same typed error is persisted through durable `message.updated`.\n\nA transient event can be lost during lifecycle/routing races. Relying only on it risks delayed fallback until TTFT. Polling every message after three seconds would mask the symptom while adding an extra local API request per turn.\n\n## User Outcomes\n\n- Provider failures roll over promptly even if transient `session.error` delivery is missed.\n- No synthetic prompts, provider probes, token usage, or provider-rate-limit consumption.\n- Duplicate signals never trigger duplicate fallback.\n- True hangs still fall back through the existing TTFT watchdog.\n- Existing persistent cooldown continues to propagate known failures across processes.\n\n## Verified OpenCode Architecture\n\n- `SessionProcessor.halt()` sets `ctx.assistantMessage.error` and publishes `Session.Event.Error` through `EventV2Bridge`.\n- Plugin initialization subscribes with `events.listen()` and forwards bridge events to every plugin `event` hook.\n- `session.error` is defined without EventV2 durable options: fast but transient.\n- `message.updated` uses durable options (`aggregate: \"sessionID\"`, `version: 1`) and carries the persisted assistant message after cleanup.\n- EventV2Bridge also emits versioned `sync` events to GlobalBus, but plugin hooks receive the normal event shape without replay cursor metadata.\n\nSources:\n- OpenCode `packages/opencode/src/session/processor.ts`\n- OpenCode `packages/opencode/src/plugin/index.ts`\n- OpenCode `packages/opencode/src/event-v2-bridge.ts`\n- OpenCode `packages/schema/src/v1/session.ts`\n- Issues #24494 / #26349; ACP-only fix PR #34061\n\n## Chosen Direction\n\nCreate one normalized, idempotent failure pipeline fed by multiple zero-token signals:\n\n```text\nsession.error (fast, transient) ------------------┐\n                                                   ├-> normalizeFailure -> dedup -> classify -> cooldown -> fallback\nmessage.updated with assistant.error (persisted) -┤\n                                                   │\nTTFT watchdog (true silence only) -----------------┘\n```\n\n### Signal policy\n\n1. `session.error`: immediate fast path.\n2. `message.updated`: reconciliation path when an assistant message contains a typed error.\n3. TTFT: unchanged final fallback when OpenCode emits/persists no error (true hang).\n\n### Dedup policy\n\nUse a structural idempotency key:\n\n```text\nsessionID + assistantMessageID + error fingerprint(name/statusCode/message/responseBody)\n```\n\nOnly the first signal invokes fallback. Later signals for the same failure are no-ops with source-aware diagnostics.\n\n## Scope\n\n### In Scope\n\n- Normalize `session.error` and assistant-error `message.updated` into one internal `FailureSignal` schema.\n- Add deterministic failure fingerprint + bounded handled-failure registry.\n- Route both signals through existing `classifySessionError` and `attemptFallback`.\n- Preserve existing availability suppression and per-session fallback lock.\n- Add source diagnostics: `session_error`, `message_updated`, `ttft`.\n- Add tests for ordering permutations, duplicate delivery, malformed message errors, and TTFT fallback when no typed signal arrives.\n- Verify actual SDK/plugin boundary shape of assistant `message.updated` error.\n\n### Out of Scope\n\n- Per-turn delayed polling probe.\n- Lowering global TTFT.\n- Background provider health checks or synthetic prompts.\n- Direct provider API probes.\n- Direct `/event` SSE subscription inside OMR.\n- Replacing the persistent cooldown file with EventV2 event sourcing.\n- Downgrading OpenCode.\n\n### Must Not\n\n- Must not make any provider request beyond the user's original message.\n- Must not trigger fallback twice for one assistant failure.\n- Must not block routing if an event is malformed.\n- Must not remove TTFT protection for true silence.\n- Must not create a parallel EventV2/SSE consumer with separate reconnect lifecycle.\n- Must not rely on heuristic text parsing when typed error fields exist.\n\n## Discovery Agenda\n\n- Capture exact `message.updated` plugin payload for assistant errors.\n- Verify event ordering: transient `session.error` vs cleanup-driven `message.updated`.\n- Verify whether durable message updates are emitted on every halt/error variant.\n- Specify bounded dedup retention and cleanup semantics.\n- Determine whether startup catch-up is required; prefer no startup scan unless evidence proves a gap.\n- Confirm existing `store.acquireLock(sessionID)` cannot alone dedup signals after the first fallback completes; define structural registry accordingly.\n\n## Acceptance Criteria\n\n- A typed non-retryable provider failure triggers fallback from either `session.error` or assistant-error `message.updated`.\n- When both events describe the same failure in either order, exactly one fallback dispatch occurs.\n- Malformed/unsupported message errors are ignored safely; TTFT remains armed.\n- True silence with no typed failure continues through existing TTFT behavior unchanged.\n- No new provider request, synthetic prompt, or provider health call is introduced.\n- Persistent cooldown behavior remains unchanged and receives the normalized classified failure.\n- All existing plugin tests pass unchanged.\n\n## Constraints\n\n- Zero token/usage burn.\n- OpenCode remains at current/latest version; no downgrade.\n- Event handling must be structural and typed (P33).\n- Persistent cooldown remains the cross-process state projection.\n- Plugin hook remains the EventV2 integration surface until OpenCode documents replay/cursor support for plugins.\n",
+    "problemStatement": "# Problem Statement: Durable failure reconciliation\n\n## Problem\n\nOMR currently treats transient `session.error` as the main typed failure signal and TTFT as the silence fallback. Source-level OpenCode research shows the earlier assumption behind this change was wrong: non-retryable failures are published through EventV2Bridge and plugin hooks already subscribe to that bridge. No toggle is missing.\n\nThe real long-term risk is relying on one transient event. OpenCode defines `session.error` without durable EventV2 options, while `message.updated` is durable by session aggregate. `SessionProcessor.halt()` sets `ctx.assistantMessage.error`, publishes transient `session.error`, then `cleanup()` persists the assistant message. A transient delivery gap can therefore be reconciled from the persistence-backed assistant-message update without polling every turn or making provider calls.\n\n## Verified OpenCode Flow\n\n1. `SessionProcessor.halt()` parses the provider failure and sets `ctx.assistantMessage.error`.\n2. It publishes `Session.Event.Error` through `EventV2Bridge`.\n3. OpenCode's plugin layer subscribes via `events.listen()` and forwards EventV2 events to plugin `event` hooks.\n4. `cleanup()` persists the assistant message via `session.updateMessage(ctx.assistantMessage)`.\n5. `message.updated` uses EventV2 durable options (`aggregate: sessionID`, `version: 1`); `session.error` does not.\n\n## Prior Decisions\n\n- No provider health prompts or synthetic completions: zero token/usage burn.\n- Do not downgrade OpenCode.\n- Keep the persistent cross-process cooldown store as OMR's durable projection.\n- Keep TTFT for true silence only.\n- Do not open a second `/event` SSE subscription inside the plugin when the plugin hook already receives EventV2Bridge events.\n\n## Rejected Approaches\n\n- Per-turn 3-second `session.messages` polling probe: unnecessary local API overhead; duplicates EventV2 delivery.\n- Lower global TTFT: no evidence-backed safe threshold.\n- Background provider health checks: token/rate-limit usage.\n- Replace cooldown persistence with EventV2 replay: plugin hooks do not receive durable sequence/cursor metadata; replay contract is not documented for plugins.\n\n## Open Questions\n\n- Exact assistant `message.updated` error shape at the plugin hook boundary.\n- Event ordering and duplicate delivery between `session.error` and `message.updated`.\n- Stable failure idempotency key using session ID, assistant message ID, and error fingerprint.\n- Whether `message.updated` alone closes every missed-event case or startup catch-up needs a bounded local reconciliation read.\n",
+    "agreement": "# Agreement: Durable failure reconciliation\n\nUser-approved 2026-07-21. This agreement supersedes the original timer-probe direction while retaining change ID `addPostMessageErrorProbe` for continuity.\n\n## Objectives\n\n1. Recover typed provider failures when transient `session.error` delivery is missed by reconciling the persisted assistant error from `message.updated`.\n2. Normalize all typed failure signals through one idempotent classifier/fallback pipeline.\n3. Preserve TTFT strictly as the true-silence watchdog.\n4. Introduce no provider request, synthetic prompt, token use, or provider-rate-limit consumption.\n\n## Success Criteria\n\n- SC1: Every typed provider failure triggers at most one fallback, regardless of EventV2 ordering or duplicate delivery.\n- SC2: A missed transient `session.error` is recovered through assistant-error `message.updated`.\n- SC3: No synthetic provider request or token/usage consumption is introduced.\n- SC4: True silence still falls back through TTFT unchanged.\n\n## Acceptance Criteria\n\n- AC1: `session.error` with a classifiable typed error triggers fallback through the normalized failure handler.\n- AC2: Assistant-error `message.updated` triggers fallback when no matching `session.error` was handled.\n- AC3: When `session.error` and assistant-error `message.updated` describe the same failure in either order, exactly one fallback dispatch occurs.\n- AC4: Legacy and V2 `message.updated` shapes normalize correctly (`properties.info.sessionID` and optional `properties.sessionID`).\n- AC5: `MessageAbortedError` remains a non-fallback signal.\n- AC6: Malformed or unsupported errors are ignored safely and TTFT remains armed.\n- AC7: Persistent cooldown receives the normalized error category unchanged.\n- AC8: All existing plugin tests pass unchanged.\n\n## Constraints\n\n- C1: Zero provider-token or provider-rate-limit usage; event handling and any reconciliation read remain local to OpenCode.\n- C2: Typed structural parsing owns correctness; prose/text heuristics are fallback-only when typed fields are absent.\n- C3: Existing plugin `event` hook remains the EventV2 integration surface; no parallel SSE subscription.\n- C4: Persistent cooldown file remains the cross-process durable projection.\n- C5: Handled-failure registry is bounded by size/time and cleaned deterministically.\n- C6: Support current/latest OpenCode; no downgrade.\n\n## Avoidances\n\n- DONT1: No per-message delayed polling timer or `probeDelayMs` configuration.\n- DONT2: No direct `/event` SSE consumer, reconnect loop, or second EventV2 lifecycle inside OMR.\n- DONT3: No duplicate fallback dispatch for one assistant failure.\n- DONT4: No removal or shortening of TTFT protection.\n- DONT5: No provider health prompt, synthetic completion, or provider API probe.\n\n## Out of Scope\n\n- OOS1: Replacing the persistent cooldown file with EventV2 event sourcing.\n- OOS2: Adding OpenCode plugin-level replay/cursor support.\n- OOS3: Lowering global TTFT or adding adaptive provider timeouts.\n- OOS4: Downgrading OpenCode.\n- OOS5: Filing or implementing an upstream OpenCode fix.\n\n---\n\n## Discovery Evidence\n\n### EventV2 Architecture\n\n- `SessionProcessor.halt()` sets `ctx.assistantMessage.error` and publishes `Session.Event.Error` through `EventV2Bridge`.\n- OpenCode plugin initialization subscribes via `events.listen()` and forwards bridge events to plugin `event` hooks.\n- No event-enable toggle exists; `session.error` is documented as a normal plugin event.\n- `session.error` is defined without EventV2 durable options (transient).\n- `message.updated` uses durable options `{ aggregate: \"sessionID\", version: 1 }` and carries the assistant message persisted by cleanup.\n- EventV2Bridge emits versioned sync events to GlobalBus, but plugin hooks receive the normal event shape without replay cursor metadata.\n\n### Installed SDK Shapes\n\nLegacy SDK (`@opencode-ai/sdk`):\n- `EventMessageUpdated.properties.info: Message`\n- Assistant message: `{ id, sessionID, role:\"assistant\", error?: TypedError }`\n\nV2 SDK:\n- `EventMessageUpdated.properties.sessionID: string`\n- `EventMessageUpdated.properties.info: Message`\n- Assistant message carries the same typed error union.\n\nNormalizer must accept both top-level `properties.sessionID` and `properties.info.sessionID`.\n\n### Existing Dedup\n\n- `FallbackStore.acquireLock(sessionID)` serializes only concurrently executing triggers.\n- `lastFallbackAt` + `dedupWindowMs` is a session-wide temporal heuristic.\n- Neither structurally identifies one assistant failure after lock release/window expiry.\n- New fingerprint must include session ID + assistant message ID + typed error fingerprint (name/statusCode/message/responseBody).\n\n### Conflict / Related Work\n\nNo active conflict. Extends archived `addPersistentCrossProcess`, `fixRateLimitCooldownThrash`, and `fixFallbackTaskLifecycle`.\n\n### P25 Related Pattern Scan\n\nExtend the existing `normalizeEventInput()` boundary in `plugin-internal.ts`; do not add parallel event parsers. Route `session.error`, retry `session.status`, and assistant-error `message.updated` through one normalized failure handler where applicable.\n\n### AMBIGUITY ANALYSIS\n\n- Boundaries: PASS — in/out/must-not defined.\n- Functional scope: PASS — 4 user outcomes + 8 ACs.\n- Completion signals: PASS — exact one-dispatch, typed-shape, no-token, regression signals.\n- Mechanism: one HIGH design question — bounded fingerprint registry retention/cleanup. No CRITICAL findings.\n- External integration: PASS — EventV2Bridge source, plugin forwarding source, and installed SDK types verified.\n\n### Problem-Completeness Check\n\nFull problem identified with high confidence: OpenCode already emits transient `session.error`; the resilience gap is transient-event dependence, not a missing toggle. Persistence-backed `message.updated` provides a zero-token reconciliation signal. TTFT remains necessary only for true silence.\n\n### Solution-Scope Check\n\nPrimary control surface: `normalizeEventInput()` + `handleEvent()` in `plugin-internal.ts`. Secondary surfaces: session state for bounded failure fingerprints; orchestrator remains the single fallback dispatcher. No new event transport or cooldown storage layer required.\n\n### Opportunity Scout\n\nSkipped with rationale: focused reliability hardening on a verified event pipeline. Leverage surfaces (shared normalization, idempotency, source diagnostics) are already captured in scope.\n\n## Sign-Off\n\nUser approved SC1-SC4, AC1-AC8, C1-C6, DONT1-DONT5, and OOS1-OOS5 on 2026-07-21.\n",
+    "design": "# Design: Durable failure reconciliation\n\n## Architecture\n\n```text\nsession.error (transient) ---------------------------┐\nmessage.updated assistant.error (durable) ------------┼-> normalize -> structural identity -> dedup -> classify -> attemptFallback\nsession.status retry (typed category) -----------------┤\nTTFT (true silence only, unchanged) -------------------┘\n```\n\nUse the existing plugin `event` hook. EventV2Bridge already forwards events to plugins; no second SSE connection.\n\n## Decisions\n\n### KD1 — Extend existing structural event boundary\n\nExtend `EventInputShape` / `normalizeEventInput()` with `properties.info`:\n\n```ts\ninfo?: {\n  id?: string;\n  sessionID?: string;\n  sessionId?: string;\n  role?: \"user\" | \"assistant\";\n  error?: SessionErrorLike;\n}\n```\n\nSupport both installed SDK shapes:\n- legacy: session ID from `info.sessionID`\n- V2: `properties.sessionID`, with `info.sessionID` accepted\n\nMalformed role/id/error fields are rejected structurally.\n\n### KD2 — One FailureSignal\n\n```ts\ntype FailureSource = \"session_error\" | \"message_updated\" | \"session_status\" | \"ttft\";\ntype FailureSignal = {\n  source: FailureSource;\n  sessionId: string;\n  messageId?: string;\n  error?: SessionErrorLike;\n  category: ErrorCategory;\n  fingerprint: string;\n  familyKey: string;\n};\n```\n\n- `session.error`: typed error, no message ID.\n- assistant-error `message.updated`: typed error + assistant message ID.\n- retry `session.status`: typed retry reason/category.\n- TTFT remains its existing direct path because no typed failure exists.\n\n### KD3 — Deterministic fingerprint\n\nCanonical bounded fields:\n\n```ts\n{name,statusCode,isRetryable,message,responseBody}\n```\n\nNormalize absent values to null. Bound message/responseBody before stable serialization. V1 uses canonical serialization directly (no new crypto dependency). Never log raw responseBody.\n\n### KD4 — Three structural dedup indexes\n\nNew `FailureDeduplicator`:\n\n```ts\nbegin({sessionId,messageId?,fingerprint,familyKey}): \"new\" | \"duplicate\"\nclearSession(sessionId): void\nprune(now): void\n```\n\nIndexes:\n1. Exact: `sessionId + messageId + fingerprint` (message.updated).\n2. Error alias: `sessionId + fingerprint` (correlates session.error ↔ message.updated when transient event lacks message ID).\n3. Failure family: `sessionId + currentModel + category` (correlates retry session.status ↔ terminal session.error/message.updated despite different payloads).\n\nRules:\n- Every accepted typed signal records its available exact/error keys plus family key.\n- Any matching key makes later delivery duplicate.\n- `begin()` is synchronous and executes before any await.\n- TTL 30s; cap 512; prune on begin; evict oldest over cap.\n- `session.deleted` clears session entries.\n\nValidator amendment: family key closes the `session.status` retry → terminal `session.error` duplication gap identified by independent review.\n\n### KD5 — Record before dispatch\n\nOnce accepted, duplicate signals remain suppressed for 30s even if fallback later has no next model or an SDK failure. This prevents recovery churn. If dedup itself throws unexpectedly, log and continue through existing `acquireLock` + `lastFallbackAt` safeguards (routing stays fail-open).\n\n### KD6 — message.updated rules\n\nHandle only when:\n- role is assistant\n- typed error is structurally valid\n- error is not `MessageAbortedError`\n- classifier returns a category\n\nNo session.messages read, timer, provider call, or direct SSE.\n\n### KD7 — TTFT unchanged\n\nKeep 60s TTFT. Accepted typed failure clears TTFT after `begin()` succeeds. Duplicate typed signal may also clear TTFT because fallback is already owned by the earlier signal. Malformed/unclassified events leave TTFT armed.\n\n### KD8 — Observability\n\nLog source, short fingerprint identifier, duplicate result, session ID, optional message ID, model, category. Never log response body.\n\n## Implementation Strategy\n\n1. RED tests for `FailureDeduplicator`: error↔message ordering, status→error/message family correlation, TTL, cap, cleanup.\n2. Implement `plugin/src/state/failure-dedup.ts`.\n3. Expose registry from `FallbackStore`.\n4. Extend event shape parser for installed legacy + V2 message.updated payloads.\n5. Extract synchronous `handleFailureSignal()` entrance from session.error/status branches.\n6. Add assistant-error message.updated branch.\n7. Add session.deleted cleanup.\n8. Integration ordering tests: error→message, message→error, status→error, status→message; exactly one dispatch.\n9. Malformed/aborted/TTFT regression tests.\n10. Full plugin suite.\n\n## Affected Components\n\n| Component | Change |\n|---|---|\n| `plugin/src/plugin-internal.ts` | Event schema, normalized handler, new branches |\n| `plugin/src/state/failure-dedup.ts` | New bounded registry |\n| `plugin/src/state/store.ts` | Own registry |\n| `plugin/src/detection/classifier.ts` | Reuse; no rewrite expected |\n| `plugin/src/replay/orchestrator.ts` | Remains single dispatch owner |\n| tests | Unit + ordering integration + regression |\n\n## Design-Derived Criteria\n\n- DDC1: TTL 30,000ms.\n- DDC2: cap 512 entries.\n- DDC3: fingerprint inputs bounded.\n- DDC4: no new network call.\n- DDC5: `begin()` synchronous before awaits.\n- DDC6: all four typed ordering permutations dispatch exactly once.\n\n## LBP\n\n- Timer polling probe: reject — per-turn local API overhead.\n- Direct `/event` SSE: reject — duplicate delivery/reconnect lifecycle.\n- Event sourcing replacing cooldown file: reject — plugin replay/cursor contract undocumented.\n- Existing session lock/3s window only: reject — not failure-specific.\n- Structural multi-index registry: choose — typed, bounded, deterministic.\n\n## Risks / Mitigations\n\n- Payload drift: test legacy + V2 installed shapes.\n- Identical independent errors inside 30s: suppression is desirable while cooldown is active; TTL bounded.\n- Family alias too broad: includes current model + category + session and expires after 30s.\n- Memory growth: TTL prune + cap + session deletion.\n- Dedup failure: fail-open to existing safeguards.\n- Sensitive body: bounded identity input, never logged.\n\n## Validator Result\n\nMandatory adv-researcher verdict: **caution**, high confidence, medium risk.\n\nValidated:\n- EventV2 plugin hook is correct integration surface.\n- halt → transient error → cleanup/persisted message ordering supports reconciliation.\n- Two-level error/message correlation is justified.\n\nFinding integrated:\n- Original design did not prove retry `session.status` → terminal error exactly-once behavior. Added `familyKey = session + currentModel + category` plus required status→error/message ordering tests.\n\nNo contract compromise, security blocker, or unresolved CONFLICT.\n\n## ADR / Leverage Scout\n\nNo ADR required; localized, reversible decision. Scout skipped: shared normalization/idempotency is already captured.\n",
+    "executiveSummary": "# Executive Summary\n\n## Outcome\n\nOMR now reconciles transient OpenCode failure events with the persisted assistant-message error signal. `session.error`, assistant-error `message.updated`, and typed retry `session.status` feed one normalized, idempotent failure pipeline. TTFT remains the true-silence fallback.\n\n## Why It Matters\n\nOpenCode already routes plugins through EventV2Bridge; no toggle or second event connection was missing. The reliability gap was dependence on transient `session.error`. `message.updated` provides a persistence-backed second signal, but duplicate delivery can otherwise dispatch fallback twice. Structural dedup now guarantees exactly-once recovery across event ordering and concurrent delivery.\n\n## Verdict\n\nREADY — independent adv-reviewer found no issues or required edits.\n\n## What Was Built\n\n- Extended structural event normalization for legacy and V2 assistant `message.updated` payloads.\n- Added a normalized typed failure handler shared by `session.error`, `message.updated`, and retry `session.status`.\n- Added bounded `FailureDeduplicator` with exact message, transient error alias, and failure-family indexes; 30s TTL, 512 cap, deterministic pruning, session cleanup.\n- Added typed error fingerprinting with bounded message/response-body identity inputs; raw response body never logged.\n- Preserved lifecycle retry when events arrive before config by forgetting only a `no chain` dedup record.\n- Added source-aware diagnostics and TTFT clearing only for accepted/duplicate typed failures.\n- Added missing proper-lockfile typings and repaired two pre-existing ModelKey test annotations found by typecheck.\n\n## What Was Verified\n\n- Full suite: 374/374 pass across 21 files.\n- Typecheck: pass.\n- Build: pass.\n- Exactly-one fallback: error→message, message→error, status→error, status→message, duplicate, and concurrent delivery.\n- Legacy and V2 payload shapes.\n- Aborted/malformed signals safely ignored.\n- Persistent cooldown receives normalized category.\n- No polling probe, direct SSE subscription, provider fetch/health probe, synthetic prompt, TTFT reduction, or OpenCode downgrade.\n- Contract review: 23/23 required rows passing/respected.\n\n## Remaining Concerns\n\n- Change ID/title still references the original probe concept for continuity; artifacts and implementation correctly describe durable failure reconciliation.\n- Dedup family alias uses session + category (not mutable currentModel) because fallback changes currentModel before terminal events arrive. This intentionally suppresses same-category repeat recovery within 30 seconds while cooldown is active.\n\n## Consequence Context\n\n| Category | Status |\n|---|---|\n| Delivered value | Exactly-once, zero-token failure reconciliation |\n| Enabling-only/follow-up | None required |\n| Ops readiness | No migration or operational runbook |\n| Migration/data impact | None; existing cooldown projection retained |\n| Frontend/preview impact | N/A |\n| Collision/release risk | Low; localized plugin event/state changes |\n| Open follow-ups | Optional upstream EventV2 regression coverage only |\n| Next action | User acceptance, then direct merge/archive per repo no-PR convention |\n",
+    "acceptance": "# Acceptance\n\nReviewed at: 2026-07-21T17:36:47.974Z\n\n## Contract Review Matrix\n\n| ID | Kind | Requirement | Status | Evidence |\n|---|---|---|---|---|\n| SC1 | success_criterion | Every typed provider failure triggers at most one fallback, regardless of EventV2 ordering or duplicate delivery. | pass | Ordering integration tests prove exactly one fallback for error→message, message→error, status→error, status→message, duplicate, and concurrent delivery. |\n| SC2 | success_criterion | A missed transient `session.error` is recovered through assistant-error `message.updated`. | pass | Assistant-error message.updated legacy+V2 tests trigger fallback independently of session.error. |\n| SC3 | success_criterion | No synthetic provider request or token/usage consumption is introduced. | pass | Static review found no provider request, synthetic prompt, polling probe, fetch, or health call. |\n| SC4 | success_criterion | True silence still falls back through TTFT unchanged. | pass | TTFT registry/default unchanged; malformed/unclassified signals leave TTFT armed; existing TTFT tests pass. |\n| AC1 | acceptance_criterion | `session.error` with a classifiable typed error triggers fallback through the normalized failure handler. | pass | Existing session.error tests and unified handler tests pass. |\n| AC2 | acceptance_criterion | Assistant-error `message.updated` triggers fallback when no matching `session.error` was handled. | pass | Legacy and V2 assistant-error message.updated tests trigger fallback. |\n| AC3 | acceptance_criterion | When `session.error` and assistant-error `message.updated` describe the same failure in either order, exactly one fallback dispatch occurs. | pass | Exactly-once ordering suite covers both orders, status transitions, duplicate and concurrent delivery. |\n| AC4 | acceptance_criterion | Legacy and V2 `message.updated` shapes normalize correctly (`properties.info.sessionID` and optional `properties.sessionID`). | pass | Installed legacy info.sessionID and V2 properties.sessionID shapes tested. |\n| AC5 | acceptance_criterion | `MessageAbortedError` remains a non-fallback signal. | pass | MessageAbortedError session.error and message.updated tests produce no fallback. |\n| AC6 | acceptance_criterion | Malformed or unsupported errors are ignored safely and TTFT remains armed. | pass | Malformed assistant error rejected by normalization; prompt not called; TTFT remains armed. |\n| AC7 | acceptance_criterion | Persistent cooldown receives the normalized error category unchanged. | pass | Cooldown health record retains exact normalized rate_limit category. |\n| AC8 | acceptance_criterion | All existing plugin tests pass unchanged. | pass | Full plugin suite 374/374; typecheck and build pass. |\n| C1 | constraint | Zero provider-token or provider-rate-limit usage; event handling and any reconciliation read remain local to OpenCode. | respected | No provider calls added; all signals use plugin events and local state. |\n| C2 | constraint | Typed structural parsing owns correctness; prose/text heuristics are fallback-only when typed fields are absent. | respected | Event normalization validates typed roles, IDs, error object/data before handling. |\n| C3 | constraint | Existing plugin `event` hook remains the EventV2 integration surface; no parallel SSE subscription. | respected | Existing plugin event hook retained; no direct SSE/EventSource client. |\n| C4 | constraint | Persistent cooldown file remains the cross-process durable projection. | respected | Persistent cooldown module and cross-process projection behavior retained. |\n| C5 | constraint | Handled-failure registry is bounded by size/time and cleaned deterministically. | respected | FailureDeduplicator: 30s TTL, 512 cap, prune-on-begin, oldest eviction, session cleanup; tests pass. |\n| C6 | constraint | Support current/latest OpenCode; no downgrade. | respected | No OpenCode dependency downgrade or downgrade path added. |\n| DONT1 | avoidance | No per-message delayed polling timer or `probeDelayMs` configuration. | respected | No delayed polling timer or probeDelayMs exists. |\n| DONT2 | avoidance | No direct `/event` SSE consumer, reconnect loop, or second EventV2 lifecycle inside OMR. | respected | No /event SSE consumer or reconnect lifecycle added. |\n| DONT3 | avoidance | No duplicate fallback dispatch for one assistant failure. | respected | Exactly-one fallback proven across all required ordering permutations. |\n| DONT4 | avoidance | No removal or shortening of TTFT protection. | respected | TTFT remains 60s/default unchanged. |\n| DONT5 | avoidance | No provider health prompt, synthetic completion, or provider API probe. | respected | No provider health prompt, synthetic completion, or API probe. |\n| OOS1 | out_of_scope | Replacing the persistent cooldown file with EventV2 event sourcing. | missing |  |\n| OOS2 | out_of_scope | Adding OpenCode plugin-level replay/cursor support. | missing |  |\n| OOS3 | out_of_scope | Lowering global TTFT or adding adaptive provider timeouts. | missing |  |\n| OOS4 | out_of_scope | Downgrading OpenCode. | missing |  |\n| OOS5 | out_of_scope | Filing or implementing an upstream OpenCode fix. | missing |  |\n\n"
+  },
+  "artifacts": {
+    "proposal": {
+      "updatedAt": "2026-07-21T17:06:24.694Z",
+      "contentHash": "dc70f13a20612870c9c3c7bee3c86491003e2ad427964e08896f43d2d26cdbb9",
+      "source": "temporal",
+      "readable": false
+    },
+    "problemStatement": {
+      "updatedAt": "2026-07-21T17:06:24.694Z",
+      "contentHash": "ffa98fd449a682c2db45f4d07079428cbf38783509bc126a0f6a7cfcfd7ca2ee",
+      "source": "temporal",
+      "readable": false
+    },
+    "agreement": {
+      "updatedAt": "2026-07-21T17:09:05.211Z",
+      "contentHash": "3905695440cc5763d262a2efa7746fd16a0503d619b39ad2a41efe068805db78",
+      "source": "temporal",
+      "readable": false
+    },
+    "design": {
+      "updatedAt": "2026-07-21T17:14:55.137Z",
+      "contentHash": "ab9bc522e22b0fc6284d33210205c8fe4b193ef19bd41d7c00bebeae8fee8e05",
+      "source": "temporal",
+      "readable": false
+    },
+    "executiveSummary": {
+      "updatedAt": "2026-07-21T17:37:08.760Z",
+      "contentHash": "2fbb2386c425cff511fba654548e90c69bedf8863f1ff3c31369e965aa49d701",
+      "source": "temporal",
+      "readable": false
+    }
+  },
+  "lastSignalAt": "2026-07-21T17:40:40.681Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "clarify_findings": [
+    {
+      "code": "CLARIFY_ASSUMPTION_HEAVY",
+      "severity": "warning",
+      "message": "Proposal references authentication/authorization without specifying the model. What auth mechanism will be used?",
+      "recorded_at": "2026-07-21T17:05:19.362Z",
+      "resolved": true,
+      "resolved_at": "2026-07-21T17:11:06.681Z"
+    }
+  ],
+  "worktree_auto_managed": true
+}
