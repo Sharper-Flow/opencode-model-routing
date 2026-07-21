@@ -28,7 +28,9 @@ describe("extractContextSummary — empty / no-work cases", () => {
   });
 
   test("assistant with empty parts after lastUser → empty string", () => {
-    expect(extractContextSummary([userMsg("u1"), assistantMsg("a1", [])], "u1")).toBe("");
+    expect(
+      extractContextSummary([userMsg("u1"), assistantMsg("a1", [])], "u1"),
+    ).toBe("");
   });
 
   test("assistant BEFORE lastUser is ignored (only walk after)", () => {
@@ -62,14 +64,20 @@ describe("extractContextSummary — tool-call extraction", () => {
 
 describe("extractContextSummary — text extraction", () => {
   test("captures short text verbatim", () => {
-    const messages = [userMsg("u1"), assistantMsg("a1", [{ type: "text", text: "done" }])];
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [{ type: "text", text: "done" }]),
+    ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("done");
   });
 
   test("truncates text to first ~200 chars", () => {
     const long = "x".repeat(300);
-    const messages = [userMsg("u1"), assistantMsg("a1", [{ type: "text", text: long }])];
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [{ type: "text", text: long }]),
+    ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("x".repeat(200));
     expect(summary).not.toContain("x".repeat(201));
@@ -80,7 +88,11 @@ describe("extractContextSummary — cap", () => {
   test("caps total output at ~2000 chars with truncation marker", () => {
     const messages: unknown[] = [userMsg("u1")];
     for (let i = 0; i < 40; i++) {
-      messages.push(assistantMsg(`a${i}`, [{ type: "text", text: `m${i} ` + "y".repeat(120) }]));
+      messages.push(
+        assistantMsg(`a${i}`, [
+          { type: "text", text: `m${i} ` + "y".repeat(120) },
+        ]),
+      );
     }
     const summary = extractContextSummary(messages, "u1");
     expect(summary.length).toBeLessThanOrEqual(2000);
@@ -102,13 +114,18 @@ describe("extractContextSummary — graceful degradation", () => {
   });
 
   test("non-array messages argument → empty string (try/catch)", () => {
-    expect(extractContextSummary("not-an-array" as unknown as unknown[], "u1")).toBe("");
+    expect(
+      extractContextSummary("not-an-array" as unknown as unknown[], "u1"),
+    ).toBe("");
   });
 
   test("nested OpenCode shape {info:{id,role}, parts} supported", () => {
     const messages = [
       userMsg("u1"),
-      { info: { id: "a-nested", role: "assistant" }, parts: [{ type: "read" }] },
+      {
+        info: { id: "a-nested", role: "assistant" },
+        parts: [{ type: "read" }],
+      },
     ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("read");
@@ -127,7 +144,10 @@ describe("extractContextSummary — malformed parts", () => {
   });
 
   test("{ type: 'text', text: <non-string> } → empty string (text not a string)", () => {
-    const messages = [userMsg("u1"), assistantMsg("a1", [{ type: "text", text: 123 }])];
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [{ type: "text", text: 123 }]),
+    ];
     expect(extractContextSummary(messages, "u1")).toBe("");
   });
 
@@ -137,7 +157,10 @@ describe("extractContextSummary — malformed parts", () => {
   });
 
   test("null part mixed with valid tool → null skipped, valid still extracted", () => {
-    const messages = [userMsg("u1"), assistantMsg("a1", [null, { type: "bash" }])];
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [null, { type: "bash" }]),
+    ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("bash");
   });

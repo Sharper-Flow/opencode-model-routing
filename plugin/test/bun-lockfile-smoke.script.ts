@@ -14,7 +14,9 @@ async function main(): Promise<void> {
   const cooldownPath = process.argv[2];
   const writerId = process.argv[3];
   if (!cooldownPath || !writerId) {
-    console.error("usage: bun bun-lockfile-smoke.script.ts <cooldownPath> <writerId>");
+    console.error(
+      "usage: bun bun-lockfile-smoke.script.ts <cooldownPath> <writerId>",
+    );
     process.exit(2);
   }
 
@@ -43,13 +45,18 @@ async function main(): Promise<void> {
       update: 1000,
     });
   } catch (e) {
-    console.error(`${writerId}: lock acquisition failed: ${(e as Error).message}`);
+    console.error(
+      `${writerId}: lock acquisition failed: ${(e as Error).message}`,
+    );
     process.exit(4);
   }
 
   try {
     // Read existing file (if any).
-    let entries: Record<string, { expiresAt: number; reason: string; setAt: number }> = {};
+    let entries: Record<
+      string,
+      { expiresAt: number; reason: string; setAt: number }
+    > = {};
     try {
       const text = fs.readFileSync(cooldownPath, "utf-8");
       const parsed = JSON.parse(text);
@@ -81,7 +88,9 @@ async function main(): Promise<void> {
       } catch {
         // best-effort cleanup
       }
-      console.error(`${writerId}: write/rename failed: ${(e as Error).message}`);
+      console.error(
+        `${writerId}: write/rename failed: ${(e as Error).message}`,
+      );
       process.exit(5);
     }
 

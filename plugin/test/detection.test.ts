@@ -12,32 +12,50 @@ describe("classifySessionError", () => {
   // statusCode/message/responseBody paths.
   test("APIError data.statusCode 429 → rate_limit", () => {
     expect(
-      classifySessionError({ name: "APIError", data: { statusCode: 429, isRetryable: false } }),
+      classifySessionError({
+        name: "APIError",
+        data: { statusCode: 429, isRetryable: false },
+      }),
     ).toBe("rate_limit");
   });
   test("APIError data.statusCode 503 → server_error", () => {
     expect(
-      classifySessionError({ name: "APIError", data: { statusCode: 503, isRetryable: true } }),
+      classifySessionError({
+        name: "APIError",
+        data: { statusCode: 503, isRetryable: true },
+      }),
     ).toBe("server_error");
   });
   test("APIError data.statusCode 401 → auth_error", () => {
     expect(
-      classifySessionError({ name: "APIError", data: { statusCode: 401, isRetryable: false } }),
+      classifySessionError({
+        name: "APIError",
+        data: { statusCode: 401, isRetryable: false },
+      }),
     ).toBe("auth_error");
   });
   test("APIError data.statusCode 403 → auth_error", () => {
     expect(
-      classifySessionError({ name: "APIError", data: { statusCode: 403, isRetryable: false } }),
+      classifySessionError({
+        name: "APIError",
+        data: { statusCode: 403, isRetryable: false },
+      }),
     ).toBe("auth_error");
   });
   test("ModelNotFoundError name → unknown_model", () => {
-    expect(classifySessionError({ name: "ModelNotFoundError", data: {} })).toBe("unknown_model");
+    expect(classifySessionError({ name: "ModelNotFoundError", data: {} })).toBe(
+      "unknown_model",
+    );
   });
   test("Quota in name → quota_exhausted", () => {
-    expect(classifySessionError({ name: "QuotaExhaustedError", data: {} })).toBe("quota_exhausted");
+    expect(
+      classifySessionError({ name: "QuotaExhaustedError", data: {} }),
+    ).toBe("quota_exhausted");
   });
   test("auth keyword in name → auth_error", () => {
-    expect(classifySessionError({ name: "AuthenticationError", data: {} })).toBe("auth_error");
+    expect(
+      classifySessionError({ name: "AuthenticationError", data: {} }),
+    ).toBe("auth_error");
   });
   test("404 + model in name → unknown_model", () => {
     expect(
@@ -75,7 +93,12 @@ describe("classifySessionError", () => {
     ).toBeNull();
   });
   test("AbortError name → null (user cancel, no fallback)", () => {
-    expect(classifySessionError({ name: "AbortError", data: { message: "Aborted" } })).toBeNull();
+    expect(
+      classifySessionError({
+        name: "AbortError",
+        data: { message: "Aborted" },
+      }),
+    ).toBeNull();
   });
 
   // Extra fixtures for the responseBody scan + provider-specific cases not
@@ -118,7 +141,9 @@ describe("classifySessionError", () => {
       ).toBe("auth_error");
     });
     test("APIError with empty data → unknown", () => {
-      expect(classifySessionError({ name: "APIError", data: {} })).toBe("unknown");
+      expect(classifySessionError({ name: "APIError", data: {} })).toBe(
+        "unknown",
+      );
     });
   });
 
@@ -209,7 +234,8 @@ describe("classifySessionError", () => {
           name: "APIError",
           data: {
             statusCode: 429,
-            message: "You've reached kimi monthly usage limit for this billing cycle",
+            message:
+              "You've reached kimi monthly usage limit for this billing cycle",
             isRetryable: false,
           },
         }),
@@ -219,15 +245,21 @@ describe("classifySessionError", () => {
       // Weekly cap is not documented with a status code; the literal wording
       // is "weekly quota has been fully used up". If it surfaces via
       // session.status text or responseBody, the patterns must catch it.
-      expect(classifyRetryStatusText("The account's weekly quota has been fully used up")).toBe(
+      expect(
+        classifyRetryStatusText(
+          "The account's weekly quota has been fully used up",
+        ),
+      ).toBe("quota_exhausted");
+    });
+    test("Kimi 'fully used up' alone → quota_exhausted", () => {
+      expect(classifyRetryStatusText("Quota fully used up")).toBe(
         "quota_exhausted",
       );
     });
-    test("Kimi 'fully used up' alone → quota_exhausted", () => {
-      expect(classifyRetryStatusText("Quota fully used up")).toBe("quota_exhausted");
-    });
     test("Kimi 'kimi monthly' substring → quota_exhausted", () => {
-      expect(classifyRetryStatusText("You hit the kimi monthly limit")).toBe("quota_exhausted");
+      expect(classifyRetryStatusText("You hit the kimi monthly limit")).toBe(
+        "quota_exhausted",
+      );
     });
   });
 });
@@ -239,20 +271,32 @@ describe("classifyRetryStatusText", () => {
     expect(classifyRetryStatusText("")).toBeNull();
   });
   test("rate limit hints", () => {
-    expect(classifyRetryStatusText("Retrying due to rate limit...")).toBe("rate_limit");
-    expect(classifyRetryStatusText("HTTP 429 Too Many Requests")).toBe("rate_limit");
+    expect(classifyRetryStatusText("Retrying due to rate limit...")).toBe(
+      "rate_limit",
+    );
+    expect(classifyRetryStatusText("HTTP 429 Too Many Requests")).toBe(
+      "rate_limit",
+    );
   });
   test("quota hint", () => {
-    expect(classifyRetryStatusText("monthly quota exhausted")).toBe("quota_exhausted");
+    expect(classifyRetryStatusText("monthly quota exhausted")).toBe(
+      "quota_exhausted",
+    );
   });
   test("model-not-found hint", () => {
-    expect(classifyRetryStatusText("Model not found: foo/bar")).toBe("unknown_model");
+    expect(classifyRetryStatusText("Model not found: foo/bar")).toBe(
+      "unknown_model",
+    );
   });
   test("auth hint", () => {
-    expect(classifyRetryStatusText("Unauthorized: bad API key")).toBe("auth_error");
+    expect(classifyRetryStatusText("Unauthorized: bad API key")).toBe(
+      "auth_error",
+    );
   });
   test("server-error hint", () => {
-    expect(classifyRetryStatusText("Internal server error (502)")).toBe("server_error");
+    expect(classifyRetryStatusText("Internal server error (502)")).toBe(
+      "server_error",
+    );
   });
   test("generic retrying → unknown (last resort)", () => {
     expect(classifyRetryStatusText("Retrying...")).toBe("unknown");
@@ -273,21 +317,31 @@ describe("classifyRetryStatusText", () => {
       ).toBe("quota_exhausted");
     });
     test("Free usage exceeded (Go upsell) → quota_exhausted", () => {
-      expect(classifyRetryStatusText("Free usage exceeded, subscribe to Go")).toBe("quota_exhausted");
+      expect(
+        classifyRetryStatusText("Free usage exceeded, subscribe to Go"),
+      ).toBe("quota_exhausted");
     });
     test("OpenAI insufficient_quota literal → quota_exhausted", () => {
-      expect(classifyRetryStatusText('Error: {"code":"insufficient_quota"}')).toBe("quota_exhausted");
+      expect(
+        classifyRetryStatusText('Error: {"code":"insufficient_quota"}'),
+      ).toBe("quota_exhausted");
     });
     test("generic 'usage limit' phrasing → quota_exhausted", () => {
-      expect(classifyRetryStatusText("Daily usage limit hit")).toBe("quota_exhausted");
+      expect(classifyRetryStatusText("Daily usage limit hit")).toBe(
+        "quota_exhausted",
+      );
     });
     test("'usage cap' phrasing → quota_exhausted", () => {
-      expect(classifyRetryStatusText("You have hit your usage cap")).toBe("quota_exhausted");
+      expect(classifyRetryStatusText("You have hit your usage cap")).toBe(
+        "quota_exhausted",
+      );
     });
     test("does NOT misclassify '5 hour' as server-error 5xx", () => {
       // Regression guard for \b(5\d{2})\b — must not match "5 hour"
       expect(
-        classifyRetryStatusText("5 hour usage limit reached. Reset in 5 hours."),
+        classifyRetryStatusText(
+          "5 hour usage limit reached. Reset in 5 hours.",
+        ),
       ).toBe("quota_exhausted");
     });
 

@@ -11,7 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { FallbackStore } from "../src/state/store.ts";
 import { ModelHealthMap } from "../src/state/model-health.ts";
-import { CooldownStore, COOLDOWN_SCHEMA, COOLDOWN_VERSION } from "../src/state/cooldown-store.ts";
+import {
+  CooldownStore,
+  COOLDOWN_SCHEMA,
+  COOLDOWN_VERSION,
+} from "../src/state/cooldown-store.ts";
 import type { ModelKey } from "../src/types.ts";
 
 let dir: string;
@@ -58,7 +62,7 @@ describe("ModelHealthMap without cooldownStore (backwards compat — DONT2)", ()
 
 describe("ModelHealthMap with cooldownStore — persist call (KD8, C5)", () => {
   test("cooldown() triggers persistCooldown with key, expiresAt=now+duration, category, now", async () => {
-    let now = baseNow;
+    const now = baseNow;
     const persisted: Array<{
       modelKey: ModelKey;
       expiresAt: number;
@@ -74,7 +78,11 @@ describe("ModelHealthMap with cooldownStore — persist call (KD8, C5)", () => {
       ): Promise<void> => {
         persisted.push({ modelKey, expiresAt, reason, setAt });
       },
-      readCooldowns: () => new Map<ModelKey, { expiresAt: number; reason: string; setAt: number }>(),
+      readCooldowns: () =>
+        new Map<
+          ModelKey,
+          { expiresAt: number; reason: string; setAt: number }
+        >(),
     };
     const m = new ModelHealthMap(() => now, fakeStore as any);
     await m.cooldown("kimi/kimi" as ModelKey, 60 * 60_000, "quota_exhausted");
@@ -88,7 +96,11 @@ describe("ModelHealthMap with cooldownStore — persist call (KD8, C5)", () => {
   test("cooldown() default category when none provided", async () => {
     const persisted: Array<{ reason: string }> = [];
     const fakeStore = {
-      persistCooldown: async (_k: any, _e: any, reason: string): Promise<void> => {
+      persistCooldown: async (
+        _k: any,
+        _e: any,
+        reason: string,
+      ): Promise<void> => {
         persisted.push({ reason });
       },
       readCooldowns: () => new Map(),
@@ -123,7 +135,9 @@ describe("ModelHealthMap with cooldownStore — persist call (KD8, C5)", () => {
     };
     const m = new ModelHealthMap(() => baseNow, fakeStore as any);
     // Should not throw — fail-open per C1.
-    await expect(m.cooldown("a/one" as ModelKey, 5_000, "rate_limit")).resolves.toBeUndefined();
+    await expect(
+      m.cooldown("a/one" as ModelKey, 5_000, "rate_limit"),
+    ).resolves.toBeUndefined();
     // In-memory state still correct (persist failure doesn't roll back).
     expect(m.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
@@ -135,7 +149,14 @@ describe("ModelHealthMap with cooldownStore — read-through (cross-process)", (
       persistCooldown: async (): Promise<void> => {},
       readCooldowns: () =>
         new Map([
-          ["sibling/cooldown", { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow }],
+          [
+            "sibling/cooldown",
+            {
+              expiresAt: baseNow + 3_600_000,
+              reason: "quota_exhausted",
+              setAt: baseNow,
+            },
+          ],
         ]),
     };
     const m = new ModelHealthMap(() => baseNow, fakeStore as any);
@@ -176,7 +197,14 @@ describe("ModelHealthMap with cooldownStore — read-through (cross-process)", (
       persistCooldown: async (): Promise<void> => {},
       readCooldowns: () =>
         new Map([
-          ["sibling/cooldown", { expiresAt: virtualNow + 5_000, reason: "rate_limit", setAt: virtualNow }],
+          [
+            "sibling/cooldown",
+            {
+              expiresAt: virtualNow + 5_000,
+              reason: "rate_limit",
+              setAt: virtualNow,
+            },
+          ],
         ]),
     };
     const m = new ModelHealthMap(() => virtualNow, fakeStore as any);
@@ -196,13 +224,19 @@ describe("FallbackStore — passes cooldownStore to ModelHealthMap", () => {
     const s = new FallbackStore();
     expect(s.health).toBeInstanceOf(ModelHealthMap);
     // Existing behavior: cooldown() returns Promise that resolves.
-    expect(s.health.cooldown("a/one" as ModelKey, 5_000)).toBeInstanceOf(Promise);
+    expect(s.health.cooldown("a/one" as ModelKey, 5_000)).toBeInstanceOf(
+      Promise,
+    );
   });
 
   test("FallbackStore with cooldownStore: persists through injected store", async () => {
     const cooldownStore = new CooldownStore(cooldownPath);
     const s = new FallbackStore(() => baseNow, cooldownStore);
-    await s.health.cooldown("kimi/kimi" as ModelKey, 3_600_000, "quota_exhausted");
+    await s.health.cooldown(
+      "kimi/kimi" as ModelKey,
+      3_600_000,
+      "quota_exhausted",
+    );
     // The cooldown should have been persisted to disk.
     expect(fs.existsSync(cooldownPath)).toBe(true);
     const text = fs.readFileSync(cooldownPath, "utf-8");
@@ -220,7 +254,11 @@ describe("FallbackStore — passes cooldownStore to ModelHealthMap", () => {
     const storeB = new FallbackStore(() => baseNow, cooldownStoreB);
 
     // A observes failure, sets cooldown (persists to file).
-    await storeA.health.cooldown("kimi/kimi" as ModelKey, 3_600_000, "quota_exhausted");
+    await storeA.health.cooldown(
+      "kimi/kimi" as ModelKey,
+      3_600_000,
+      "quota_exhausted",
+    );
 
     // B's in-memory Map has no entry; read-through should find A's persisted cooldown.
     expect(storeB.health.isInCooldown("kimi/kimi" as ModelKey)).toBe(true);

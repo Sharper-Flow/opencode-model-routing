@@ -6,7 +6,9 @@
 
 export type Part = unknown;
 
-export function convertPartsForPrompt(parts: Part[] | null | undefined): Part[] {
+export function convertPartsForPrompt(
+  parts: Part[] | null | undefined,
+): Part[] {
   if (!parts || !Array.isArray(parts)) return [];
   // Defensive copy — orchestrator shouldn't mutate the caller's array.
   return [...parts];

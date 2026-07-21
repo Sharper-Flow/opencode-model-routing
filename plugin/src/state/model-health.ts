@@ -42,7 +42,10 @@ export interface CooldownStoreLike {
     reason: string,
     setAt: number,
   ): Promise<void>;
-  readCooldowns(): Map<ModelKey, { expiresAt: number; reason: string; setAt: number }>;
+  readCooldowns(): Map<
+    ModelKey,
+    { expiresAt: number; reason: string; setAt: number }
+  >;
 }
 
 export class ModelHealthMap {
@@ -50,7 +53,10 @@ export class ModelHealthMap {
   private now: NowFn;
   private readonly cooldownStore: CooldownStoreLike | undefined;
 
-  constructor(now: NowFn = () => Date.now(), cooldownStore?: CooldownStoreLike) {
+  constructor(
+    now: NowFn = () => Date.now(),
+    cooldownStore?: CooldownStoreLike,
+  ) {
     this.now = now;
     this.cooldownStore = cooldownStore;
   }
@@ -77,7 +83,11 @@ export class ModelHealthMap {
    *     when cooldownStore is configured
    * Never rejects (fail-open per C1).
    */
-  cooldown(key: ModelKey, durationMs: number, category?: string): Promise<void> {
+  cooldown(
+    key: ModelKey,
+    durationMs: number,
+    category?: string,
+  ): Promise<void> {
     const now = this.now();
     const cooldownUntil = now + durationMs;
     this.records.set(key, {

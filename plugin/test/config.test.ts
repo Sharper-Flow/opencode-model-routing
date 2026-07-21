@@ -9,31 +9,55 @@ describe("loadFallbackChains", () => {
         scout: { fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"] },
       },
     };
-    const { chains, warnings } = loadFallbackChains({}, undefined, pluginOptions);
+    const { chains, warnings } = loadFallbackChains(
+      {},
+      undefined,
+      pluginOptions,
+    );
     expect(chains.size).toBe(1);
-    expect(chains.get("scout")).toEqual(["openai/gpt-5", "google/gemini-2.5-pro"]);
+    expect(chains.get("scout")).toEqual([
+      "openai/gpt-5",
+      "google/gemini-2.5-pro",
+    ]);
     expect(warnings).toEqual([]);
   });
 
   test("plugin tuple options win over legacy agent options", () => {
-    const cfg = { agent: { scout: { options: { fallback_models: ["legacy/path"] } } } };
-    const pluginOptions = { agents: { scout: { fallback_models: ["plugin/path"] } } };
-    const { chains, warnings } = loadFallbackChains(cfg, undefined, pluginOptions);
+    const cfg = {
+      agent: { scout: { options: { fallback_models: ["legacy/path"] } } },
+    };
+    const pluginOptions = {
+      agents: { scout: { fallback_models: ["plugin/path"] } },
+    };
+    const { chains, warnings } = loadFallbackChains(
+      cfg,
+      undefined,
+      pluginOptions,
+    );
     expect(chains.get("scout")).toEqual(["plugin/path"]);
-    expect(warnings.some((w) => w.includes("ignored") && w.includes("plugin options"))).toBe(true);
+    expect(
+      warnings.some(
+        (w) => w.includes("ignored") && w.includes("plugin options"),
+      ),
+    ).toBe(true);
   });
 
   test("reads legacy chain from agent options path with migration warning", () => {
     const cfg = {
       agent: {
         scout: {
-          options: { fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"] },
+          options: {
+            fallback_models: ["openai/gpt-5", "google/gemini-2.5-pro"],
+          },
         },
       },
     };
     const { chains, warnings } = loadFallbackChains(cfg);
     expect(chains.size).toBe(1);
-    expect(chains.get("scout")).toEqual(["openai/gpt-5", "google/gemini-2.5-pro"]);
+    expect(chains.get("scout")).toEqual([
+      "openai/gpt-5",
+      "google/gemini-2.5-pro",
+    ]);
     expect(warnings.some((w) => w.includes("legacy agent options"))).toBe(true);
   });
 
@@ -82,8 +106,13 @@ describe("loadFallbackChains", () => {
       },
     };
     const { chains, warnings } = loadFallbackChains(cfg);
-    expect(chains.get("scout")).toEqual(["openai/gpt-5", "google/gemini-2.5-pro"]);
-    expect(warnings).toContain("agent 'scout' has 4 invalid fallback_models entries; skipped");
+    expect(chains.get("scout")).toEqual([
+      "openai/gpt-5",
+      "google/gemini-2.5-pro",
+    ]);
+    expect(warnings).toContain(
+      "agent 'scout' has 4 invalid fallback_models entries; skipped",
+    );
   });
 
   test("empty agents map returns empty chains", () => {

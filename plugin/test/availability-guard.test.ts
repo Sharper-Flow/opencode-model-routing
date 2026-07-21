@@ -47,7 +47,10 @@ function rateLimitError() {
     type: "session.error",
     properties: {
       sessionID: "s1",
-      error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
+      error: {
+        name: "APIError",
+        data: { statusCode: 429, isRetryable: false },
+      },
     },
   };
 }
@@ -57,7 +60,11 @@ function retryStatus() {
     type: "session.status",
     properties: {
       sessionID: "s1",
-      status: { type: "retry" as const, message: "rate limited", action: { reason: "account_rate_limit" } },
+      status: {
+        type: "retry" as const,
+        message: "rate limited",
+        action: { reason: "account_rate_limit" },
+      },
     },
   };
 }
@@ -104,7 +111,9 @@ describe("availability exhaustion guard — detached replay entrances", () => {
 
   // Session whose tracked current model is Anthropic/Claude, with a mixed
   // chain so an unsuppressed fallback has somewhere to go.
-  function anthropicCtx(chain: ModelKey[] = ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]) {
+  function anthropicCtx(
+    chain: ModelKey[] = ["anthropic/claude-sonnet-4-5", "openai/gpt-5"],
+  ) {
     const ctx = createPluginContext({ logger: silentLogger });
     ctx.chains.set("scout", chain);
     ctx.store.sessions.get("s1").currentModel = "anthropic/claude-sonnet-4-5";
@@ -118,7 +127,9 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     await handleEvent(ctx, client, rateLimitError());
     expectNoSdkCalls(client);
     expect(ctx.guard.isSuppressed("s1")).toBe(true);
-    expect(ctx.store.sessions.get("s1").currentModel).toBe("anthropic/claude-sonnet-4-5");
+    expect(ctx.store.sessions.get("s1").currentModel).toBe(
+      "anthropic/claude-sonnet-4-5",
+    );
   });
 
   test("session.status retry entrance: fresh unavailable + anthropic → suppress, zero SDK calls", async () => {
@@ -134,12 +145,25 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     writeSnapshot(freshUnavailableDoc());
     // All-anthropic chain → preflight cannot redirect, so the turn stays on
     // Claude and the mid-turn TTFT timeout is the first replay entrance.
-    const ctx = createPluginContext({ logger: silentLogger, config: { ttftMs: 10 } });
-    ctx.chains.set("scout", ["anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4"]);
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      config: { ttftMs: 10 },
+    });
+    ctx.chains.set("scout", [
+      "anthropic/claude-sonnet-4-5",
+      "anthropic/claude-haiku-4",
+    ]);
     const client = new MockClient({ messages: [userMsg()] });
-    const out = { message: { model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" } } };
+    const out = {
+      message: {
+        model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      },
+    };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     expect(ctx.ttft.has("s1")).toBe(true);
     const baseline = client.calls.length; // agent-resolution messages read only
     await new Promise((r) => setTimeout(r, 80));
@@ -171,7 +195,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     expect(ctx.guard.isSuppressed("s1")).toBe(true);
     // Next valid user turn (snapshot now reports available again).
     writeSnapshot(freshAvailableDoc());
-    const out = { message: { model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" } } };
+    const out = {
+      message: {
+        model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      },
+    };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
     expect(ctx.guard.isSuppressed("s1")).toBe(false);
     await handleEvent(ctx, client, rateLimitError());
@@ -183,10 +211,17 @@ describe("availability exhaustion guard — detached replay entrances", () => {
 
   test("suppression clears an armed TTFT timer (mid-task exhaustion landing after a healthy start)", async () => {
     absentSnapshot(); // healthy start: no snapshot at chat.message time
-    const ctx = createPluginContext({ logger: silentLogger, config: { ttftMs: 60_000 } });
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      config: { ttftMs: 60_000 },
+    });
     ctx.chains.set("scout", ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
     const client = new MockClient({ messages: [userMsg()] });
-    const out = { message: { model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" } } };
+    const out = {
+      message: {
+        model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      },
+    };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
     expect(ctx.ttft.has("s1")).toBe(true);
     const baseline = client.calls.length;
@@ -260,13 +295,20 @@ describe("availability exhaustion guard — detached replay entrances", () => {
       type: "session.error",
       properties: {
         sessionID: "s1",
-        error: { name: "MessageAbortedError", data: { message: "The operation was aborted." } },
+        error: {
+          name: "MessageAbortedError",
+          data: { message: "The operation was aborted." },
+        },
       },
     });
     expectNoSdkCalls(client);
     expect(ctx.guard.isSuppressed("s1")).toBe(false);
-    expect(ctx.store.sessions.get("s1").currentModel).toBe("anthropic/claude-sonnet-4-5");
-    expect(ctx.store.health.isInCooldown("anthropic/claude-sonnet-4-5" as ModelKey)).toBe(false);
+    expect(ctx.store.sessions.get("s1").currentModel).toBe(
+      "anthropic/claude-sonnet-4-5",
+    );
+    expect(
+      ctx.store.health.isInCooldown("anthropic/claude-sonnet-4-5" as ModelKey),
+    ).toBe(false);
   });
 
   test("error text never authorizes suppression (DONT3): marker string without snapshot → fallback runs", async () => {
@@ -279,7 +321,10 @@ describe("availability exhaustion guard — detached replay entrances", () => {
         sessionID: "s1",
         error: {
           name: "APIError",
-          data: { statusCode: 429, message: "CLAUDE_MAX_UNAVAILABLE: all accounts exhausted" },
+          data: {
+            statusCode: 429,
+            message: "CLAUDE_MAX_UNAVAILABLE: all accounts exhausted",
+          },
         },
       },
     });
@@ -290,7 +335,10 @@ describe("availability exhaustion guard — detached replay entrances", () => {
   test("AC7: suppression log carries only fixed event, correlation id, kind, retry timestamp — and logs once per turn", async () => {
     writeSnapshot(freshUnavailableDoc());
     const lines: string[] = [];
-    const logger = createLogger({ minLevel: "debug", write: (l) => lines.push(l) });
+    const logger = createLogger({
+      minLevel: "debug",
+      write: (l) => lines.push(l),
+    });
     const ctx = createPluginContext({ logger });
     ctx.chains.set("scout", ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
     ctx.store.sessions.get("s1").currentModel = "anthropic/claude-sonnet-4-5";
@@ -303,7 +351,15 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     expect(suppressed).toHaveLength(1);
     const record = suppressed[0]!;
     for (const key of Object.keys(record)) {
-      expect(["ts", "level", "plugin", "event", "sessionId", "availability", "retryAt"]).toContain(key);
+      expect([
+        "ts",
+        "level",
+        "plugin",
+        "event",
+        "sessionId",
+        "availability",
+        "retryAt",
+      ]).toContain(key);
     }
     expect(record.sessionId).toBe("s1");
     expect(record.availability).toBe("unavailable");

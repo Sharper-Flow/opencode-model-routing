@@ -34,7 +34,11 @@ function userMsg(id = "msg-1", agent = "scout") {
   return { info: { id, role: "user", agent }, parts: [] };
 }
 
-async function createRuntimeHooks(client: MockClient, config: unknown, pluginOptions?: unknown) {
+async function createRuntimeHooks(
+  client: MockClient,
+  config: unknown,
+  pluginOptions?: unknown,
+) {
   // PluginInput no longer carries config (real OpenCode shape). To preserve
   // existing test semantics, we invoke pluginModule.server then explicitly
   // call the Hooks.config callback to deliver the synthetic config — matching
@@ -59,8 +63,12 @@ async function callRuntimeChatMessage(
   await hook?.(input, output);
 }
 
-async function callRuntimeEvent(hooks: Awaited<ReturnType<typeof createRuntimeHooks>>, input: unknown) {
-  const hook = hooks.event as ((input: unknown) => unknown | Promise<unknown>) | undefined;
+async function callRuntimeEvent(
+  hooks: Awaited<ReturnType<typeof createRuntimeHooks>>,
+  input: unknown,
+) {
+  const hook = hooks.event as
+    ((input: unknown) => unknown | Promise<unknown>) | undefined;
   await hook?.(input);
 }
 
@@ -138,7 +146,9 @@ describe("handleChatMessage", () => {
     state.lastFallbackAt = Date.now();
 
     const client = new MockClient({ messages: [userMsg()] });
-    const output = { message: { model: { providerID: "c", modelID: "manual" } } };
+    const output = {
+      message: { model: { providerID: "c", modelID: "manual" } },
+    };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
 
     expect(state.currentModel).toBe("c/manual");
@@ -171,7 +181,10 @@ describe("handleEvent — session.error", () => {
       type: "session.error",
       properties: {
         sessionID: "s1",
-        error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
+        error: {
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false },
+        },
       },
     });
     // Orchestrator should have been called → at least messages + abort + revert + prompt.
@@ -217,7 +230,10 @@ describe("handleEvent — session.error", () => {
       type: "session.error",
       properties: {
         sessionID: "s1",
-        error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
+        error: {
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false },
+        },
       },
     });
 
@@ -349,7 +365,12 @@ describe("handleEvent — durable assistant error reconciliation", () => {
     await handleEvent(ctx, client, {
       type: "message.updated",
       properties: {
-        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+        info: {
+          id: "assistant-1",
+          sessionID: "s1",
+          role: "assistant",
+          error: apiError,
+        },
       },
     } as any);
 
@@ -366,7 +387,12 @@ describe("handleEvent — durable assistant error reconciliation", () => {
       type: "message.updated",
       properties: {
         sessionID: "s1",
-        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+        info: {
+          id: "assistant-1",
+          sessionID: "s1",
+          role: "assistant",
+          error: apiError,
+        },
       },
     } as any);
 
@@ -418,7 +444,12 @@ describe("handleEvent — durable assistant error reconciliation", () => {
       event: {
         type: "message.updated",
         properties: {
-          info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: "bad" },
+          info: {
+            id: "assistant-1",
+            sessionID: "s1",
+            role: "assistant",
+            error: "bad",
+          },
         },
       },
     });
@@ -438,7 +469,12 @@ describe("handleEvent — durable assistant error reconciliation", () => {
     await handleEvent(ctx, client, {
       type: "message.updated",
       properties: {
-        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+        info: {
+          id: "assistant-1",
+          sessionID: "s1",
+          role: "assistant",
+          error: apiError,
+        },
       },
     } as any);
 
@@ -447,16 +483,17 @@ describe("handleEvent — durable assistant error reconciliation", () => {
 });
 
 describe("handleEvent — exactly-once failure reconciliation", () => {
-  const errorEvent = () => ({
-    type: "session.error",
-    properties: {
-      sessionID: "s1",
-      error: {
-        name: "APIError",
-        data: { statusCode: 429, isRetryable: false, message: "rate limit" },
+  const errorEvent = () =>
+    ({
+      type: "session.error",
+      properties: {
+        sessionID: "s1",
+        error: {
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false, message: "rate limit" },
+        },
       },
-    },
-  } as const);
+    }) as const;
   const messageEvent = () => ({
     type: "message.updated",
     properties: {
@@ -550,7 +587,9 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
   test("accepted category reaches persistent health cooldown unchanged", async () => {
     const { ctx, client } = setup();
     await handleEvent(ctx, client, errorEvent());
-    expect(ctx.store.health.get("a/one" as ModelKey).lastCategory).toBe("rate_limit");
+    expect(ctx.store.health.get("a/one" as ModelKey).lastCategory).toBe(
+      "rate_limit",
+    );
   });
 
   test("session.deleted clears failure registry", async () => {
@@ -580,7 +619,9 @@ describe("plugin event hook boundary", () => {
       options: { fallback_models: ["a/one"], thinking: { type: "enabled" } },
     };
 
-    const hook = hooks["chat.params"] as ((input: unknown, output: unknown) => unknown | Promise<unknown>) | undefined;
+    const hook = hooks["chat.params"] as
+      | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+      | undefined;
     await hook?.({}, out);
 
     expect(out.options).toEqual({ thinking: { type: "enabled" } });
@@ -588,14 +629,11 @@ describe("plugin event hook boundary", () => {
 
   test("malformed chat hook payload is a no-op", async () => {
     const client = new MockClient({ messages: [userMsg()] });
-    const hooks = await createRuntimeHooks(
-      client,
-      {
-        agent: {
-          scout: { options: { fallback_models: ["a/one", "b/two"] } },
-        },
+    const hooks = await createRuntimeHooks(client, {
+      agent: {
+        scout: { options: { fallback_models: ["a/one", "b/two"] } },
       },
-    );
+    });
 
     await callRuntimeChatMessage(
       hooks,
@@ -610,21 +648,21 @@ describe("plugin event hook boundary", () => {
     const client = new MockClient({
       messages: [userMsg()],
     });
-    const hooks = await createRuntimeHooks(
-      client,
-      {
-        agent: {
-          scout: { options: { fallback_models: ["a/one", "b/two"] } },
-        },
+    const hooks = await createRuntimeHooks(client, {
+      agent: {
+        scout: { options: { fallback_models: ["a/one", "b/two"] } },
       },
-    );
+    });
 
     await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",
         properties: {
           sessionID: "s1",
-          error: { name: "APIError", data: { statusCode: 429, isRetryable: false } },
+          error: {
+            name: "APIError",
+            data: { statusCode: 429, isRetryable: false },
+          },
         },
       },
     });
@@ -636,19 +674,22 @@ describe("plugin event hook boundary", () => {
     const client = new MockClient({
       messages: [userMsg()],
     });
-    const hooks = await createRuntimeHooks(
-      client,
-      {
-        agent: {
-          scout: { options: { fallback_models: ["a/one", "b/two"] } },
-        },
+    const hooks = await createRuntimeHooks(client, {
+      agent: {
+        scout: { options: { fallback_models: ["a/one", "b/two"] } },
       },
-    );
+    });
 
     await callRuntimeEvent(hooks, {
       event: {
         type: 7,
-        properties: { sessionID: "s1", error: { name: "APIError", data: { statusCode: 429, isRetryable: false } } },
+        properties: {
+          sessionID: "s1",
+          error: {
+            name: "APIError",
+            data: { statusCode: 429, isRetryable: false },
+          },
+        },
       },
     });
 
@@ -763,7 +804,8 @@ describe("handleEvent — session.status retry", () => {
           sessionID: "s1",
           status: {
             type: "retry",
-            message: "5 hour usage limit reached. It will reset in 5 hours 23 minutes.",
+            message:
+              "5 hour usage limit reached. It will reset in 5 hours 23 minutes.",
             action: {
               reason: "some_future_reason_not_yet_mapped",
               provider: "x",
@@ -856,7 +898,10 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     );
   }
 
-  async function callConfig(hooks: Awaited<ReturnType<typeof makeHooks>>, cfg: unknown) {
+  async function callConfig(
+    hooks: Awaited<ReturnType<typeof makeHooks>>,
+    cfg: unknown,
+  ) {
     const hook = (hooks as HooksWithConfig).config;
     if (!hook) throw new Error("config hook not registered on plugin hooks");
     await hook(cfg);
@@ -929,7 +974,9 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     const hooks = await makeHooks(client);
     // Fire event BEFORE config — codifies the ordering contract.
     // Chains are empty; handler must short-circuit cleanly (no abort, no prompt, no crash).
-    await expect(callRuntimeEvent(hooks, { event: usageRetryEvent() })).resolves.toBeUndefined();
+    await expect(
+      callRuntimeEvent(hooks, { event: usageRetryEvent() }),
+    ).resolves.toBeUndefined();
     expect(client.callsTo("session.abort").length).toBe(0);
     expect(client.callsTo("session.prompt").length).toBe(0);
 
@@ -1012,9 +1059,18 @@ describe("extractCooldownOverrides — direct unit tests", () => {
 
   test("returns undefined when cooldownMsByCategory is absent or wrong shape", () => {
     expect(extractCooldownOverrides({}, silentLogger)).toBeUndefined();
-    expect(extractCooldownOverrides({ agents: {} }, silentLogger)).toBeUndefined();
-    expect(extractCooldownOverrides({ cooldownMsByCategory: "not-a-record" }, silentLogger)).toBeUndefined();
-    expect(extractCooldownOverrides({ cooldownMsByCategory: null }, silentLogger)).toBeUndefined();
+    expect(
+      extractCooldownOverrides({ agents: {} }, silentLogger),
+    ).toBeUndefined();
+    expect(
+      extractCooldownOverrides(
+        { cooldownMsByCategory: "not-a-record" },
+        silentLogger,
+      ),
+    ).toBeUndefined();
+    expect(
+      extractCooldownOverrides({ cooldownMsByCategory: null }, silentLogger),
+    ).toBeUndefined();
   });
 
   test("returns undefined when all entries are invalid", () => {
@@ -1028,7 +1084,11 @@ describe("extractCooldownOverrides — direct unit tests", () => {
   test.each([
     ["finite positive", 5 * 60_000, true],
     ["zero (no cooldown)", 0, true],
-    ["Number.POSITIVE_INFINITY (programmatic sentinel)", Number.POSITIVE_INFINITY, true],
+    [
+      "Number.POSITIVE_INFINITY (programmatic sentinel)",
+      Number.POSITIVE_INFINITY,
+      true,
+    ],
   ] as const)("accepts %s", (_label, value, _accepted) => {
     const result = extractCooldownOverrides(
       { cooldownMsByCategory: { rate_limit: value } },
@@ -1055,7 +1115,9 @@ describe("extractCooldownOverrides — direct unit tests", () => {
 
   test("rejects unknown category names with warn log", () => {
     const result = extractCooldownOverrides(
-      { cooldownMsByCategory: { not_a_category: 1000, rate_limit: 5 * 60_000 } },
+      {
+        cooldownMsByCategory: { not_a_category: 1000, rate_limit: 5 * 60_000 },
+      },
       silentLogger,
     );
     expect(result).toEqual({ rate_limit: 5 * 60_000 });
@@ -1063,7 +1125,13 @@ describe("extractCooldownOverrides — direct unit tests", () => {
 
   test("prototype-inherited names rejected (toString, constructor, __proto__)", () => {
     const result = extractCooldownOverrides(
-      { cooldownMsByCategory: { toString: 1000, constructor: 1000, __proto__: 1000 } },
+      {
+        cooldownMsByCategory: {
+          toString: 1000,
+          constructor: 1000,
+          __proto__: 1000,
+        },
+      },
       silentLogger,
     );
     expect(result).toBeUndefined();
@@ -1073,14 +1141,14 @@ describe("extractCooldownOverrides — direct unit tests", () => {
     const result = extractCooldownOverrides(
       {
         cooldownMsByCategory: {
-          rate_limit: "30",                  // string → dropped
-          not_a_category: 1000,              // unknown → dropped
-          quota_exhausted: -1,               // negative → dropped
-          auth_error: 0,                     // zero → accepted
-          ttft_timeout: Number.NaN,          // NaN → dropped
+          rate_limit: "30", // string → dropped
+          not_a_category: 1000, // unknown → dropped
+          quota_exhausted: -1, // negative → dropped
+          auth_error: 0, // zero → accepted
+          ttft_timeout: Number.NaN, // NaN → dropped
           server_error: Number.NEGATIVE_INFINITY, // -Inf → dropped
           unknown_model: Number.POSITIVE_INFINITY, // +Inf → accepted (sentinel)
-          unknown: 5 * 60_000,               // valid finite → accepted
+          unknown: 5 * 60_000, // valid finite → accepted
         },
       },
       silentLogger,
@@ -1144,9 +1212,13 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
     );
 
     // Establish a/one as the active model, then fail it with rate_limit.
-    await callRuntimeChatMessage(hooks, { sessionID: "s1" }, {
-      message: { model: { providerID: "a", modelID: "one" } },
-    });
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s1" },
+      {
+        message: { model: { providerID: "a", modelID: "one" } },
+      },
+    );
     await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",
@@ -1167,7 +1239,9 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
     const baseTime = originalNow();
     Date.now = () => baseTime + 45 * 60_000;
     try {
-      const output = { message: { model: { providerID: "a", modelID: "one" } } };
+      const output = {
+        message: { model: { providerID: "a", modelID: "one" } },
+      };
       await callRuntimeChatMessage(hooks, { sessionID: "s1" }, output);
       expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
     } finally {

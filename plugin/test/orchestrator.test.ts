@@ -42,7 +42,12 @@ describe("attemptFallback — happy path", () => {
     expect(result.fromModel).toBe("a/one");
 
     const order = client.calls.map((c) => c.method);
-    expect(order).toEqual(["session.messages", "session.abort", "session.revert", "session.prompt"]);
+    expect(order).toEqual([
+      "session.messages",
+      "session.abort",
+      "session.revert",
+      "session.prompt",
+    ]);
 
     // prompt called with parsed { providerID, modelID }
     const promptArgs = client.callsTo("session.prompt")[0]?.args as {
@@ -53,8 +58,12 @@ describe("attemptFallback — happy path", () => {
     expect(promptArgs.body.model).toEqual({ providerID: "b", modelID: "two" });
     expect(promptArgs.body.agent).toBe("scout");
 
-    expect(client.callsTo("session.messages")[0]?.args).toEqual({ path: { id: "s1" } });
-    expect(client.callsTo("session.abort")[0]?.args).toEqual({ path: { id: "s1" } });
+    expect(client.callsTo("session.messages")[0]?.args).toEqual({
+      path: { id: "s1" },
+    });
+    expect(client.callsTo("session.abort")[0]?.args).toEqual({
+      path: { id: "s1" },
+    });
     expect(client.callsTo("session.revert")[0]?.args).toEqual({
       path: { id: "s1" },
       body: { messageID: "msg-1" },
@@ -111,7 +120,7 @@ describe("attemptFallback — gating", () => {
   });
 
   test("within dedup window → skipped", async () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const store = new FallbackStore(() => now);
     store.sessions.get("s1").lastFallbackAt = now;
     store.sessions.get("s1").currentModel = "a/one";
@@ -262,7 +271,11 @@ describe("attemptFallback — sequence failures", () => {
 // Capture log emissions for orphanMessageId assertions. The default
 // silentLogger writes nothing; we need a recording logger here.
 function makeCapturingLogger() {
-  const events: Array<{ level: string; event: string; data: Record<string, unknown> }> = [];
+  const events: Array<{
+    level: string;
+    event: string;
+    data: Record<string, unknown>;
+  }> = [];
   const logger = createLogger({
     minLevel: "debug",
     write: (line: string) => {
@@ -499,10 +512,14 @@ describe("attemptFallback — preserve_context", () => {
     expect(parts.length).toBe(2);
     const recovery = parts[0] as { type: string; text: string };
     expect(recovery.type).toBe("text");
-    expect(recovery.text).toContain("auto-generated from failed turn, verify before acting");
+    expect(recovery.text).toContain(
+      "auto-generated from failed turn, verify before acting",
+    );
     expect(recovery.text).toContain("Previous model (a/one) failed mid-turn");
     expect(recovery.text).toContain("bash");
-    expect(recovery.text).toContain("Do not blindly re-execute; verify current state before continuing.");
+    expect(recovery.text).toContain(
+      "Do not blindly re-execute; verify current state before continuing.",
+    );
     // Original user prompt preserved as the second part.
     expect(parts[1]).toEqual({ type: "text", text: "hello" });
   });

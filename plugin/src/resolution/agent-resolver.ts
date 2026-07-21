@@ -28,7 +28,9 @@ export async function resolveAgentName(
 
   let messages: unknown[];
   try {
-    const response = await client.session.messages({ path: { id: sessionId } } as never);
+    const response = await client.session.messages({
+      path: { id: sessionId },
+    } as never);
     const data = unwrapSdkData(response);
     messages = Array.isArray(data) ? data : [];
   } catch {

@@ -15,10 +15,14 @@ import os from "node:os";
 import path from "node:path";
 import { createLogger } from "../src/logging/logger.ts";
 import { FallbackStore } from "../src/state/store.ts";
-import { CooldownStore, COOLDOWN_SCHEMA, COOLDOWN_VERSION } from "../src/state/cooldown-store.ts";
+import {
+  CooldownStore,
+  COOLDOWN_SCHEMA,
+  COOLDOWN_VERSION,
+} from "../src/state/cooldown-store.ts";
 import { applyPreemptiveSkip } from "../src/preemptive.ts";
 import { resolveFallbackModel } from "../src/resolution/fallback-resolver.ts";
-import { applyAvailabilityPreflight, ANTHROPIC_PROVIDER_ID } from "../src/availability/preflight.ts";
+import { ANTHROPIC_PROVIDER_ID } from "../src/availability/preflight.ts";
 import { defaultConfig, type ModelKey } from "../src/types.ts";
 
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
@@ -60,7 +64,11 @@ describe("AC1: cross-process preemptive redirect", () => {
     const storeA = newProcessStore();
     storeA.sessions.get("sA").currentModel = "kimi/kimi-for-coding";
     // Simulate the cooldown call that attemptFallback would make.
-    await storeA.health.cooldown("kimi/kimi-for-coding", 60 * 60_000, "quota_exhausted");
+    await storeA.health.cooldown(
+      "kimi/kimi-for-coding",
+      60 * 60_000,
+      "quota_exhausted",
+    );
 
     // Process B: fresh process, no in-memory state. OpenCode dispatches
     // chat.message with output pointing at kimi (e.g. user-saved agent config).
@@ -74,14 +82,25 @@ describe("AC1: cross-process preemptive redirect", () => {
       silentLogger,
     );
     // B's output should be mutated to the next healthy chain entry.
-    expect(output.message.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(output.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
   });
 
   test("process A failure -> process B fallback-resolver skips cooldown model", async () => {
-    const chain: ModelKey[] = ["kimi/kimi-for-coding", "openai/gpt-5", "anthropic/claude"];
+    const chain: ModelKey[] = [
+      "kimi/kimi-for-coding",
+      "openai/gpt-5",
+      "anthropic/claude",
+    ];
 
     const storeA = newProcessStore();
-    await storeA.health.cooldown("kimi/kimi-for-coding", 60 * 60_000, "quota_exhausted");
+    await storeA.health.cooldown(
+      "kimi/kimi-for-coding",
+      60 * 60_000,
+      "quota_exhausted",
+    );
 
     const storeB = newProcessStore();
     // B's chain resolution: starting from kimi (failed), next is openai (healthy).
@@ -99,10 +118,13 @@ describe("AC1: cross-process preemptive redirect", () => {
     const chain: ModelKey[] = ["kimi/kimi-for-coding", "openai/gpt-5"];
 
     const storeA = newProcessStore();
-    await storeA.health.cooldown("kimi/kimi-for-coding", 60 * 60_000, "quota_exhausted");
+    await storeA.health.cooldown(
+      "kimi/kimi-for-coding",
+      60 * 60_000,
+      "quota_exhausted",
+    );
 
     const storeB = newProcessStore();
-    const chains = new Map([["adv-engineer", chain]]);
     // Note: preflight only fires for anthropic providerID + unavailable snapshot.
     // For this test we directly verify the isInCooldown predicate the preflight
     // uses, since the full preflight path requires an unavailable snapshot.
@@ -113,7 +135,9 @@ describe("AC1: cross-process preemptive redirect", () => {
     // Preflight's chain.find(key => !anthropic && !isInCooldown(key)) would
     // pick openai here.
     const target = chain.find(
-      (k) => k.split("/")[0] !== ANTHROPIC_PROVIDER_ID && !storeB.health.isInCooldown(k),
+      (k) =>
+        k.split("/")[0] !== ANTHROPIC_PROVIDER_ID &&
+        !storeB.health.isInCooldown(k),
     );
     expect(target).toBe("openai/gpt-5");
   });
@@ -128,7 +152,11 @@ describe("AC2: concurrent cross-process writes preserve entries", () => {
     const stores = [1, 2, 3, 4].map(() => newProcessStore());
     await Promise.all(
       stores.map((s, i) =>
-        s.health.cooldown(`provider/m${i}` as ModelKey, 60 * 60_000, "quota_exhausted"),
+        s.health.cooldown(
+          `provider/m${i}` as ModelKey,
+          60 * 60_000,
+          "quota_exhausted",
+        ),
       ),
     );
     const reader = newProcessStore();
@@ -149,7 +177,11 @@ describe("AC2: concurrent cross-process writes preserve entries", () => {
     // Process A: 30 min, B: 60 min, C: 45 min — concurrent.
     await Promise.all([
       stores[0]!.health.cooldown("k/k" as ModelKey, 30 * 60_000, "rate_limit"),
-      stores[1]!.health.cooldown("k/k" as ModelKey, 60 * 60_000, "quota_exhausted"),
+      stores[1]!.health.cooldown(
+        "k/k" as ModelKey,
+        60 * 60_000,
+        "quota_exhausted",
+      ),
       stores[2]!.health.cooldown("k/k" as ModelKey, 45 * 60_000, "rate_limit"),
     ]);
     const reader = newProcessStore(() => now);
@@ -173,7 +205,9 @@ describe("AC3: malformed/missing/wrong-perm cooldown file never blocks callers",
   test("preemptive redirect works when cooldown file is malformed JSON", async () => {
     fs.writeFileSync(cooldownPath, "{not valid json", { mode: 0o600 });
     fs.chmodSync(cooldownPath, 0o600);
-    const chains = new Map<string, ModelKey[]>([["agent", ["kimi/k", "openai/o"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["agent", ["kimi/k", "openai/o"]],
+    ]);
     const store = newProcessStore();
     const output = makeOutput("kimi", "k");
     // Should NOT throw; output mutated to next healthy since kimi appears
@@ -195,7 +229,13 @@ describe("AC3: malformed/missing/wrong-perm cooldown file never blocks callers",
     const chain: ModelKey[] = ["kimi/k", "openai/o"];
     // No cooldown info available — both models appear healthy; resolver
     // picks the next one after currentModel.
-    const next = resolveFallbackModel("kimi/k", chain, 0, store.health, defaultConfig.maxDepth);
+    const next = resolveFallbackModel(
+      "kimi/k",
+      chain,
+      0,
+      store.health,
+      defaultConfig.maxDepth,
+    );
     expect(next).toBe("openai/o");
   });
 
@@ -207,7 +247,11 @@ describe("AC3: malformed/missing/wrong-perm cooldown file never blocks callers",
         schema: COOLDOWN_SCHEMA,
         version: COOLDOWN_VERSION,
         entries: {
-          "kimi/k": { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow },
+          "kimi/k": {
+            expiresAt: baseNow + 3_600_000,
+            reason: "quota_exhausted",
+            setAt: baseNow,
+          },
         },
       }),
     );
@@ -236,7 +280,7 @@ describe("AC3: malformed/missing/wrong-perm cooldown file never blocks callers",
 
 describe("AC4: persistent cooldown survives restart; expired entries pruned", () => {
   test("fresh process reads cooldown set by previous process", async () => {
-    let now = baseNow;
+    const now = baseNow;
     const storeA = newProcessStore(() => now);
     await storeA.health.cooldown("kimi/k", 30 * 60_000, "rate_limit");
     // Simulate restart: discard storeA entirely (in-memory state lost).
@@ -288,7 +332,9 @@ describe("AC5: subagent TTFT cooldown observable cross-process", () => {
 
     // Process B: independent process. Its preemptive redirect should skip kimi.
     const storeB = newProcessStore();
-    const chains = new Map<string, ModelKey[]>([["agent", ["kimi/k", "openai/o"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["agent", ["kimi/k", "openai/o"]],
+    ]);
     const output = makeOutput("kimi", "k");
     applyPreemptiveSkip(
       { sessionId: "sB", agentName: "agent", output },
@@ -297,7 +343,10 @@ describe("AC5: subagent TTFT cooldown observable cross-process", () => {
       defaultConfig,
       silentLogger,
     );
-    expect(output.message.model).toEqual({ providerID: "openai", modelID: "o" });
+    expect(output.message.model).toEqual({
+      providerID: "openai",
+      modelID: "o",
+    });
   });
 });
 
@@ -342,13 +391,13 @@ describe("KD8: cross-process persist settle before spawn observable", () => {
       readCooldowns: () => new Map(),
     };
     const storeA = new FallbackStore(() => baseNow, fakeStore as any);
-    const storeB = new FallbackStore(() => baseNow, {
-      persistCooldown: async () => {},
-      readCooldowns: () => new Map(), // always-empty fake; we'll assert ordering via direct file check
-    } as any);
 
     // Kick off A's cooldown (stalls on persistPromise).
-    const cooldownPromise = storeA.health.cooldown("k/k" as ModelKey, 60_000, "rate_limit");
+    const cooldownPromise = storeA.health.cooldown(
+      "k/k" as ModelKey,
+      60_000,
+      "rate_limit",
+    );
     // Yield to microtask queue.
     await new Promise((r) => setTimeout(r, 10));
     // Persist has not settled — A's in-memory Map HAS the entry (sync mutation),

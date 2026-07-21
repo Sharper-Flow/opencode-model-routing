@@ -26,10 +26,12 @@ describe("applyPreemptiveSkip", () => {
   });
 
   test("current in cooldown → mutates to next healthy", () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const store = new FallbackStore(() => now);
     store.health.cooldown("a/one" as ModelKey, 5_000);
-    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two", "c/three"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["a/one", "b/two", "c/three"]],
+    ]);
     const out = output("a", "one");
     applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
@@ -56,7 +58,7 @@ describe("applyPreemptiveSkip", () => {
   });
 
   test("all alternatives cooled → no mutation, stays on cooled current", () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const store = new FallbackStore(() => now);
     store.health.cooldown("a/one" as ModelKey, 5_000);
     store.health.cooldown("b/two" as ModelKey, 5_000);

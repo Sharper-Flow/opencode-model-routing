@@ -1,0 +1,14 @@
+# ADV state — not source code
+../../.adv/
+
+# OpenCode runtime artifacts
+../../.opencode/
+
+# Generated docs (not source)
+../../docs/
+
+# Build output (generated, not source)
+dist/
+
+# Lockfile (machine-generated)
+bun.lock

@@ -64,7 +64,13 @@ export function applyPreemptiveSkip(
   }
 
   // Pick next healthy entry in the chain.
-  const next = resolveFallbackModel(key, chain, 0, store.health, config.maxDepth);
+  const next = resolveFallbackModel(
+    key,
+    chain,
+    0,
+    store.health,
+    config.maxDepth,
+  );
   if (!next) {
     logger.debug("preemptive.no_healthy_alternative", {
       sessionId: input.sessionId,

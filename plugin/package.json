@@ -5,6 +5,10 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "packageManager": "bun@1.3.14",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -27,19 +31,28 @@
   "scripts": {
     "build": "tsup",
     "prepack": "bun run build",
-    "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "dependencies": {
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@opencode-ai/plugin": "1.4.8",
     "@opencode-ai/sdk": "1.4.17",
     "@types/bun": "1.3.14",
     "@types/proper-lockfile": "^4.1.4",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "prettier": "^3.0.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0"
   }
 }

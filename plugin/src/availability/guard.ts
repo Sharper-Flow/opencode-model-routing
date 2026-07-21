@@ -80,7 +80,10 @@ function providerOf(key: string): string {
  * Anthropic/Claude, clears TTFT state, records the guard, logs the fixed
  * availability event, and suppresses.
  */
-export function shouldSuppressReplay(sessionId: string, ctx: ExhaustionGuardContext): boolean {
+export function shouldSuppressReplay(
+  sessionId: string,
+  ctx: ExhaustionGuardContext,
+): boolean {
   if (ctx.guard.isSuppressed(sessionId)) return true;
 
   const snapshot = readAvailabilitySnapshot();

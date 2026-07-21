@@ -174,12 +174,17 @@ function validateCooldownFile(v: unknown): CooldownFile | null {
       reason?: unknown;
       setAt?: unknown;
     };
-    if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return null;
+    if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt))
+      return null;
     if (typeof reason !== "string") return null;
     if (typeof setAt !== "number" || !Number.isFinite(setAt)) return null;
     validEntries[k] = { expiresAt, reason, setAt };
   }
-  return { schema: COOLDOWN_SCHEMA, version: COOLDOWN_VERSION, entries: validEntries };
+  return {
+    schema: COOLDOWN_SCHEMA,
+    version: COOLDOWN_VERSION,
+    entries: validEntries,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +208,10 @@ function readCooldownFileFromDisk(
 
   let fd: number;
   try {
-    fd = io.open(filePath, (O_RDONLY as number) | (O_NONBLOCK as number) | (O_NOFOLLOW as number));
+    fd = io.open(
+      filePath,
+      (O_RDONLY as number) | (O_NONBLOCK as number) | (O_NOFOLLOW as number),
+    );
   } catch {
     return {}; // missing, symlink (ELOOP), permission, not-a-file, etc.
   }
@@ -243,7 +251,9 @@ function readCooldownFileFromDisk(
 
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, total));
+      text = new TextDecoder("utf-8", { fatal: true }).decode(
+        buffer.subarray(0, total),
+      );
     } catch {
       return {};
     }
@@ -365,12 +375,16 @@ export class CooldownStore {
           stale: LOCK_STALE_MS,
           realpath: false,
           onCompromised: () => {
-            this.logger.warn("cooldown lock compromised — proceeding in-memory only");
+            this.logger.warn(
+              "cooldown lock compromised — proceeding in-memory only",
+            );
           },
           update: LOCK_UPDATE_MS,
         });
       } catch {
-        this.logger.warn(`cooldown persist: lock acquisition failed for ${this.filePath}`);
+        this.logger.warn(
+          `cooldown persist: lock acquisition failed for ${this.filePath}`,
+        );
         return;
       }
 
@@ -422,7 +436,9 @@ export class CooldownStore {
           } catch {
             // tmp cleanup best-effort
           }
-          this.logger.warn(`cooldown persist: write/rename failed: ${(e as Error).message}`);
+          this.logger.warn(
+            `cooldown persist: write/rename failed: ${(e as Error).message}`,
+          );
           return;
         }
 
@@ -439,7 +455,9 @@ export class CooldownStore {
       }
     } catch (e) {
       // Outer fail-open.
-      this.logger.warn(`cooldown persist: outer failure: ${(e as Error).message}`);
+      this.logger.warn(
+        `cooldown persist: outer failure: ${(e as Error).message}`,
+      );
     }
   }
 }

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { applyAvailabilityPreflight } from "../src/availability/preflight.ts";
 import type { AvailabilitySnapshotV1 } from "../src/availability/snapshot.ts";
 import { createLogger, type Logger } from "../src/logging/logger.ts";
-import { createPluginContext, handleChatMessage } from "../src/plugin-internal.ts";
+import {
+  createPluginContext,
+  handleChatMessage,
+} from "../src/plugin-internal.ts";
 import { FallbackStore } from "../src/state/store.ts";
 import type { ModelKey } from "../src/types.ts";
 import { MockClient } from "./helpers/mock-client.ts";
@@ -13,7 +16,9 @@ import { MockClient } from "./helpers/mock-client.ts";
 const T0 = 1_800_000_000_000;
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 
-function unavailableSnapshot(overrides: Partial<AvailabilitySnapshotV1> = {}): AvailabilitySnapshotV1 {
+function unavailableSnapshot(
+  overrides: Partial<AvailabilitySnapshotV1> = {},
+): AvailabilitySnapshotV1 {
   return {
     schema: "opencode-claude-max/availability@1",
     version: 1,
@@ -49,33 +54,63 @@ describe("applyAvailabilityPreflight", () => {
   test("fresh unavailable + anthropic selection → first healthy non-anthropic chain entry", () => {
     const store = new FallbackStore();
     const chains = new Map<string, ModelKey[]>([
-      ["scout", ["anthropic/claude-sonnet-4-5", "openai/gpt-5", "google/gemini-2.5-pro"]],
+      [
+        "scout",
+        [
+          "anthropic/claude-sonnet-4-5",
+          "openai/gpt-5",
+          "google/gemini-2.5-pro",
+        ],
+      ],
     ]);
     const out = output("anthropic", "claude-sonnet-4-5");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(out.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
   });
 
   test("skips cooled and anthropic entries when picking the fallback", () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const store = new FallbackStore(() => now);
     store.health.cooldown("openai/gpt-5" as ModelKey, 60_000);
     const chains = new Map<string, ModelKey[]>([
-      ["scout", ["anthropic/claude-sonnet-4-5", "openai/gpt-5", "google/gemini-2.5-pro"]],
+      [
+        "scout",
+        [
+          "anthropic/claude-sonnet-4-5",
+          "openai/gpt-5",
+          "google/gemini-2.5-pro",
+        ],
+      ],
     ]);
     const out = output("anthropic", "claude-sonnet-4-5");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "google", modelID: "gemini-2.5-pro" });
+    expect(out.message.model).toEqual({
+      providerID: "google",
+      modelID: "gemini-2.5-pro",
+    });
   });
 
   test("chain with only anthropic entries → no-op", () => {
@@ -85,20 +120,35 @@ describe("applyAvailabilityPreflight", () => {
     ]);
     const out = output("anthropic", "claude-sonnet-4-5");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
   });
 
   test("non-anthropic selection + unavailable snapshot → no-op (non-Claude preserved)", () => {
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["z/glm-4.6", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["z/glm-4.6", "openai/gpt-5"]],
+    ]);
     const out = output("z", "glm-4.6");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
@@ -108,7 +158,9 @@ describe("applyAvailabilityPreflight", () => {
 
   test("null snapshot → no-op", () => {
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["anthropic/claude", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
     const out = output("anthropic", "claude");
     applyAvailabilityPreflight(
       { sessionId: "s1", agentName: "scout", output: out, snapshot: null },
@@ -116,45 +168,83 @@ describe("applyAvailabilityPreflight", () => {
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude",
+    });
   });
 
   test("available-state snapshot → no-op", () => {
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["anthropic/claude", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
     const out = output("anthropic", "claude");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: availableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: availableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude",
+    });
   });
 
   test("missing agentName / chain / model → no-op", () => {
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["anthropic/claude", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
     const out = output("anthropic", "claude");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: null, output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: null,
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude",
+    });
 
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "no-chain", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "no-chain",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
     );
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude",
+    });
 
-    const noModel: { message: { model?: { providerID: string; modelID: string } } } = { message: {} };
+    const noModel: {
+      message: { model?: { providerID: string; modelID: string } };
+    } = { message: {} };
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: noModel, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: noModel,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
@@ -164,10 +254,17 @@ describe("applyAvailabilityPreflight", () => {
 
   test("redirect records session currentModel", () => {
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["anthropic/claude", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
     const out = output("anthropic", "claude");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       silentLogger,
@@ -177,12 +274,22 @@ describe("applyAvailabilityPreflight", () => {
 
   test("availability logs carry only fixed event, correlation id, kind, retry timestamp", () => {
     const lines: string[] = [];
-    const logger: Logger = createLogger({ minLevel: "debug", write: (l) => lines.push(l) });
+    const logger: Logger = createLogger({
+      minLevel: "debug",
+      write: (l) => lines.push(l),
+    });
     const store = new FallbackStore();
-    const chains = new Map<string, ModelKey[]>([["scout", ["anthropic/claude", "openai/gpt-5"]]]);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
     const out = output("anthropic", "claude");
     applyAvailabilityPreflight(
-      { sessionId: "s1", agentName: "scout", output: out, snapshot: unavailableSnapshot() },
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
       store,
       chains,
       logger,
@@ -191,7 +298,15 @@ describe("applyAvailabilityPreflight", () => {
     for (const line of lines) {
       const record = JSON.parse(line) as Record<string, unknown>;
       for (const key of Object.keys(record)) {
-        expect(["ts", "level", "plugin", "event", "sessionId", "availability", "retryAt"]).toContain(key);
+        expect([
+          "ts",
+          "level",
+          "plugin",
+          "event",
+          "sessionId",
+          "availability",
+          "retryAt",
+        ]).toContain(key);
       }
       expect(record.event).toBe("availability.preflight_redirected");
       expect(record.sessionId).toBe("s1");
@@ -247,7 +362,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(out.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
     // AC3: preflight redirect starts no Claude child attempt — no replay SDK
     // calls at all (only the agent-resolution messages read may occur).
     expect(client.callsTo("session.prompt")).toHaveLength(0);
@@ -263,7 +381,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 
@@ -283,7 +404,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 
@@ -294,7 +418,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 
@@ -308,7 +435,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 
@@ -319,7 +449,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 
@@ -348,7 +481,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     const client = new MockClient({ messages: [userMsg()] });
     const out = output("anthropic", "claude-sonnet-4-5");
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
-    expect(out.message.model).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
     ctx.ttft.clear("s1");
   });
 });
