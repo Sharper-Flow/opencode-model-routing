@@ -37,6 +37,18 @@ export const retryPatterns: Pattern[] = [
   // Allows optional `s` for "usage limits" plural.
   { re: /\busage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])/, category: "quota_exhausted" },
   { re: /\bfree[_ ]?usage[_ ]?(exceeded|exhausted)\b/, category: "quota_exhausted" },
+  // Kimi Code specific — documented error wordings from
+  // kimi.com/code/docs/en/kimi-code/error-reference.html. The weekly-cap
+  // wording is not in the public docs but follows the same noun pattern as
+  // the documented 5-hourly and monthly variants ("weekly quota has been
+  // fully used up").
+  { re: /\bweekly[ _-]?quota\b/, category: "quota_exhausted" },
+  { re: /\bfully[ _-]?used[ _-]?up\b/, category: "quota_exhausted" },
+  { re: /\bkimi[ _-]?monthly\b/, category: "quota_exhausted" },
+  // Kimi billing-cycle 403 wording — used both as message text and inside
+  // responseBody JSON. Note: the broader "usage limit" pattern above already
+  // catches the prefix; this is belt-and-braces for the body-scan path.
+  { re: /\bbilling[ _-]?cycle\b/, category: "quota_exhausted" },
 
   // Model not found / unknown
   { re: /\bmodel[ _-]?not[ _-]?found/, category: "unknown_model" },

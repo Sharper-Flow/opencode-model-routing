@@ -42,6 +42,12 @@ export interface SessionErrorLike {
  * Map a typed session.error payload to an ErrorCategory.
  * Precedence: non-retryable user abort → name → data.statusCode →
  * data.message → data.responseBody scan → unknown.
+ *
+ * Status-code 403 is the one ambiguous code: Kimi returns it for billing-cycle
+ * quota exhaustion ("You've reached your usage limit for this billing cycle")
+ * while most providers use it for auth/forbidden. For 403 only, scan the
+ * message and responseBody for quota signals first; if none match, fall
+ * through to auth_error. Other status codes keep their direct mapping.
  */
 export function classifySessionError(err: SessionErrorLike): ErrorCategory | null {
   const name = (err.name ?? "").toLowerCase();
@@ -64,7 +70,31 @@ export function classifySessionError(err: SessionErrorLike): ErrorCategory | nul
   const data = err.data ?? {};
   const code = data.statusCode ?? 0;
   if (code === 429) return "rate_limit";
-  if (code === 401 || code === 403) return "auth_error";
+  if (code === 401) return "auth_error";
+  // HTTP 403 is ambiguous: Kimi's billing-cycle quota exhaustion returns 403
+  // with a message containing "usage limit" / "quota" / "billing cycle"
+  // (see kimi.com/code/docs/en/kimi-code/error-reference.html). Scan the
+  // message and responseBody for quota signals before falling back to the
+  // default auth_error classification. Only quota_exhausted short-circuits
+  // here — rate_limit and other categories still fall through to the
+  // responseBody scan at the bottom of this function.
+  if (code === 403) {
+    const msg403 = (data.message ?? "").toLowerCase();
+    if (
+      msg403.includes("usage limit") ||
+      msg403.includes("quota") ||
+      msg403.includes("billing cycle") ||
+      msg403.includes("fully used up")
+    ) {
+      return "quota_exhausted";
+    }
+    const body403 = data.responseBody;
+    if (typeof body403 === "string" && body403.length > 0) {
+      const bodyClass = classifyRetryStatusText(body403);
+      if (bodyClass === "quota_exhausted") return "quota_exhausted";
+    }
+    return "auth_error";
+  }
   if (code >= 500 && code < 600) return "server_error";
   if (code === 404 && name.includes("model")) return "unknown_model";
 
