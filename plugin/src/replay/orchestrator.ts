@@ -182,7 +182,15 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     // fallback.
     const cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
     if (current) {
-      store.health.cooldown(current, cooldownMs, reason);
+      // KD8 (validator finding #3): await cooldown persist settle before
+      // dispatching the replacement spawn (or returning from the subagent
+      // short-circuit). Sibling processes that observe the same failure and
+      // race to spawn their own replacement must see the cooldown by the time
+      // their isInCooldown check runs. cooldown() returns Promise.resolve()
+      // when no cooldownStore is wired, so the await is a no-op in tests that
+      // don't exercise persistence. The promise never rejects (fail-open per
+      // C1), so this await cannot throw.
+      await store.health.cooldown(current, cooldownMs, reason);
     }
 
     // Subagent short-circuit: mark unhealthy and exit without recovering.

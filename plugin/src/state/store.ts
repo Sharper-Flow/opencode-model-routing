@@ -8,7 +8,7 @@
 // All state is in-memory; the plugin recreates it on every OpenCode restart
 // per agreement.
 
-import { ModelHealthMap, type NowFn } from "./model-health.ts";
+import { ModelHealthMap, type CooldownStoreLike, type NowFn } from "./model-health.ts";
 import { newSessionState, type SessionState } from "./session-state.ts";
 
 export class FallbackStore {
@@ -17,9 +17,9 @@ export class FallbackStore {
   private inFlight = new Set<string>();
   private now: NowFn;
 
-  constructor(now: NowFn = () => Date.now()) {
+  constructor(now: NowFn = () => Date.now(), cooldownStore?: CooldownStoreLike) {
     this.now = now;
-    this.health = new ModelHealthMap(now);
+    this.health = new ModelHealthMap(now, cooldownStore);
     this.sessions = new SessionsAccessor(this.now);
   }
 

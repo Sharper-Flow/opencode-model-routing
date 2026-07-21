@@ -323,6 +323,10 @@ export async function handleTtftTimeout(
 ): Promise<void> {
   if (shouldSuppressReplay(sessionId, ctx)) return;
   const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+  // Subagent-aware routing (Part 2): mirror the pattern at lines 463 and 499
+  // in handleEvent's session.error/session.status paths. detectSubagent
+  // already try/catch-defaults to false on session.get failure (EC5).
+  const isSubagent = await detectSubagent(sessionId, client, ctx.store);
   try {
     await attemptFallback({
       sessionId,
@@ -332,6 +336,7 @@ export async function handleTtftTimeout(
       store: ctx.store,
       config: ctx.config,
       logger: ctx.logger,
+      isSubagent,
     });
   } catch (err) {
     ctx.logger.error("ttft.callback_failed", { sessionId, err: errorSummary(err) });
