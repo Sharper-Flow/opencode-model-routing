@@ -49,7 +49,9 @@ export interface SessionErrorLike {
  * message and responseBody for quota signals first; if none match, fall
  * through to auth_error. Other status codes keep their direct mapping.
  */
-export function classifySessionError(err: SessionErrorLike): ErrorCategory | null {
+export function classifySessionError(
+  err: SessionErrorLike,
+): ErrorCategory | null {
   const name = (err.name ?? "").toLowerCase();
   // User-initiated ESC/cancel arrives from OpenCode as MessageAbortedError
   // (AbortedError in message-v2.ts). It is a terminal user action, not a model
@@ -99,7 +101,11 @@ export function classifySessionError(err: SessionErrorLike): ErrorCategory | nul
   if (code === 404 && name.includes("model")) return "unknown_model";
 
   const msg = (data.message ?? "").toLowerCase();
-  if (msg.includes("rate limit") || msg.includes("rate-limit") || msg.includes("too many requests")) {
+  if (
+    msg.includes("rate limit") ||
+    msg.includes("rate-limit") ||
+    msg.includes("too many requests")
+  ) {
     return "rate_limit";
   }
   if (msg.includes("quota")) {
@@ -124,7 +130,9 @@ export function classifySessionError(err: SessionErrorLike): ErrorCategory | nul
  * Map session.status retry text to an ErrorCategory. Returns null when no
  * pattern matches — callers should treat null as "do not trigger fallback".
  */
-export function classifyRetryStatusText(text: string | null | undefined): ErrorCategory | null {
+export function classifyRetryStatusText(
+  text: string | null | undefined,
+): ErrorCategory | null {
   if (!text) return null;
   const lower = text.toLowerCase();
   for (const pat of retryPatterns) {

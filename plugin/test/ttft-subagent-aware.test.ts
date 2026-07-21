@@ -7,12 +7,12 @@
 //
 // RED/GREEN target for ADV task tk-02813db935e2 (TDD inline).
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, test, expect } from "bun:test";
 import { createLogger } from "../src/logging/logger.ts";
-import { createPluginContext, handleTtftTimeout } from "../src/plugin-internal.ts";
+import {
+  createPluginContext,
+  handleTtftTimeout,
+} from "../src/plugin-internal.ts";
 import { attemptFallback } from "../src/replay/orchestrator.ts";
 import { FallbackStore } from "../src/state/store.ts";
 import { defaultConfig, type ModelKey } from "../src/types.ts";
@@ -21,7 +21,10 @@ import { MockClient } from "./helpers/mock-client.ts";
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 
 function userMsg(id = "msg-1", agent = "scout") {
-  return { info: { id, role: "user", agent }, parts: [{ type: "text", text: "hello" }] };
+  return {
+    info: { id, role: "user", agent },
+    parts: [{ type: "text", text: "hello" }],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +129,10 @@ describe("attemptFallback — KD8 await before dispatch (AC5, AC1)", () => {
     });
     const persistCalls: Array<{ key: ModelKey; expiresAt: number }> = [];
     const fakeStore = {
-      persistCooldown: async (key: ModelKey, expiresAt: number): Promise<void> => {
+      persistCooldown: async (
+        key: ModelKey,
+        expiresAt: number,
+      ): Promise<void> => {
         persistCalls.push({ key, expiresAt });
         await persistPromise;
       },

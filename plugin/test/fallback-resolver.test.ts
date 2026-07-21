@@ -12,7 +12,7 @@ describe("resolveFallbackModel", () => {
   });
 
   test("picks second model when first fallback is cooled", () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const health = new ModelHealthMap(() => now);
     health.cooldown("b/two" as ModelKey, 5_000);
     expect(resolveFallbackModel("a/one", chain, 0, health, 3)).toBe("c/three");
@@ -24,7 +24,7 @@ describe("resolveFallbackModel", () => {
   });
 
   test("returns null when all remaining models are cooled", () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const health = new ModelHealthMap(() => now);
     health.cooldown("b/two" as ModelKey, 5_000);
     health.cooldown("c/three" as ModelKey, 5_000);
@@ -43,7 +43,9 @@ describe("resolveFallbackModel", () => {
 
   test("currentModel not in chain → starts at index 0", () => {
     const health = new ModelHealthMap();
-    expect(resolveFallbackModel("primary/main", chain, 0, health, 3)).toBe("a/one");
+    expect(resolveFallbackModel("primary/main", chain, 0, health, 3)).toBe(
+      "a/one",
+    );
   });
 
   test("null currentModel → starts at index 0", () => {

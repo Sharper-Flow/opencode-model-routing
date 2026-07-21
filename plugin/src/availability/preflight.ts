@@ -53,7 +53,9 @@ export function applyAvailabilityPreflight(
   if (!chain || chain.length === 0) return;
 
   const target = chain.find(
-    (key) => providerOf(key) !== ANTHROPIC_PROVIDER_ID && !store.health.isInCooldown(key),
+    (key) =>
+      providerOf(key) !== ANTHROPIC_PROVIDER_ID &&
+      !store.health.isInCooldown(key),
   );
   if (!target) {
     logger.debug("availability.preflight_no_fallback", {

@@ -35,8 +35,14 @@ export const retryPatterns: Pattern[] = [
   // Trailing `(?![a-z])` (not standard \b) so "usage_limit_reached" matches
   // — \b would require non-word char after "limit", but "_" is a word char.
   // Allows optional `s` for "usage limits" plural.
-  { re: /\busage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])/, category: "quota_exhausted" },
-  { re: /\bfree[_ ]?usage[_ ]?(exceeded|exhausted)\b/, category: "quota_exhausted" },
+  {
+    re: /\busage[ _-]?(limit|cap|maxed|exceeded)s?(?![a-z])/,
+    category: "quota_exhausted",
+  },
+  {
+    re: /\bfree[_ ]?usage[_ ]?(exceeded|exhausted)\b/,
+    category: "quota_exhausted",
+  },
   // Kimi Code specific — documented error wordings from
   // kimi.com/code/docs/en/kimi-code/error-reference.html. The weekly-cap
   // wording is not in the public docs but follows the same noun pattern as

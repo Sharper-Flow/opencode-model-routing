@@ -41,10 +41,9 @@ describe("package runtime contract", () => {
     });
     expect(build.exitCode, new TextDecoder().decode(build.stderr)).toBe(0);
 
-    const mod = (await import(new URL("../dist/index.js", import.meta.url).href)) as Record<
-      string,
-      unknown
-    >;
+    const mod = (await import(
+      new URL("../dist/index.js", import.meta.url).href
+    )) as Record<string, unknown>;
     expect(Object.keys(mod)).toEqual(["default"]);
     expect(typeof mod.default).toBe("object");
     const pluginModule = mod.default as Record<string, unknown>;

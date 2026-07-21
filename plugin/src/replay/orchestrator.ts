@@ -8,8 +8,18 @@
 import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { FallbackStore } from "../state/store.ts";
-import type { ErrorCategory, ModelKey, PluginConfig, ReplayResult } from "../types.ts";
-import { isRecord, messageInfo, messageParts, unwrapSdkData } from "../utils/type-guards.ts";
+import type {
+  ErrorCategory,
+  ModelKey,
+  PluginConfig,
+  ReplayResult,
+} from "../types.ts";
+import {
+  isRecord,
+  messageInfo,
+  messageParts,
+  unwrapSdkData,
+} from "../utils/type-guards.ts";
 import { extractContextSummary } from "./context-summary.ts";
 import { convertPartsForPrompt, type Part } from "./message-converter.ts";
 
@@ -98,7 +108,10 @@ function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
 // Supports BOTH OpenCode message shapes:
 //   - flat:    { id, role, parts }
 //   - nested:  { info: { id, role }, parts }
-function findOrphanCandidate(messages: unknown[], lastUserMessageID: string): string | undefined {
+function findOrphanCandidate(
+  messages: unknown[],
+  lastUserMessageID: string,
+): string | undefined {
   try {
     let sawLastUser = false;
     let candidate: string | undefined;
@@ -139,7 +152,9 @@ function parseModelKey(key: ModelKey): { providerID: string; modelID: string } {
  * structured ReplayResult — never throws. All error paths log + release
  * the lock + return success:false with an error message.
  */
-export async function attemptFallback(args: AttemptFallbackArgs): Promise<ReplayResult> {
+export async function attemptFallback(
+  args: AttemptFallbackArgs,
+): Promise<ReplayResult> {
   const { sessionId, reason, chain, client, store, config, logger } = args;
   const sleep = args.sleepMs ?? defaultSleep;
 
@@ -162,7 +177,13 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     const state = store.sessions.get(sessionId);
     const current = state.currentModel;
 
-    const next = resolveFallbackModel(current, chain, state.fallbackDepth, store.health, config.maxDepth);
+    const next = resolveFallbackModel(
+      current,
+      chain,
+      state.fallbackDepth,
+      store.health,
+      config.maxDepth,
+    );
     if (!next) {
       logger.warn("fallback.exhausted", {
         sessionId,
@@ -180,7 +201,8 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     // cycle where cooldown expires, the model is retried, fails again
     // immediately (quota hasn't actually recovered), and re-triggers
     // fallback.
-    const cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
+    const cooldownMs =
+      config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
     if (current) {
       // KD8 (validator finding #3): await cooldown persist settle before
       // dispatching the replacement spawn (or returning from the subagent
@@ -213,16 +235,26 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
       state.fallbackDepth += 1;
       state.lastFallbackAt = Date.now();
       if (!state.originalModel && current) state.originalModel = current;
-      return { success: true, fallbackModel: next, fromModel: current, subagentSkipped: true };
+      return {
+        success: true,
+        fallbackModel: next,
+        fromModel: current,
+        subagentSkipped: true,
+      };
     }
 
     let messages: unknown[];
     try {
-      const response = await client.session.messages({ path: { id: sessionId } } as never);
+      const response = await client.session.messages({
+        path: { id: sessionId },
+      } as never);
       const data = unwrapSdkData(response);
       messages = Array.isArray(data) ? data : [];
     } catch (err) {
-      logger.error("fallback.messages_failed", { sessionId, err: errorSummary(err) });
+      logger.error("fallback.messages_failed", {
+        sessionId,
+        err: errorSummary(err),
+      });
       return { success: false, error: "messages failed" };
     }
     const lastUser = findLastUserMessage(messages);
@@ -264,16 +296,25 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
     try {
       await client.session.abort({ path: { id: sessionId } } as never);
     } catch (err) {
-      logger.error("fallback.abort_failed", { sessionId, err: errorSummary(err) });
+      logger.error("fallback.abort_failed", {
+        sessionId,
+        err: errorSummary(err),
+      });
       return { success: false, error: "abort failed" };
     }
 
     await sleep(config.abortWaitMs);
 
     try {
-      await client.session.revert({ path: { id: sessionId }, body: { messageID: lastUser.messageID } } as never);
+      await client.session.revert({
+        path: { id: sessionId },
+        body: { messageID: lastUser.messageID },
+      } as never);
     } catch (err) {
-      logger.error("fallback.revert_failed", { sessionId, err: errorSummary(err) });
+      logger.error("fallback.revert_failed", {
+        sessionId,
+        err: errorSummary(err),
+      });
       return { success: false, error: "revert failed" };
     }
 
@@ -290,7 +331,10 @@ export async function attemptFallback(args: AttemptFallbackArgs): Promise<Replay
         },
       } as never);
     } catch (err) {
-      logger.error("fallback.prompt_failed", { sessionId, err: errorSummary(err) });
+      logger.error("fallback.prompt_failed", {
+        sessionId,
+        err: errorSummary(err),
+      });
       return { success: false, error: "prompt failed" };
     }
 

@@ -33,11 +33,14 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   const write =
     opts.write ??
     ((line) => {
-      // eslint-disable-next-line no-console
       process.stderr.write(line + "\n");
     });
 
-  function emit(level: LogLevel, event: string, fields?: Record<string, unknown>) {
+  function emit(
+    level: LogLevel,
+    event: string,
+    fields?: Record<string, unknown>,
+  ) {
     if (levelRank[level] < levelRank[minLevel]) return;
     const record = {
       ts: new Date().toISOString(),

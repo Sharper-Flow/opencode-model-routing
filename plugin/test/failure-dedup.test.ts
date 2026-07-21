@@ -22,8 +22,12 @@ describe("FailureDeduplicator", () => {
 
   test("retry family then terminal error family is duplicate", () => {
     const d = new FailureDeduplicator();
-    expect(d.begin({ ...base, fingerprint: "retry:free_tier_limit" })).toBe("new");
-    expect(d.begin({ ...base, fingerprint: "api:403:quota", messageId: "m1" })).toBe("duplicate");
+    expect(d.begin({ ...base, fingerprint: "retry:free_tier_limit" })).toBe(
+      "new",
+    );
+    expect(
+      d.begin({ ...base, fingerprint: "api:403:quota", messageId: "m1" }),
+    ).toBe("duplicate");
   });
 
   test("same fingerprint in different sessions is new", () => {

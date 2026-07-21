@@ -37,7 +37,8 @@ export const FUTURE_SKEW_MS = 5_000;
 export const MAX_UNAVAILABLE_HORIZON_MS = 3_600_000;
 export const RETRY_AT_MIN_AGE_MS = 60_000;
 
-export type AvailabilityState = "available" | "degraded" | "unavailable" | "disabled" | "unconfigured";
+export type AvailabilityState =
+  "available" | "degraded" | "unavailable" | "disabled" | "unconfigured";
 
 export interface AvailabilitySnapshotV1 {
   schema: typeof SNAPSHOT_SCHEMA;
@@ -64,8 +65,13 @@ export function expandHome(value: string | undefined): string | undefined {
   return value;
 }
 
-export function getAvailabilityPath(env: NodeJS.ProcessEnv = process.env): string {
-  return expandHome(env.OPENCODE_CLAUDE_MAX_AVAILABILITY) ?? DEFAULT_AVAILABILITY_PATH;
+export function getAvailabilityPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return (
+    expandHome(env.OPENCODE_CLAUDE_MAX_AVAILABILITY) ??
+    DEFAULT_AVAILABILITY_PATH
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +134,8 @@ class StrictJsonParser {
     this.skipWs();
     const value = this.parseValue();
     this.skipWs();
-    if (this.pos !== this.text.length) throw new Error("trailing content after JSON value");
+    if (this.pos !== this.text.length)
+      throw new Error("trailing content after JSON value");
     return value;
   }
 
@@ -159,7 +166,8 @@ class StrictJsonParser {
   }
 
   private parseLiteral(word: string, value: unknown): unknown {
-    if (!this.text.startsWith(word, this.pos)) throw new Error(`invalid literal at ${this.pos}`);
+    if (!this.text.startsWith(word, this.pos))
+      throw new Error(`invalid literal at ${this.pos}`);
     this.pos += word.length;
     return value;
   }
@@ -177,7 +185,8 @@ class StrictJsonParser {
       this.skipWs();
       if (this.peek() !== '"') throw new Error("expected object key string");
       const key = this.parseString();
-      if (seen.has(key)) throw new Error(`duplicate object key: ${JSON.stringify(key)}`);
+      if (seen.has(key))
+        throw new Error(`duplicate object key: ${JSON.stringify(key)}`);
       seen.add(key);
       this.skipWs();
       if (this.peek() !== ":") throw new Error("expected ':' after object key");
@@ -327,7 +336,8 @@ class StrictJsonParser {
     }
     if (this.peek() === ".") {
       this.pos++;
-      if (!(this.peek() >= "0" && this.peek() <= "9")) throw new Error("invalid fraction");
+      if (!(this.peek() >= "0" && this.peek() <= "9"))
+        throw new Error("invalid fraction");
       while (this.peek() >= "0" && this.peek() <= "9") this.pos++;
     }
     const e = this.peek();
@@ -335,7 +345,8 @@ class StrictJsonParser {
       this.pos++;
       const sign = this.peek();
       if (sign === "+" || sign === "-") this.pos++;
-      if (!(this.peek() >= "0" && this.peek() <= "9")) throw new Error("invalid exponent");
+      if (!(this.peek() >= "0" && this.peek() <= "9"))
+        throw new Error("invalid exponent");
       while (this.peek() >= "0" && this.peek() <= "9") this.pos++;
     }
     return Number(this.text.slice(start, this.pos));
@@ -359,7 +370,14 @@ const TOP_LEVEL_KEYS = new Set([
   "retry_at",
   "marker",
 ]);
-const REQUIRED_KEYS = ["schema", "version", "generated_at", "state", "accounts", "retry_at"];
+const REQUIRED_KEYS = [
+  "schema",
+  "version",
+  "generated_at",
+  "state",
+  "accounts",
+  "retry_at",
+];
 const ACCOUNT_KEYS = new Set(["configured", "enabled", "usable"]);
 const STATES = new Set<AvailabilityState>([
   "available",
@@ -370,7 +388,12 @@ const STATES = new Set<AvailabilityState>([
 ]);
 
 function isCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 999;
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= 999
+  );
 }
 
 /**
@@ -378,7 +401,10 @@ function isCount(value: unknown): value is number {
  * freshness invariant against `now` (epoch ms). Returns the typed snapshot or
  * null — every rejection is a routing no-op (fail closed).
  */
-export function validateSnapshotV1(value: unknown, now: number): AvailabilitySnapshotV1 | null {
+export function validateSnapshotV1(
+  value: unknown,
+  now: number,
+): AvailabilitySnapshotV1 | null {
   if (!isRecord(value)) return null;
   for (const key of REQUIRED_KEYS) {
     if (!(key in value)) return null;
@@ -397,7 +423,11 @@ export function validateSnapshotV1(value: unknown, now: number): AvailabilitySna
   if (!Number.isFinite(generatedMs)) return null;
   if (new Date(generatedMs).toISOString() !== value.generated_at) return null;
 
-  if (typeof value.state !== "string" || !STATES.has(value.state as AvailabilityState)) return null;
+  if (
+    typeof value.state !== "string" ||
+    !STATES.has(value.state as AvailabilityState)
+  )
+    return null;
   const state = value.state as AvailabilityState;
 
   const accounts = value.accounts;
@@ -412,11 +442,15 @@ export function validateSnapshotV1(value: unknown, now: number): AvailabilitySna
     enabled: unknown;
     usable: unknown;
   };
-  if (!isCount(configured) || !isCount(enabled) || !isCount(usable)) return null;
+  if (!isCount(configured) || !isCount(enabled) || !isCount(usable))
+    return null;
   if (!(usable <= enabled && enabled <= configured)) return null;
 
   const retryAt = value.retry_at;
-  if (retryAt !== null && (typeof retryAt !== "number" || !Number.isSafeInteger(retryAt))) {
+  if (
+    retryAt !== null &&
+    (typeof retryAt !== "number" || !Number.isSafeInteger(retryAt))
+  ) {
     return null;
   }
 
@@ -430,7 +464,8 @@ export function validateSnapshotV1(value: unknown, now: number): AvailabilitySna
   } else {
     if (marker !== undefined) return null;
     if (retryAt !== null) return null;
-    if ((state === "available" || state === "degraded") && usable === 0) return null;
+    if ((state === "available" || state === "degraded") && usable === 0)
+      return null;
   }
 
   if (retryAt !== null) {
@@ -472,19 +507,28 @@ export interface ReadSnapshotOptions {
  * Every failure returns null: the caller treats the snapshot as absent and
  * routing is a no-op. Unsupported flag constants fail closed before any open.
  */
-export function readAvailabilitySnapshot(opts: ReadSnapshotOptions = {}): AvailabilitySnapshotV1 | null {
+export function readAvailabilitySnapshot(
+  opts: ReadSnapshotOptions = {},
+): AvailabilitySnapshotV1 | null {
   const io = opts.io ?? nodeIo;
   const now = opts.now ?? Date.now();
   const snapshotPath = opts.path ?? getAvailabilityPath();
 
   const { O_RDONLY, O_NONBLOCK, O_NOFOLLOW } = io.constants;
-  if (!Number.isInteger(O_RDONLY) || !Number.isInteger(O_NONBLOCK) || !Number.isInteger(O_NOFOLLOW)) {
+  if (
+    !Number.isInteger(O_RDONLY) ||
+    !Number.isInteger(O_NONBLOCK) ||
+    !Number.isInteger(O_NOFOLLOW)
+  ) {
     return null;
   }
 
   let fd: number;
   try {
-    fd = io.open(snapshotPath, (O_RDONLY as number) | (O_NONBLOCK as number) | (O_NOFOLLOW as number));
+    fd = io.open(
+      snapshotPath,
+      (O_RDONLY as number) | (O_NONBLOCK as number) | (O_NOFOLLOW as number),
+    );
   } catch {
     return null; // missing, symlink (ELOOP), permission, not-a-file, etc.
   }
@@ -524,7 +568,9 @@ export function readAvailabilitySnapshot(opts: ReadSnapshotOptions = {}): Availa
 
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, total));
+      text = new TextDecoder("utf-8", { fatal: true }).decode(
+        buffer.subarray(0, total),
+      );
     } catch {
       return null;
     }

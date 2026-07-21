@@ -9,12 +9,13 @@ import { createPluginHooks, isPluginInput } from "./plugin-internal.ts";
 
 const server = (async (input: unknown, options?: unknown) => {
   if (!isPluginInput(input)) {
-    throw new Error("opencode-model-routing plugin: invalid initialization input");
+    throw new Error(
+      "opencode-model-routing plugin: invalid initialization input",
+    );
   }
   return createPluginHooks(input, options);
 }) as Plugin;
 
-// eslint-disable-next-line import/no-default-export
 export default {
   id: "@sharper-flow/opencode-model-routing-plugin",
   server,

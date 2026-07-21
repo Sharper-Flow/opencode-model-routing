@@ -25,7 +25,10 @@ const MAX_CHARS = 2000;
 const TEXT_EXCERPT_CHARS = 200;
 const TRUNCATION_MARKER = "\n…(truncated)";
 
-export function extractContextSummary(messages: unknown[], lastUserMessageID: string): string {
+export function extractContextSummary(
+  messages: unknown[],
+  lastUserMessageID: string,
+): string {
   try {
     if (
       !Array.isArray(messages) ||

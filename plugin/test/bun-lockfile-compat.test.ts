@@ -31,7 +31,9 @@ function spawnBun(args: string[]): Promise<SubprocessResult> {
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
     });
-    proc.on("close", (code) => resolvePromise({ exitCode: code ?? -1, stdout, stderr }));
+    proc.on("close", (code) =>
+      resolvePromise({ exitCode: code ?? -1, stdout, stderr }),
+    );
     proc.on("error", reject);
   });
 }

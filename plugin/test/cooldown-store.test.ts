@@ -45,7 +45,11 @@ function writeCooldownFile(
   fs.chmodSync(target, mode);
 }
 
-function captureLogger(): { logger: CooldownLogger; warns: string[]; errors: string[] } {
+function captureLogger(): {
+  logger: CooldownLogger;
+  warns: string[];
+  errors: string[];
+} {
   const warns: string[] = [];
   const errors: string[] = [];
   return {
@@ -93,7 +97,13 @@ describe("CooldownStore.readCooldowns — fail-open invariants (AC3, C1)", () =>
 
   test("returns empty Map when file has group-readable perms (mode 0o640)", () => {
     writeCooldownFile(
-      { "kimi/k": { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow } },
+      {
+        "kimi/k": {
+          expiresAt: baseNow + 3_600_000,
+          reason: "quota_exhausted",
+          setAt: baseNow,
+        },
+      },
       { mode: 0o640 },
     );
     const store = new CooldownStore(cooldownPath);
@@ -102,7 +112,13 @@ describe("CooldownStore.readCooldowns — fail-open invariants (AC3, C1)", () =>
 
   test("returns empty Map when file has world-readable perms (mode 0o604)", () => {
     writeCooldownFile(
-      { "kimi/k": { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow } },
+      {
+        "kimi/k": {
+          expiresAt: baseNow + 3_600_000,
+          reason: "quota_exhausted",
+          setAt: baseNow,
+        },
+      },
       { mode: 0o604 },
     );
     const store = new CooldownStore(cooldownPath);
@@ -173,8 +189,16 @@ describe("CooldownStore.readCooldowns — happy path + prune (AC4)", () => {
 
   test("prunes expired entries on read", () => {
     writeCooldownFile({
-      "kimi/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 4000 },
-      "openai/live": { expiresAt: baseNow + 3_600_000, reason: "rate_limit", setAt: baseNow },
+      "kimi/expired": {
+        expiresAt: baseNow - 1000,
+        reason: "old",
+        setAt: baseNow - 4000,
+      },
+      "openai/live": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "rate_limit",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     const result = store.readCooldowns();
@@ -197,9 +221,13 @@ describe("CooldownStore.readCooldowns — happy path + prune (AC4)", () => {
 
 describe("CooldownStore.readCooldowns — TTL cache (KD4)", () => {
   test("cache hit within TTL returns same data without re-reading disk", () => {
-    let virtualNow = baseNow;
+    const virtualNow = baseNow;
     writeCooldownFile({
-      "kimi/k": { expiresAt: virtualNow + 3_600_000, reason: "x", setAt: virtualNow },
+      "kimi/k": {
+        expiresAt: virtualNow + 3_600_000,
+        reason: "x",
+        setAt: virtualNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => virtualNow });
     const r1 = store.readCooldowns();
@@ -214,7 +242,11 @@ describe("CooldownStore.readCooldowns — TTL cache (KD4)", () => {
   test("cache miss after TTL triggers fresh disk read", () => {
     let virtualNow = baseNow;
     writeCooldownFile({
-      "kimi/k": { expiresAt: virtualNow + 3_600_000, reason: "x", setAt: virtualNow },
+      "kimi/k": {
+        expiresAt: virtualNow + 3_600_000,
+        reason: "x",
+        setAt: virtualNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => virtualNow });
     store.readCooldowns();
@@ -229,7 +261,12 @@ describe("CooldownStore.readCooldowns — TTL cache (KD4)", () => {
 describe("CooldownStore.persistCooldown — happy path (AC2, AC4)", () => {
   test("persists a single entry then readCooldowns returns it", async () => {
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
-    await store.persistCooldown("kimi/kimi", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "kimi/kimi",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     const result = store.readCooldowns();
     expect(result.size).toBe(1);
     expect(result.get("kimi/kimi")).toEqual({
@@ -242,7 +279,12 @@ describe("CooldownStore.persistCooldown — happy path (AC2, AC4)", () => {
   test("creates file on first run when none exists (KD1 realpath:false)", async () => {
     expect(fs.existsSync(cooldownPath)).toBe(false);
     const store = new CooldownStore(cooldownPath);
-    await store.persistCooldown("kimi/kimi", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "kimi/kimi",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     expect(fs.existsSync(cooldownPath)).toBe(true);
     const stat = fs.statSync(cooldownPath);
     expect(stat.mode & 0o077).toBe(0); // owner-only (0600)
@@ -250,7 +292,12 @@ describe("CooldownStore.persistCooldown — happy path (AC2, AC4)", () => {
 
   test("writes valid V1 shape with correct schema + version", async () => {
     const store = new CooldownStore(cooldownPath);
-    await store.persistCooldown("kimi/kimi", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "kimi/kimi",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     const text = fs.readFileSync(cooldownPath, "utf-8");
     const parsed = JSON.parse(text);
     expect(parsed.schema).toBe(COOLDOWN_SCHEMA);
@@ -262,8 +309,18 @@ describe("CooldownStore.persistCooldown — happy path (AC2, AC4)", () => {
 describe("CooldownStore.persistCooldown — max-merge semantics (AC2)", () => {
   test("distinct model keys: persisting M1 then M2 preserves both", async () => {
     const store = new CooldownStore(cooldownPath);
-    await store.persistCooldown("kimi/a", baseNow + 3_600_000, "quota_exhausted", baseNow);
-    await store.persistCooldown("openai/b", baseNow + 1_800_000, "rate_limit", baseNow);
+    await store.persistCooldown(
+      "kimi/a",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
+    await store.persistCooldown(
+      "openai/b",
+      baseNow + 1_800_000,
+      "rate_limit",
+      baseNow,
+    );
     const result = store.readCooldowns();
     expect(result.size).toBe(2);
     expect(result.has("kimi/a")).toBe(true);
@@ -272,8 +329,18 @@ describe("CooldownStore.persistCooldown — max-merge semantics (AC2)", () => {
 
   test("same model, second persist has SHORTER expiry: first entry preserved (max-wins)", async () => {
     const store = new CooldownStore(cooldownPath);
-    await store.persistCooldown("kimi/k", baseNow + 3_600_000, "quota_exhausted", baseNow);
-    await store.persistCooldown("kimi/k", baseNow + 1_800_000, "rate_limit", baseNow);
+    await store.persistCooldown(
+      "kimi/k",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
+    await store.persistCooldown(
+      "kimi/k",
+      baseNow + 1_800_000,
+      "rate_limit",
+      baseNow,
+    );
     const result = store.readCooldowns();
     expect(result.size).toBe(1);
     const entry = result.get("kimi/k");
@@ -283,8 +350,18 @@ describe("CooldownStore.persistCooldown — max-merge semantics (AC2)", () => {
 
   test("same model, second persist has LONGER expiry: second entry wins (max-wins)", async () => {
     const store = new CooldownStore(cooldownPath);
-    await store.persistCooldown("kimi/k", baseNow + 1_800_000, "rate_limit", baseNow);
-    await store.persistCooldown("kimi/k", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "kimi/k",
+      baseNow + 1_800_000,
+      "rate_limit",
+      baseNow,
+    );
+    await store.persistCooldown(
+      "kimi/k",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     const result = store.readCooldowns();
     const entry = result.get("kimi/k");
     expect(entry?.expiresAt).toBe(baseNow + 3_600_000);
@@ -294,11 +371,24 @@ describe("CooldownStore.persistCooldown — max-merge semantics (AC2)", () => {
   test("prunes expired entries on write (KD7)", async () => {
     // Seed an already-expired entry directly to disk.
     writeCooldownFile({
-      "kimi/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 5000 },
-      "kimi/live": { expiresAt: baseNow + 3_600_000, reason: "live", setAt: baseNow },
+      "kimi/expired": {
+        expiresAt: baseNow - 1000,
+        reason: "old",
+        setAt: baseNow - 5000,
+      },
+      "kimi/live": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "live",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
-    await store.persistCooldown("openai/new", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "openai/new",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     const result = store.readCooldowns();
     expect(result.has("kimi/expired")).toBe(false);
     expect(result.has("kimi/live")).toBe(true);
@@ -311,8 +401,18 @@ describe("CooldownStore.persistCooldown — lock + concurrent writes (AC2, C2)",
     const storeA = new CooldownStore(cooldownPath);
     const storeB = new CooldownStore(cooldownPath);
     await Promise.all([
-      storeA.persistCooldown("kimi/a", baseNow + 3_600_000, "quota_exhausted", baseNow),
-      storeB.persistCooldown("kimi/b", baseNow + 3_600_000, "quota_exhausted", baseNow),
+      storeA.persistCooldown(
+        "kimi/a",
+        baseNow + 3_600_000,
+        "quota_exhausted",
+        baseNow,
+      ),
+      storeB.persistCooldown(
+        "kimi/b",
+        baseNow + 3_600_000,
+        "quota_exhausted",
+        baseNow,
+      ),
     ]);
     const reader = new CooldownStore(cooldownPath);
     const result = reader.readCooldowns();
@@ -322,10 +422,15 @@ describe("CooldownStore.persistCooldown — lock + concurrent writes (AC2, C2)",
   });
 
   test("four concurrent persists all preserve their entries", async () => {
-    const stores = [1, 2, 3, 4].map((n) => new CooldownStore(cooldownPath));
+    const stores = [1, 2, 3, 4].map(() => new CooldownStore(cooldownPath));
     await Promise.all(
       stores.map((s, i) =>
-        s.persistCooldown(`kimi/m${i}`, baseNow + 3_600_000, "quota_exhausted", baseNow),
+        s.persistCooldown(
+          `kimi/m${i}`,
+          baseNow + 3_600_000,
+          "quota_exhausted",
+          baseNow,
+        ),
       ),
     );
     const reader = new CooldownStore(cooldownPath);
@@ -349,7 +454,9 @@ describe("CooldownStore.persistCooldown — fail-open invariants (AC3, C1, DONT1
 
   test("logger.warn is called when lock acquisition fails", async () => {
     const { logger, warns } = captureLogger();
-    const store = new CooldownStore("/proc/cannot-create/cooldown.json", { logger });
+    const store = new CooldownStore("/proc/cannot-create/cooldown.json", {
+      logger,
+    });
     await store.persistCooldown("k/k", baseNow + 1000, "r", baseNow);
     expect(warns.length).toBeGreaterThan(0);
   });
@@ -357,19 +464,28 @@ describe("CooldownStore.persistCooldown — fail-open invariants (AC3, C1, DONT1
   test("persistCooldown resolves without throwing (smoke for onCompromised wiring)", async () => {
     const { logger } = captureLogger();
     const store = new CooldownStore(cooldownPath, { logger });
-    await store.persistCooldown("kimi/k", baseNow + 3_600_000, "quota_exhausted", baseNow);
+    await store.persistCooldown(
+      "kimi/k",
+      baseNow + 3_600_000,
+      "quota_exhausted",
+      baseNow,
+    );
     expect(fs.existsSync(cooldownPath)).toBe(true);
   });
 });
 
 describe("getCooldownPath — path resolution (KD6)", () => {
   test("uses OPENCODE_MODEL_ROUTING_COOLDOWN env override when set", () => {
-    const p = getCooldownPath({ OPENCODE_MODEL_ROUTING_COOLDOWN: "/tmp/custom-cooldown.json" });
+    const p = getCooldownPath({
+      OPENCODE_MODEL_ROUTING_COOLDOWN: "/tmp/custom-cooldown.json",
+    });
     expect(p).toBe("/tmp/custom-cooldown.json");
   });
 
   test("expands ~ in env value", () => {
-    const p = getCooldownPath({ OPENCODE_MODEL_ROUTING_COOLDOWN: "~/my-cooldown.json" });
+    const p = getCooldownPath({
+      OPENCODE_MODEL_ROUTING_COOLDOWN: "~/my-cooldown.json",
+    });
     expect(p).toBe(path.join(os.homedir(), "my-cooldown.json"));
   });
 
@@ -381,14 +497,26 @@ describe("getCooldownPath — path resolution (KD6)", () => {
   test("uses default path when env not set", () => {
     const p = getCooldownPath({});
     expect(p).toBe(
-      path.join(os.homedir(), ".local", "share", "opencode-model-routing", "cooldown.json"),
+      path.join(
+        os.homedir(),
+        ".local",
+        "share",
+        "opencode-model-routing",
+        "cooldown.json",
+      ),
     );
   });
 
   test("uses default path when env value is empty string", () => {
     const p = getCooldownPath({ OPENCODE_MODEL_ROUTING_COOLDOWN: "" });
     expect(p).toBe(
-      path.join(os.homedir(), ".local", "share", "opencode-model-routing", "cooldown.json"),
+      path.join(
+        os.homedir(),
+        ".local",
+        "share",
+        "opencode-model-routing",
+        "cooldown.json",
+      ),
     );
   });
 });

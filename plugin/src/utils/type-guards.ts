@@ -19,7 +19,9 @@ export function isMessageEnvelope(value: unknown): value is MessageEnvelope {
   return isRecord(value) && isRecord(value.info) && Array.isArray(value.parts);
 }
 
-export function messageInfo(value: unknown): Record<string, unknown> | undefined {
+export function messageInfo(
+  value: unknown,
+): Record<string, unknown> | undefined {
   if (isMessageEnvelope(value)) return value.info;
   if (isRecord(value)) return value;
   return undefined;

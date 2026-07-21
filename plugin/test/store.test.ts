@@ -40,12 +40,22 @@ describe("ModelHealthMap — cooldown lifecycle", () => {
   test("isInCooldown true while window active, false after expiry", () => {
     let now = 1_000_000;
     const s = new FallbackStore(() => now);
-    s.health.cooldown("openai/gpt-5" as `${string}/${string}`, 5_000, "rate_limit");
-    expect(s.health.isInCooldown("openai/gpt-5" as `${string}/${string}`)).toBe(true);
+    s.health.cooldown(
+      "openai/gpt-5" as `${string}/${string}`,
+      5_000,
+      "rate_limit",
+    );
+    expect(s.health.isInCooldown("openai/gpt-5" as `${string}/${string}`)).toBe(
+      true,
+    );
     now += 5_001;
-    expect(s.health.isInCooldown("openai/gpt-5" as `${string}/${string}`)).toBe(false);
+    expect(s.health.isInCooldown("openai/gpt-5" as `${string}/${string}`)).toBe(
+      false,
+    );
     // Side-effect: cooldown expiry upgrades record to healthy.
-    expect(s.health.get("openai/gpt-5" as `${string}/${string}`).state).toBe("healthy");
+    expect(s.health.get("openai/gpt-5" as `${string}/${string}`).state).toBe(
+      "healthy",
+    );
   });
 
   test("unknown model returns healthy", () => {

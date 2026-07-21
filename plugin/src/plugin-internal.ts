@@ -10,7 +10,10 @@
 // after plugin init and may re-fire on config reload) — see createPluginHooks
 // for the ordering guarantee against OpenCode's bus.subscribeAll().
 
-import { ExhaustionGuardRegistry, shouldSuppressReplay } from "./availability/guard.ts";
+import {
+  ExhaustionGuardRegistry,
+  shouldSuppressReplay,
+} from "./availability/guard.ts";
 import { applyAvailabilityPreflight } from "./availability/preflight.ts";
 import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
 import { loadFallbackChains } from "./config/loader.ts";
@@ -22,11 +25,19 @@ import {
 } from "./detection/classifier.ts";
 import { createLogger, type Logger } from "./logging/logger.ts";
 import { applyPreemptiveSkip } from "./preemptive.ts";
-import { attemptFallback, type OrchestratorClient } from "./replay/orchestrator.ts";
+import {
+  attemptFallback,
+  type OrchestratorClient,
+} from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
-import { defaultConfig, type ErrorCategory, type ModelKey, type PluginConfig } from "./types.ts";
+import {
+  defaultConfig,
+  type ErrorCategory,
+  type ModelKey,
+  type PluginConfig,
+} from "./types.ts";
 import { isRecord, unwrapSdkData } from "./utils/type-guards.ts";
 
 // Real OpenCode PluginInput shape per @opencode-ai/plugin@1.15.5 PluginInput
@@ -43,8 +54,14 @@ export interface PluginInput {
 }
 
 export interface PluginHooks {
-  "chat.message"?: (input: unknown, output: unknown) => unknown | Promise<unknown>;
-  "chat.params"?: (input: unknown, output: unknown) => unknown | Promise<unknown>;
+  "chat.message"?: (
+    input: unknown,
+    output: unknown,
+  ) => unknown | Promise<unknown>;
+  "chat.params"?: (
+    input: unknown,
+    output: unknown,
+  ) => unknown | Promise<unknown>;
   event?: (input: unknown) => unknown | Promise<unknown>;
   // Hooks.config per @opencode-ai/plugin SDK — receives merged OpenCode Config
   // after plugin init and BEFORE bus.subscribeAll() — see ordering proof in
@@ -102,7 +119,8 @@ export function extractCooldownOverrides(
   logger: Logger,
 ): Partial<Record<ErrorCategory, number>> | undefined {
   if (!isRecord(pluginOptions)) return undefined;
-  const raw = (pluginOptions as { cooldownMsByCategory?: unknown }).cooldownMsByCategory;
+  const raw = (pluginOptions as { cooldownMsByCategory?: unknown })
+    .cooldownMsByCategory;
   if (!isRecord(raw)) return undefined;
   const out: Partial<Record<ErrorCategory, number>> = {};
   for (const [k, v] of Object.entries(raw)) {
@@ -119,7 +137,10 @@ export function extractCooldownOverrides(
       v < 0 ||
       !(Number.isFinite(v) || v === Number.POSITIVE_INFINITY)
     ) {
-      logger.warn("pluginOptions.cooldown.invalid_value", { category: k, value: v });
+      logger.warn("pluginOptions.cooldown.invalid_value", {
+        category: k,
+        value: v,
+      });
       continue;
     }
     out[k] = v;
@@ -145,12 +166,14 @@ export function extractCooldownOverrides(
  * rebuild, supplying cooldownMsByCategory via opts.config would clobber the
  * default inner map.
  */
-export function createPluginContext(opts: {
-  config?: Partial<PluginConfig>;
-  cooldownOverrides?: Partial<Record<ErrorCategory, number>>;
-  logger?: Logger;
-  pluginOptions?: unknown;
-} = {}): PluginContext {
+export function createPluginContext(
+  opts: {
+    config?: Partial<PluginConfig>;
+    cooldownOverrides?: Partial<Record<ErrorCategory, number>>;
+    logger?: Logger;
+    pluginOptions?: unknown;
+  } = {},
+): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
 
@@ -205,20 +228,30 @@ export function isPluginInput(input: unknown): input is PluginInput {
   );
 }
 
-export function normalizeChatMessageInput(input: unknown): ChatMessageInputShape | undefined {
+export function normalizeChatMessageInput(
+  input: unknown,
+): ChatMessageInputShape | undefined {
   if (!isRecord(input)) return undefined;
-  const sessionID = typeof input.sessionID === "string" ? input.sessionID : undefined;
-  const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+  const sessionID =
+    typeof input.sessionID === "string" ? input.sessionID : undefined;
+  const sessionId =
+    typeof input.sessionId === "string" ? input.sessionId : undefined;
   if (!sessionID && !sessionId) return undefined;
   return { sessionID, sessionId };
 }
 
-export function isChatMessageOutputShape(output: unknown): output is ChatMessageOutputShape {
+export function isChatMessageOutputShape(
+  output: unknown,
+): output is ChatMessageOutputShape {
   if (!isRecord(output)) return false;
   if (!isRecord(output.message)) return false;
   const model = output.message.model;
   if (model === undefined) return true;
-  return isRecord(model) && typeof model.providerID === "string" && typeof model.modelID === "string";
+  return (
+    isRecord(model) &&
+    typeof model.providerID === "string" &&
+    typeof model.modelID === "string"
+  );
 }
 
 function errorSummary(err: unknown): string {
@@ -250,7 +283,9 @@ export async function detectSubagent(
   const state = store.sessions.get(sessionId);
   if (state.isSubagent !== undefined) return state.isSubagent;
   try {
-    const response = await client.session.get({ path: { id: sessionId } } as never);
+    const response = await client.session.get({
+      path: { id: sessionId },
+    } as never);
     const data = unwrapSdkData(response);
     const parentID = isRecord(data) ? (data.parentID as unknown) : undefined;
     const result = typeof parentID === "string" && parentID.length > 0;
@@ -323,7 +358,7 @@ export async function handleTtftTimeout(
   agentName: string | null,
 ): Promise<void> {
   if (shouldSuppressReplay(sessionId, ctx)) return;
-  const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+  const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
   // Subagent-aware routing (Part 2): mirror the pattern at lines 463 and 499
   // in handleEvent's session.error/session.status paths. detectSubagent
   // already try/catch-defaults to false on session.get failure (EC5).
@@ -340,7 +375,10 @@ export async function handleTtftTimeout(
       isSubagent,
     });
   } catch (err) {
-    ctx.logger.error("ttft.callback_failed", { sessionId, err: errorSummary(err) });
+    ctx.logger.error("ttft.callback_failed", {
+      sessionId,
+      err: errorSummary(err),
+    });
   }
 }
 
@@ -369,7 +407,12 @@ interface EventInputShape {
         link?: string;
       };
     };
-    part?: { type?: string; text?: string; sessionID?: string; sessionId?: string };
+    part?: {
+      type?: string;
+      text?: string;
+      sessionID?: string;
+      sessionId?: string;
+    };
     info?: {
       id?: string;
       sessionID?: string;
@@ -414,7 +457,8 @@ function isEventInputShape(event: unknown): event is EventInputShape {
   if (!isRecord(event.properties)) return false;
 
   const props = event.properties;
-  if (!isOptionalString(props.sessionID) || !isOptionalString(props.sessionId)) return false;
+  if (!isOptionalString(props.sessionID) || !isOptionalString(props.sessionId))
+    return false;
   if (props.error !== undefined) {
     if (!isRecord(props.error)) return false;
     const error = props.error;
@@ -425,40 +469,69 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     if (!isRecord(props.status)) return false;
     if (!isOptionalString(props.status.type)) return false;
     if (!isOptionalString(props.status.message)) return false;
-    if (props.status.action !== undefined && !isActionShape(props.status.action)) return false;
+    if (
+      props.status.action !== undefined &&
+      !isActionShape(props.status.action)
+    )
+      return false;
   }
   if (props.part !== undefined) {
     if (!isRecord(props.part)) return false;
-    if (!isOptionalString(props.part.type) || !isOptionalString(props.part.text)) return false;
-    if (!isOptionalString(props.part.sessionID) || !isOptionalString(props.part.sessionId)) return false;
+    if (
+      !isOptionalString(props.part.type) ||
+      !isOptionalString(props.part.text)
+    )
+      return false;
+    if (
+      !isOptionalString(props.part.sessionID) ||
+      !isOptionalString(props.part.sessionId)
+    )
+      return false;
   }
   if (props.info !== undefined) {
     if (!isRecord(props.info)) return false;
     const info = props.info;
     if (!isOptionalString(info.id)) return false;
-    if (!isOptionalString(info.sessionID) || !isOptionalString(info.sessionId)) return false;
-    if (info.role !== undefined && info.role !== "user" && info.role !== "assistant") return false;
+    if (!isOptionalString(info.sessionID) || !isOptionalString(info.sessionId))
+      return false;
+    if (
+      info.role !== undefined &&
+      info.role !== "user" &&
+      info.role !== "assistant"
+    )
+      return false;
     if (info.error !== undefined) {
       if (!isRecord(info.error)) return false;
       if (!isOptionalString(info.error.name)) return false;
-      if (info.error.data !== undefined && !isRecord(info.error.data)) return false;
+      if (info.error.data !== undefined && !isRecord(info.error.data))
+        return false;
     }
   }
   return true;
 }
 
-export function normalizeEventInput(input: unknown): EventInputShape | undefined {
+export function normalizeEventInput(
+  input: unknown,
+): EventInputShape | undefined {
   // OpenCode's event hook passes `{ event }`; undefined registration probes
   // are treated as no-op compatibility inputs.
   if (!isRecord(input)) return undefined;
   return isEventInputShape(input.event) ? input.event : undefined;
 }
 
-function hasStreamingTextContent(part: { type?: string; text?: string }): boolean {
-  return part.type === "text" && typeof part.text === "string" && part.text.length > 0;
+function hasStreamingTextContent(part: {
+  type?: string;
+  text?: string;
+}): boolean {
+  return (
+    part.type === "text" &&
+    typeof part.text === "string" &&
+    part.text.length > 0
+  );
 }
 
-type TypedFailureSource = "session_error" | "message_updated" | "session_status";
+type TypedFailureSource =
+  "session_error" | "message_updated" | "session_status";
 
 function bounded(value: unknown, max: number): string | null {
   return typeof value === "string" ? value.slice(0, max) : null;
@@ -469,7 +542,8 @@ export function failureFingerprint(error: SessionErrorLike): string {
   return JSON.stringify({
     name: error.name ?? null,
     statusCode: typeof data.statusCode === "number" ? data.statusCode : null,
-    isRetryable: typeof data.isRetryable === "boolean" ? data.isRetryable : null,
+    isRetryable:
+      typeof data.isRetryable === "boolean" ? data.isRetryable : null,
     message: bounded(data.message, 256),
     responseBody: bounded(data.responseBody, 512),
   });
@@ -523,7 +597,7 @@ async function handleFailureSignal(
   if (duplicate) return;
 
   const agentName = await resolveAgentName(input.sessionId, client, ctx.store);
-  const chain = agentName ? ctx.chains.get(agentName) ?? [] : [];
+  const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
   const isSubagent = await detectSubagent(input.sessionId, client, ctx.store);
   const result = await attemptFallback({
     sessionId: input.sessionId,
@@ -605,7 +679,12 @@ export async function handleEvent(
     case "message.updated": {
       const info = props.info;
       if (!info || info.role !== "assistant" || !info.error) return;
-      const sessionId = props.sessionID ?? props.sessionId ?? info.sessionID ?? info.sessionId ?? "";
+      const sessionId =
+        props.sessionID ??
+        props.sessionId ??
+        info.sessionID ??
+        info.sessionId ??
+        "";
       if (!sessionId) return;
       const category = classifySessionError(info.error);
       if (!category) return;
@@ -625,7 +704,12 @@ export async function handleEvent(
       const part = props.part;
       if (!part) return;
       if (!hasStreamingTextContent(part)) return;
-      const sessionId = part.sessionID ?? part.sessionId ?? props.sessionID ?? props.sessionId ?? "";
+      const sessionId =
+        part.sessionID ??
+        part.sessionId ??
+        props.sessionID ??
+        props.sessionId ??
+        "";
       if (!sessionId) return;
       if (ctx.ttft.has(sessionId)) {
         ctx.ttft.clear(sessionId);
@@ -659,7 +743,10 @@ export async function handleEvent(
  * with new tuple options; users observing cooldown changes not taking effect
  * should restart OpenCode.
  */
-export async function createPluginHooks(opts: PluginInput, pluginOptions?: unknown): Promise<PluginHooks> {
+export async function createPluginHooks(
+  opts: PluginInput,
+  pluginOptions?: unknown,
+): Promise<PluginHooks> {
   const logger = createLogger();
   const cooldownOverrides = extractCooldownOverrides(pluginOptions, logger);
   const ctx = createPluginContext({ pluginOptions, cooldownOverrides, logger });
@@ -687,10 +774,15 @@ export async function createPluginHooks(opts: PluginInput, pluginOptions?: unkno
     // Mutation is in-place (clear + set) to preserve Map identity for handler
     // closures that hold ctx by reference.
     config: async (input: unknown) => {
-      const { chains: loaded, warnings } = loadFallbackChains(input, ctx.logger, ctx.pluginOptions);
+      const { chains: loaded, warnings } = loadFallbackChains(
+        input,
+        ctx.logger,
+        ctx.pluginOptions,
+      );
       ctx.chains.clear();
       for (const [name, chain] of loaded) ctx.chains.set(name, chain);
-      for (const w of warnings) ctx.logger.warn("loader.warning", { message: w });
+      for (const w of warnings)
+        ctx.logger.warn("loader.warning", { message: w });
       ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });
     },
   };
