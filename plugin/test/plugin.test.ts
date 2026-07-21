@@ -446,6 +446,125 @@ describe("handleEvent — durable assistant error reconciliation", () => {
   });
 });
 
+describe("handleEvent — exactly-once failure reconciliation", () => {
+  const errorEvent = () => ({
+    type: "session.error",
+    properties: {
+      sessionID: "s1",
+      error: {
+        name: "APIError",
+        data: { statusCode: 429, isRetryable: false, message: "rate limit" },
+      },
+    },
+  } as const);
+  const messageEvent = () => ({
+    type: "message.updated",
+    properties: {
+      sessionID: "s1",
+      info: {
+        id: "assistant-1",
+        sessionID: "s1",
+        role: "assistant" as const,
+        error: {
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false, message: "rate limit" },
+        },
+      },
+    },
+  });
+  const statusEvent = () => ({
+    type: "session.status",
+    properties: {
+      sessionID: "s1",
+      status: {
+        type: "retry" as const,
+        message: "rate limited",
+        action: { reason: "account_rate_limit", provider: "test" },
+      },
+    },
+  });
+
+  function setup() {
+    const ctx = ctxWithChain(["a/one", "b/two", "c/three"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    return { ctx, client };
+  }
+
+  test("session.error then message.updated dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, errorEvent());
+    await handleEvent(ctx, client, messageEvent());
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("message.updated then session.error dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, messageEvent());
+    await handleEvent(ctx, client, errorEvent());
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("session.status retry then terminal session.error dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, statusEvent());
+    await handleEvent(ctx, client, errorEvent());
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("session.status retry then message.updated dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, statusEvent());
+    await handleEvent(ctx, client, messageEvent());
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("duplicate message.updated delivery dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, messageEvent());
+    await handleEvent(ctx, client, messageEvent());
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("concurrent error and message delivery dispatches exactly once", async () => {
+    const { ctx, client } = setup();
+    await Promise.all([
+      handleEvent(ctx, client, errorEvent()),
+      handleEvent(ctx, client, messageEvent()),
+    ]);
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("same failure in different sessions dispatches once per session", async () => {
+    const { ctx, client } = setup();
+    ctx.store.sessions.get("s2").currentModel = "a/one";
+    const second = messageEvent();
+    second.properties.sessionID = "s2";
+    second.properties.info.sessionID = "s2";
+    second.properties.info.id = "assistant-2";
+    await handleEvent(ctx, client, messageEvent());
+    await handleEvent(ctx, client, second);
+    expect(client.callsTo("session.prompt")).toHaveLength(2);
+  });
+
+  test("accepted category reaches persistent health cooldown unchanged", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, errorEvent());
+    expect(ctx.store.health.get("a/one" as ModelKey).lastCategory).toBe("rate_limit");
+  });
+
+  test("session.deleted clears failure registry", async () => {
+    const { ctx, client } = setup();
+    await handleEvent(ctx, client, errorEvent());
+    expect(ctx.store.failures.size).toBeGreaterThan(0);
+    await handleEvent(ctx, client, {
+      type: "session.deleted",
+      properties: { sessionID: "s1" },
+    });
+    expect(ctx.store.failures.size).toBe(0);
+  });
+});
+
 describe("plugin event hook boundary", () => {
   test("returns chat.message and event hook functions", async () => {
     const hooks = await createRuntimeHooks(new MockClient(), {});
