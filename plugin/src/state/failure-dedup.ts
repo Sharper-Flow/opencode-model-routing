@@ -71,6 +71,12 @@ export class FailureDeduplicator {
     }
   }
 
+  /** Remove aliases recorded by a begin() that could not dispatch because
+   * configuration was not ready (for example, no fallback chain yet). */
+  forget(identity: FailureIdentity): void {
+    for (const key of this.keys(identity)) this.entries.delete(key);
+  }
+
   prune(now = this.now()): void {
     for (const [key, entry] of this.entries) {
       if (entry.expiresAt <= now) this.entries.delete(key);

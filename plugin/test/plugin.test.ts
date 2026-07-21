@@ -5,6 +5,7 @@ import {
   extractCooldownOverrides,
   handleChatMessage,
   handleEvent,
+  normalizeEventInput,
 } from "../src/plugin-internal.ts";
 import pluginModule from "../src/plugin.ts";
 import type { ModelKey } from "../src/types.ts";
@@ -326,6 +327,122 @@ describe("handleEvent — session.error", () => {
     expect(client.callsTo("session.prompt").length).toBe(1);
     // isSubagent left undefined (cache miss) — retryable on next event.
     expect(ctx.store.sessions.get("s1").isSubagent).toBeUndefined();
+  });
+});
+
+describe("handleEvent — durable assistant error reconciliation", () => {
+  const apiError = {
+    name: "APIError",
+    data: {
+      statusCode: 429,
+      isRetryable: false,
+      message: "quota exhausted",
+      responseBody: "billing cycle quota exceeded",
+    },
+  };
+
+  test("legacy message.updated assistant error triggers fallback", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+      },
+    } as any);
+
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+    expect(ctx.store.sessions.get("s1").currentModel).toBe("b/two");
+  });
+
+  test("V2 message.updated assistant error triggers fallback", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        sessionID: "s1",
+        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+      },
+    } as any);
+
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
+  });
+
+  test("user message.updated is ignored", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        info: { id: "user-1", sessionID: "s1", role: "user", error: apiError },
+      },
+    } as any);
+
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+  });
+
+  test("MessageAbortedError message.updated is ignored", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "assistant-1",
+          sessionID: "s1",
+          role: "assistant",
+          error: { name: "MessageAbortedError", data: { message: "aborted" } },
+        },
+      },
+    } as any);
+
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+  });
+
+  test("malformed assistant error is ignored and TTFT stays armed", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    ctx.ttft.arm("s1", async () => {});
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const normalized = normalizeEventInput({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: "bad" },
+        },
+      },
+    });
+    await handleEvent(ctx, client, normalized);
+
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+    expect(ctx.ttft.has("s1")).toBe(true);
+    ctx.ttft.clear("s1");
+  });
+
+  test("accepted typed error clears TTFT", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    ctx.ttft.arm("s1", async () => {});
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        info: { id: "assistant-1", sessionID: "s1", role: "assistant", error: apiError },
+      },
+    } as any);
+
+    expect(ctx.ttft.has("s1")).toBe(false);
   });
 });
 
