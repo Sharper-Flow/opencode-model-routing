@@ -30,6 +30,7 @@ import {
   type OrchestratorClient,
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
+import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import {
@@ -190,7 +191,10 @@ export function createPluginContext(
   }
 
   return {
-    store: new FallbackStore(),
+    store: new FallbackStore(
+      () => Date.now(),
+      new CooldownStore(getCooldownPath(), { logger }),
+    ),
     ttft: new TtftRegistry(),
     guard: new ExhaustionGuardRegistry(),
     chains: new Map(),
