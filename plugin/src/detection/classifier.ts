@@ -112,6 +112,13 @@ export function classifySessionError(
     return "quota_exhausted";
   }
 
+  // Scan the message through retryPatterns — catches "usage limit reached",
+  // "billing cycle", "fully used up", and other patterns the hardcoded checks
+  // above miss. Mirrors the responseBody-scan coverage below, ensuring the
+  // message field gets the same pattern coverage as the response body.
+  const msgClass = classifyRetryStatusText(data.message);
+  if (msgClass) return msgClass;
+
   // Final fallback: scan responseBody text through retryPatterns. Catches
   // OpenAI insufficient_quota JSON, GoUsageLimitError / FreeUsageLimitError
   // substrings, and other provider-specific error bodies that don't surface
