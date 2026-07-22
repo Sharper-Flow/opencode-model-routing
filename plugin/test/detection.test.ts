@@ -396,3 +396,47 @@ describe("classifySessionError — verbatim ChatGPT Pro 429 payload", () => {
     ).toBe("quota_exhausted");
   });
 });
+
+describe("message-scan retryPatterns coverage (P23 campsite rule)", () => {
+  // Before the fix: classifySessionError scanned data.message for hardcoded
+  // "rate limit" / "quota" only, missing "usage limit" / "billing cycle" etc.
+  // The responseBody scan used retryPatterns but the message scan did not.
+  // Fix: apply classifyRetryStatusText to data.message too, matching
+  // responseBody-scan coverage.
+
+  test("message-only 'usage limit reached' with no statusCode/responseBody → quota_exhausted", () => {
+    expect(
+      classifySessionError({
+        name: "AI_RetryError",
+        data: {
+          message: "5 hour usage limit reached. It will reset in 4 hours 21 minutes.",
+          isRetryable: false,
+        },
+      }),
+    ).toBe("quota_exhausted");
+  });
+
+  test("message-only 'billing cycle' with no statusCode/responseBody → quota_exhausted", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: {
+          message: "You've reached your usage limit for this billing cycle",
+          isRetryable: false,
+        },
+      }),
+    ).toBe("quota_exhausted");
+  });
+
+  test("message-only 'fully used up' with no statusCode/responseBody → quota_exhausted", () => {
+    expect(
+      classifySessionError({
+        name: "APIError",
+        data: {
+          message: "Your weekly quota has been fully used up",
+          isRetryable: false,
+        },
+      }),
+    ).toBe("quota_exhausted");
+  });
+});

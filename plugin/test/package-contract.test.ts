@@ -41,6 +41,15 @@ describe("package runtime contract", () => {
     });
     expect(build.exitCode, new TextDecoder().decode(build.stderr)).toBe(0);
 
+    // AC1: CooldownStore must NOT be tree-shaken out of the production bundle.
+    // Before the wiring fix, new FallbackStore() passed no cooldownStore, so
+    // CooldownStore was dead code and tree-shaken (0 markers). After the fix,
+    // the production init path instantiates it — these markers must be present.
+    const distPath = new URL("../dist/index.js", import.meta.url);
+    const distContent = await Bun.file(distPath).text();
+    expect(distContent, "CooldownStore class must be in the bundle (not tree-shaken)").toContain("CooldownStore");
+    expect(distContent, "cooldown.json path constant must be in the bundle").toContain("cooldown.json");
+
     const mod = (await import(
       new URL("../dist/index.js", import.meta.url).href
     )) as Record<string, unknown>;

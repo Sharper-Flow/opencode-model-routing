@@ -30,6 +30,7 @@ import {
   type OrchestratorClient,
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
+import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import {
@@ -190,7 +191,10 @@ export function createPluginContext(
   }
 
   return {
-    store: new FallbackStore(),
+    store: new FallbackStore(
+      () => Date.now(),
+      new CooldownStore(getCooldownPath(), { logger }),
+    ),
     ttft: new TtftRegistry(),
     guard: new ExhaustionGuardRegistry(),
     chains: new Map(),
@@ -315,6 +319,22 @@ export async function handleChatMessage(
   // later this turn re-evaluates the snapshot and may re-record it.
   ctx.guard.clearTurn(sessionId);
 
+  // Populate state.currentModel from the hook output BEFORE agentName-dependent
+  // operations. If resolveAgentName fails (e.g. messages not yet committed for a
+  // freshly-spawned sub-agent), applyPreemptiveSkip returns early at
+  // `if (!agentName) return` WITHOUT setting currentModel. Without this pre-set,
+  // the subsequent session.error's attemptFallback hits `if (current)` → false
+  // (currentModel undefined) → skips cooldown → model never marked unhealthy →
+  // re-spawn hits the same dead model (the same-process fallover mystery).
+  const hookModel = output.message.model;
+  if (hookModel) {
+    const state = ctx.store.sessions.get(sessionId);
+    if (!state.currentModel) {
+      state.currentModel = `${hookModel.providerID}/${hookModel.modelID}` as ModelKey;
+      state.originalModel = state.currentModel;
+    }
+  }
+
   const agentName = await resolveAgentName(sessionId, client, ctx.store);
 
   // Availability preflight: consume one descriptor-validated snapshot per
@@ -382,7 +402,7 @@ export async function handleTtftTimeout(
   }
 }
 
-interface EventInputShape {
+export interface EventInputShape {
   type?: string;
   properties?: {
     sessionID?: string;
