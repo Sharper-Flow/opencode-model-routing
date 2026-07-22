@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "id": "ws-zHe3fN",
+      "type": "gotcha",
+      "content": "attemptFallback's cooldown-marking is gated on `if (current)` where current = state.currentModel. If chat.message's resolveAgentName fails (returns null — e.g. messages not yet committed for a freshly-spawned sub-agent), applyPreemptiveSkip returns early at `if (!agentName) return` WITHOUT setting state.currentModel. The subsequent session.error's attemptFallback then sees current=undefined → skips cooldown entirely → model never marked unhealthy → re-spawn hits the same dead model. Fix: set state.currentModel from output.message.model in handleChatMessage BEFORE the agentName-dependent applyPreemptiveSkip call, so currentModel is populated even when agentName resolution fails.",
+      "source_task": "tk-50e7adf01084",
+      "recorded_at": "2026-07-22T20:05:52.357Z"
+    }
+  ],
+  "count": 1
+}

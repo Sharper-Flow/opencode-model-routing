@@ -1,0 +1,16 @@
+{
+  "archived_at": "2026-07-22T20:32:49.995Z",
+  "capabilities": [],
+  "change_hash": "0c99eb61ce5c3609b4bddacc7993af8f0bec55c78674543d4a3fa51e956fdd01",
+  "change_id": "wireCooldownStoreActivation",
+  "completed_tasks": 5,
+  "created_at": "2026-07-22T19:08:05.942Z",
+  "current_gate": "release",
+  "last_activity_at": "2026-07-22T20:30:12.287Z",
+  "lifecycle_state": "open",
+  "status": "archived",
+  "summary_hash": "7f85f1b1ef2d72c6aa052a2afddf185d3197ba8ad8c785dcd31ea5f79b0ead3a",
+  "task_count": 6,
+  "title": "Wire cooldown store activation",
+  "version": "1"
+}
