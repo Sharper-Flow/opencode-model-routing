@@ -205,4 +205,37 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
     expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(false);
     expect(fs.existsSync(cooldownPath)).toBe(false);
   });
+
+  test("scenario 5 (FIX): chat.message agentName fails → currentModel still set → cooldown marked on error", async () => {
+    // The fix: handleChatMessage sets state.currentModel from output.message.model
+    // BEFORE the agentName-dependent applyPreemptiveSkip. So even when
+    // resolveAgentName fails at chat.message time (messages not committed yet),
+    // currentModel is populated. The subsequent session.error (when messages ARE
+    // available) can then mark the model unhealthy.
+    const ctx = createPluginContext({ logger: silentLogger });
+    ctx.chains.set(AGENT, CHAIN);
+
+    const sessionId = "ses_fix_currentmodel";
+    const client = new MockClient({
+      messages: [], // empty at chat.message time → resolveAgentName fails
+      sessionInfo: subagentSessionInfo(sessionId),
+    });
+
+    // chat.message fires with model but no messages committed yet.
+    const output = {
+      message: { model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" } },
+    };
+    await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
+
+    // FIX: currentModel must be set despite agentName resolution failure.
+    const state = ctx.store.sessions.get(sessionId);
+    expect(state.currentModel).toBe(PRIMARY);
+
+    // Now messages are committed (sub-agent ran) → session.error fires.
+    client.setMessages(messagesWithAgent(AGENT));
+    await handleEvent(ctx, client, quotaErrorEvent(sessionId));
+
+    // Cooldown should be marked because currentModel was set by the fix.
+    expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(true);
+  });
 });
