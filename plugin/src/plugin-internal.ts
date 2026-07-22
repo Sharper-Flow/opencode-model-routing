@@ -402,7 +402,7 @@ export async function handleTtftTimeout(
   }
 }
 
-interface EventInputShape {
+export interface EventInputShape {
   type?: string;
   properties?: {
     sessionID?: string;
