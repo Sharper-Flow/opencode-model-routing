@@ -99,6 +99,43 @@ describe("plugin entry — context init", () => {
 });
 
 describe("handleChatMessage", () => {
+  test("uses fresh hook agent identity before committed messages exist", async () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    const client = new MockClient({ messages: [] });
+    const output = { message: { model: { providerID: "a", modelID: "one" } } };
+
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "fresh-hook-agent", agent: "adv-engineer" },
+      output,
+    );
+
+    expect(ctx.store.sessions.get("fresh-hook-agent").agentName).toBe(
+      "adv-engineer",
+    );
+    expect(client.callsTo("session.messages")).toHaveLength(0);
+    ctx.ttft.clear("fresh-hook-agent");
+  });
+
+  test("falls back to session metadata identity with one session.get call", async () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    const client = new MockClient({
+      messages: [],
+      sessionInfo: { parentID: "ses_parent", agent: "adv-engineer" },
+    });
+    const output = { message: { model: { providerID: "a", modelID: "one" } } };
+
+    await handleChatMessage(ctx, client, { sessionID: "fresh-session-agent" }, output);
+
+    expect(ctx.store.sessions.get("fresh-session-agent").agentName).toBe(
+      "adv-engineer",
+    );
+    expect(client.callsTo("session.get")).toHaveLength(1);
+    expect(client.callsTo("session.messages")).toHaveLength(0);
+    ctx.ttft.clear("fresh-session-agent");
+  });
+
   test("preemptive skip + TTFT arm on cooled current", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     // Cool current model

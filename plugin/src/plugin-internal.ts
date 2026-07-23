@@ -213,6 +213,7 @@ export function createPluginContext(
 interface ChatMessageInputShape {
   sessionID?: string;
   sessionId?: string;
+  agent?: string;
 }
 interface ChatMessageOutputShape {
   message: { model?: { providerID: string; modelID: string } };
@@ -240,8 +241,12 @@ export function normalizeChatMessageInput(
     typeof input.sessionID === "string" ? input.sessionID : undefined;
   const sessionId =
     typeof input.sessionId === "string" ? input.sessionId : undefined;
+  const agent =
+    typeof input.agent === "string" && input.agent.trim().length > 0
+      ? input.agent
+      : undefined;
   if (!sessionID && !sessionId) return undefined;
-  return { sessionID, sessionId };
+  return { sessionID, sessionId, agent };
 }
 
 export function isChatMessageOutputShape(
@@ -279,27 +284,38 @@ function errorSummary(err: unknown): string {
  * Result is cached in the FallbackStore session-state record so subsequent
  * errors on the same session don't re-fetch.
  */
-export async function detectSubagent(
+async function readSessionIdentity(
   sessionId: string,
   client: OrchestratorClient,
   store: FallbackStore,
-): Promise<boolean> {
+): Promise<void> {
   const state = store.sessions.get(sessionId);
-  if (state.isSubagent !== undefined) return state.isSubagent;
+  if (state.isSubagent !== undefined) return;
   try {
     const response = await client.session.get({
       path: { id: sessionId },
     } as never);
     const data = unwrapSdkData(response);
     const parentID = isRecord(data) ? (data.parentID as unknown) : undefined;
-    const result = typeof parentID === "string" && parentID.length > 0;
-    state.isSubagent = result;
-    return result;
+    state.isSubagent = typeof parentID === "string" && parentID.length > 0;
+    const agent = isRecord(data) ? data.agent : undefined;
+    if (typeof agent === "string" && agent.trim().length > 0) {
+      state.agentName = agent;
+    }
   } catch {
     // Defensive: leave isSubagent undefined so a later retry can re-attempt
     // detection. Treat current call as "not a subagent" → recover normally.
-    return false;
   }
+}
+
+export async function detectSubagent(
+  sessionId: string,
+  client: OrchestratorClient,
+  store: FallbackStore,
+): Promise<boolean> {
+  const state = store.sessions.get(sessionId);
+  await readSessionIdentity(sessionId, client, store);
+  return state.isSubagent ?? false;
 }
 
 export async function handleChatMessage(
@@ -335,7 +351,16 @@ export async function handleChatMessage(
     }
   }
 
-  const agentName = await resolveAgentName(sessionId, client, ctx.store);
+  const state = ctx.store.sessions.get(sessionId);
+  if (input.agent) state.agentName = input.agent;
+  if (!state.agentName) {
+    // Fresh child messages have not been committed yet. Read the structural
+    // session record before falling back to message history; this shares the
+    // same cached session.get result later used by detectSubagent.
+    await readSessionIdentity(sessionId, client, ctx.store);
+  }
+  const agentName =
+    state.agentName ?? (await resolveAgentName(sessionId, client, ctx.store));
 
   // Availability preflight: consume one descriptor-validated snapshot per
   // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
