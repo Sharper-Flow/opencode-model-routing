@@ -55,6 +55,18 @@ export const retryPatterns: Pattern[] = [
   // responseBody JSON. Note: the broader "usage limit" pattern above already
   // catches the prefix; this is belt-and-braces for the body-scan path.
   { re: /\bbilling[ _-]?cycle\b/, category: "quota_exhausted" },
+  // opencode-go (OpenCode Go bundle) workspace monthly spending-limit — HTTP
+  // 403 with "Your workspace has reached its monthly spending limit of $N."
+  // Producer-owned: the opencode.ai/workspace/<id>/billing URL.
+  { re: /\bspending[ _-]?limit\b/, category: "quota_exhausted" },
+  {
+    re: /opencode\.ai\/workspace\/[^/]+\/billing/,
+    category: "quota_exhausted",
+  },
+  // opencode-claude-max plugin exhaustion marker — thrown error
+  // "CLAUDE_MAX_UNAVAILABLE: All configured Claude Max accounts are
+  // temporarily unavailable" (no HTTP status code). Producer-owned marker.
+  { re: /\bclaude[_-]?max[_-]?unavailable\b/, category: "quota_exhausted" },
 
   // Model not found / unknown
   { re: /\bmodel[ _-]?not[ _-]?found/, category: "unknown_model" },

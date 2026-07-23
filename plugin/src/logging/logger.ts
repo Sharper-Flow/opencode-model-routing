@@ -1,8 +1,15 @@
 // Structured stderr logger for the model-routing plugin.
 //
-// All log lines are emitted as single-line JSON to stderr. No file logging
-// in v1 per agreement. Format mirrors the reference Smart-Coders-HQ plugin
-// for grep/jq compatibility.
+// All log lines are emitted as single-line JSON to stderr. Format mirrors the
+// reference Smart-Coders-HQ plugin for grep/jq compatibility.
+//
+// Optional file sink: set OMR_LOG_FILE=/path/to/omr.log to ALSO append every
+// line to that file (sync, best-effort). The default stderr-only sink is
+// unchanged when unset. This exists because OpenCode's opencode.log does not
+// capture plugin stderr, which made preemptive-redirect / cooldown verdicts
+// invisible during rollover debugging (the "fallback unreachable" mystery).
+
+import { appendFileSync } from "node:fs";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -19,6 +26,9 @@ export interface LoggerOptions {
   minLevel?: LogLevel;
   // Override stderr sink — primarily a test seam.
   write?: (line: string) => void;
+  // Optional file path to additionally append every line to (sync,
+  // best-effort). Falls back to the OMR_LOG_FILE env var when unset.
+  file?: string;
 }
 
 const levelRank: Record<LogLevel, number> = {
@@ -30,10 +40,18 @@ const levelRank: Record<LogLevel, number> = {
 
 export function createLogger(opts: LoggerOptions = {}): Logger {
   const minLevel = opts.minLevel ?? "info";
+  const fileSink = opts.file ?? process.env.OMR_LOG_FILE;
   const write =
     opts.write ??
     ((line) => {
       process.stderr.write(line + "\n");
+      if (fileSink) {
+        try {
+          appendFileSync(fileSink, line + "\n");
+        } catch {
+          // Best-effort: a bad log path must never break routing.
+        }
+      }
     });
 
   function emit(
