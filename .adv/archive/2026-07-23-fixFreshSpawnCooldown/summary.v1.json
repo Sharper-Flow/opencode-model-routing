@@ -1,0 +1,16 @@
+{
+  "archived_at": "2026-07-23T05:17:44.355Z",
+  "capabilities": [],
+  "change_hash": "5a74391db744f3f92906eba7332f9a2a4bcac8db9db7574334ed0fa557555d72",
+  "change_id": "fixFreshSpawnCooldown",
+  "completed_tasks": 7,
+  "created_at": "2026-07-23T03:49:55.414Z",
+  "current_gate": "release",
+  "last_activity_at": "2026-07-23T05:15:38.762Z",
+  "lifecycle_state": "open",
+  "status": "archived",
+  "summary_hash": "470bd50f3060b14d633e0a8e734e51bc8330a86ee3ad95ff8a3108d4a12fff69",
+  "task_count": 8,
+  "title": "Fix fresh spawn cooldown",
+  "version": "1"
+}

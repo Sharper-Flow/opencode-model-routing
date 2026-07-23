@@ -1,0 +1,1701 @@
+{
+  "id": "fixFreshSpawnCooldown",
+  "title": "Fix fresh spawn cooldown",
+  "status": "archived",
+  "lifecycleState": "open",
+  "created_at": "2026-07-23T03:49:55.414Z",
+  "tasks": [
+    {
+      "id": "tk-fc058ca3f7ac",
+      "title": "T1: Plumb structural agent identity (input.agent → session.get.agent → message scan)",
+      "type": "code",
+      "status": "done",
+      "priority": 0,
+      "created_at": "2026-07-23T04:21:17.100Z",
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC5"
+        ],
+        "respects": [
+          "C2",
+          "C3",
+          "C4"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:26:30.538Z",
+      "verification": "TDD evidence: RED recorded (tr_mrx0ilvb_edff3e79; regression assertions failed pre-fix after dependency setup); GREEN bun run test -- test/plugin.test.ts passed 75/75 (tr_mrx0m1fx_90549328); typecheck passed (tr_mrx0lgn0_848ab195).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added optional agent to normalized chat-message input. Refactored session metadata read so it caches parentID-derived isSubagent and persisted agent together; detectSubagent reuses that cache. handleChatMessage now prefers/cache input.agent, falls back to session metadata, then message history. Added fresh-empty-history tests for hook and session-record paths.",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/plugin.test.ts"
+      ],
+      "checkpointSha": "acc7d470982d360976dba898f49570a797246738",
+      "completedAt": "2026-07-23T04:32:35.503Z",
+      "completed_at": "2026-07-23T04:32:35.503Z",
+      "notes": "Completed T1. Structural identity precedence now caches hook input.agent first, then session.get().agent via the shared cached session identity fetch, then committed-message scan last. One session.get maximum for metadata fallback; failures remain fail-open.",
+      "updatedAt": "2026-07-23T04:32:45.446Z"
+    },
+    {
+      "id": "tk-90075044b57e",
+      "title": "T2: Fix both first-dispatch paths to redirect on fresh spawns",
+      "type": "code",
+      "status": "done",
+      "priority": 1,
+      "created_at": "2026-07-23T04:21:28.186Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-fc058ca3f7ac"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC8"
+        ],
+        "respects": [
+          "AC7",
+          "DONT2"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "provenance": "reclassified"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:33:07.854Z",
+      "tdd_reclassification": {
+        "from_intent": "inline",
+        "to_intent": "separate_verification",
+        "reason": "T1’s structural identity plumbing enabled both existing first-dispatch helpers before T2 began; a T2 RED test would be manufactured. T2 retains focused regression coverage while T5 owns independent fresh-spawn verification.",
+        "approved_by_user": true,
+        "approval_evidence": "User approved via question tool: Reclassify (Recommended).",
+        "approved_at": "2026-07-23T04:36:18.276Z"
+      },
+      "updatedAt": "2026-07-23T05:05:16.715Z",
+      "verification": "Acceptance-review remediation under T2 separate-verification: metadata-only fresh-child integration test passed 4/4 (tr_mrx1rh5e_49f44bb7); typecheck passed (tr_mrx1rw09_2264c1ca).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Extended fresh-spawn production-context suite with a cooled, empty-history child whose chat.message omits agent while session.get returns adv-engineer; asserts first healthy fallback, exactly one session.get, zero message reads, and zero replay calls.",
+      "filesTouched": [
+        "plugin/test/fresh-spawn-cooldown.test.ts"
+      ],
+      "touched_files": [
+        "plugin/test/fresh-spawn-cooldown.test.ts"
+      ],
+      "checkpointSha": "c57a87a3a20cc11390fdd567d10398567e308804",
+      "completedAt": "2026-07-23T05:05:06.662Z",
+      "completed_at": "2026-07-23T05:05:06.662Z",
+      "notes": "Acceptance-review remediation complete: added metadata-only (no hook agent) fresh-child redirect integration coverage, proving session.get().agent alone drives pre-dispatch fallback."
+    },
+    {
+      "id": "tk-d86d17bb3bc4",
+      "title": "T3: Identity-unavailable deterministic behavior (never silent cooled dispatch)",
+      "type": "code",
+      "status": "done",
+      "priority": 2,
+      "created_at": "2026-07-23T04:21:37.547Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-fc058ca3f7ac"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC6"
+        ],
+        "respects": [
+          "DONT3",
+          "C2"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:39:56.337Z",
+      "verification": "TDD RED bun run test -- test/preemptive.test.ts recorded three expected failures (tr_mrx0x0ta_906d3413). GREEN passed 8/8 after implementation (tr_mrx0z1s6_266d0016); typecheck passed (tr_mrx0y4v4_b6a81383). Formatted touched files only.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Refactored preemptive selection to inspect the current model before agent-chain lookup. Added deterministic unique-chain fallback and ambiguity/zero-match error logging for known-cooled models with unavailable identity, plus regression tests for all three branches.",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/preemptive.ts",
+        "plugin/test/availability-preflight.test.ts",
+        "plugin/test/plugin.test.ts",
+        "plugin/test/preemptive.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/src/preemptive.ts",
+        "plugin/test/availability-preflight.test.ts",
+        "plugin/test/plugin.test.ts",
+        "plugin/test/preemptive.test.ts"
+      ],
+      "checkpointSha": "bd46cf6cad3596fe220ca14ffdf9836b02be9ccf",
+      "completedAt": "2026-07-23T04:42:47.028Z",
+      "completed_at": "2026-07-23T04:42:47.028Z",
+      "notes": "Completed T3. Unknown identity now routes only when exactly one configured chain structurally contains the cooled model; zero/multiple matches produce an explicit error-level non-silent dispatch log and never select another agent's chain.",
+      "updatedAt": "2026-07-23T04:42:55.637Z"
+    },
+    {
+      "id": "tk-380c02a1a53b",
+      "title": "T4: TTFT stalled sub-agent abort — hand control back to parent",
+      "type": "code",
+      "status": "done",
+      "priority": 3,
+      "created_at": "2026-07-23T04:21:49.080Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-fc058ca3f7ac"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "inline"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC9"
+        ],
+        "respects": [
+          "DONT5",
+          "C1"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:43:07.712Z",
+      "verification": "TDD RED: TTFT child-abort assertion failed pre-fix (tr_mrx10aig_4c5104c0). GREEN: bun run test -- test/ttft-subagent-aware.test.ts test/subagent-fallover-flow.test.ts passed 13/13 (tr_mrx114ar_c1258146). Typecheck passed (tr_mrx11euk_87569de2).",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "handleTtftTimeout inspects attemptFallback's subagentSkipped result and issues one best-effort session.abort only for a subagent TTFT stall. Abort failures are logged and do not crash routing. Added regression asserting abort while preserving no replay calls.",
+      "filesTouched": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/ttft-subagent-aware.test.ts"
+      ],
+      "touched_files": [
+        "plugin/src/plugin-internal.ts",
+        "plugin/test/ttft-subagent-aware.test.ts"
+      ],
+      "checkpointSha": "7b65e2cb7a6bc1c25b07fc402f3320094583ee48",
+      "completedAt": "2026-07-23T04:44:43.050Z",
+      "completed_at": "2026-07-23T04:44:43.050Z",
+      "notes": "Completed T4. TTFT-only subagent short-circuit now aborts the stalled child after successful cooldown marking/selection, so parent background wait receives terminal cancellation. Session-error subagent path remains no-OMR-abort.",
+      "updatedAt": "2026-07-23T04:44:51.855Z"
+    },
+    {
+      "id": "tk-d6703e6df743",
+      "title": "T5: Core regression suite (AC1-AC4 + task_id resume) through production createPluginContext()",
+      "type": "code",
+      "status": "done",
+      "priority": 4,
+      "created_at": "2026-07-23T04:22:01.827Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-90075044b57e"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-d86d17bb3bc4"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "separate_verification"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC1",
+          "AC2",
+          "AC3",
+          "AC4"
+        ],
+        "respects": [
+          "DONT1",
+          "DONT2"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "provenance": "reclassified"
+      },
+      "tdd_reclassification": {
+        "from_intent": "inline",
+        "to_intent": "separate_verification",
+        "reason": "T1/T2 already implemented the structural identity behavior before the independent AC1–AC4 regression suite is added; a T5 RED run would be manufactured. T5 provides honest post-implementation regression verification.",
+        "approved_by_user": true,
+        "approval_evidence": "User approved via question tool: Reclassify (Recommended).",
+        "approved_at": "2026-07-23T04:46:59.309Z"
+      },
+      "updatedAt": "2026-07-23T04:50:17.813Z",
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:47:04.126Z",
+      "verification": "User-approved separate-verification reclassification. New production createPluginContext suite bun run test -- test/fresh-spawn-cooldown.test.ts passed 3/3 (tr_mrx15xad_432b133b); typecheck passed (tr_mrx18onj_29af0fa9). Tests deliberately use empty messages, structural input/session metadata, same-process active cooldown, fresh-context persisted read-through, and a resumed-child-shaped first hook.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Added fresh-spawn-cooldown.test.ts using real createPluginContext and an isolated persistent cooldown path. It proves pre-dispatch fallback selection with no committed messages/provider replay calls for same-process state, cross-context read-through, and resumed-child-shaped first hook.",
+      "filesTouched": [
+        "plugin/test/fresh-spawn-cooldown.test.ts"
+      ],
+      "touched_files": [
+        "plugin/test/fresh-spawn-cooldown.test.ts"
+      ],
+      "checkpointSha": "80dc5029a8a3f4a57e9f21cd044cbbb9d53548bb",
+      "completedAt": "2026-07-23T04:50:09.523Z",
+      "completed_at": "2026-07-23T04:50:09.523Z",
+      "notes": "Completed T5 after user-approved separate-verification reclassification. Production-context suite validates same-process and persisted fresh-context cooldown redirects with empty history and structural child metadata."
+    },
+    {
+      "id": "tk-816c2ec78f31",
+      "title": "T6: Adjacent-path scan + document why previous tests passed",
+      "type": "docs",
+      "status": "done",
+      "priority": 5,
+      "created_at": "2026-07-23T04:22:13.031Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-fc058ca3f7ac"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "implements": [
+          "AC11",
+          "AC12"
+        ]
+      },
+      "evidence_policy": "review",
+      "evidence_plan": {
+        "policy": "review",
+        "proof_target": "Structured review conclusion",
+        "rationale": "Analysis/documentation deliverable (why-old-tests-passed narrative + adjacent-path scan findings); reviewer-owned verification, not test-bearing.",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:37:29.509Z",
+      "verification": "adv-researcher T6 report submitted (scope researcher:adjacent-first-dispatch-scan, attempt 2): CAUTION/no additional first-dispatch gap. Findings persisted to executive summary; no worktree files changed.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Documented that archived respawn tests pre-seeded messagesWithAgent(AGENT), masking the fresh-hook race, and that scenario 5 only tested later error cooldown marking. Classified preemptive/availability as fixed first-dispatch gates; TTFT/failure/replay/config paths are not initial provider selection gates.",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "80dc5029a8a3f4a57e9f21cd044cbbb9d53548bb",
+      "completedAt": "2026-07-23T04:50:29.081Z",
+      "completed_at": "2026-07-23T04:50:29.081Z",
+      "notes": "Completed T6. Independent researcher scan found no additional first-dispatch message-history timing gate after T1/T2; prior-test masking explanation and scan classification persisted.",
+      "updatedAt": "2026-07-23T04:50:37.968Z"
+    },
+    {
+      "id": "tk-ef2e0aaaba8d",
+      "title": "T7: Full verification — focused RED/GREEN then full repo check green",
+      "type": "verification",
+      "status": "done",
+      "priority": 6,
+      "created_at": "2026-07-23T04:22:44.245Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-90075044b57e"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-d86d17bb3bc4"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-380c02a1a53b"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-d6703e6df743"
+        },
+        {
+          "type": "blocked_by",
+          "target": "tk-816c2ec78f31"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable"
+      },
+      "contract_refs": {
+        "verifies": [
+          "AC10",
+          "AC7"
+        ],
+        "respects": [
+          "C6"
+        ]
+      },
+      "evidence_policy": "test",
+      "evidence_plan": {
+        "policy": "test",
+        "proof_target": "Automated red/green tests evidenced by adv_run_test",
+        "stage": "stage-v2",
+        "provenance": "new"
+      },
+      "updatedAt": "2026-07-23T05:14:11.443Z",
+      "assignedTo": "agent",
+      "started_at": "2026-07-23T04:50:50.083Z",
+      "verification": "Acceptance readiness recovery: authoritative direct full suite rerun passed 395/395 across 24 files (tr_mrx236x0_d4d6b324). Reviewer READY after metadata-only integration regression. Typecheck/lint/build prior evidence remains green; formatter stop classified baseline drift.",
+      "summary": "Task checkpoint completed",
+      "implementation_summary": "Latest authoritative verification: bun run test passed 395/395 across 24 files. Independent reviewer READY; typecheck/lint/build prior evidence remains green.",
+      "filesTouched": [],
+      "touched_files": [],
+      "checkpointSha": "c57a87a3a20cc11390fdd567d10398567e308804",
+      "completedAt": "2026-07-23T05:14:04.506Z",
+      "completed_at": "2026-07-23T05:14:04.506Z",
+      "notes": "Acceptance readiness recovery complete: direct full suite refreshed to 395/395 after metadata-only review remediation; baseline formatter drift remains classified and unrelated.",
+      "subagent_reports": [
+        {
+          "schema_version": "1.0",
+          "change_id": "fixFreshSpawnCooldown",
+          "attempt": 2,
+          "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown",
+          "task_id": "tk-ef2e0aaaba8d",
+          "scope": {
+            "kind": "task",
+            "task_id": "tk-ef2e0aaaba8d"
+          },
+          "agent": "adv-reviewer",
+          "phase": "review",
+          "verdict": "NEEDS_WORK",
+          "blocking_findings": [],
+          "nonblocking_findings": [
+            {
+              "id": "review-coverage-1",
+              "label": "suggestion",
+              "file": "plugin/test/fresh-spawn-cooldown.test.ts",
+              "line": 52,
+              "what": "Fresh-child cooldown redirect coverage always supplies hook input.agent; the session.get().agent fallback is only tested for identity caching, not for the cooled-primary redirect outcome.",
+              "why": "AC1/AC5 require the ordered structural sources to support first dispatch. The implementation path is correct on inspection, but a direct regression would prevent a future refactor from retaining metadata resolution while bypassing preemptive redirect.",
+              "fix": "Add a fresh empty-history regression that omits input.agent, returns sessionInfo.agent, and asserts fallback mutation, one session.get call, and zero session.messages/provider recovery calls."
+            }
+          ],
+          "changes_made": [],
+          "wisdom_candidates": [
+            {
+              "type": "pattern",
+              "content": "Fresh-session routing needs an integration assertion per structural identity source: testing metadata resolution alone does not prove pre-dispatch redirect remains wired through that source."
+            }
+          ],
+          "verification": {
+            "tests_run": [
+              "bun run --cwd plugin test",
+              "bun run --cwd plugin typecheck && bun run --cwd plugin lint && bun run --cwd plugin build",
+              "bun run --cwd plugin format:check"
+            ],
+            "results": "pass",
+            "evidence": "394/394 tests across 24 files passed (10.47s; adv_run_test tr_mrx1p4yx_f6835f97). Typecheck, ESLint, and tsup build passed (tr_mrx1pfid_e0fb1ecc). format:check exited 1 only for plugin/test/detection.test.ts, package-contract.test.ts, production-wiring.test.ts, and subagent-fallover-flow.test.ts; git diff main...HEAD shows none of those four files changed, confirming pre-existing untouched formatter drift."
+          },
+          "scope_drift": null,
+          "risks": [
+            "CAUTION: metadata-identity-to-preemptive-redirect integration test is absent; implementation inspection confirms input.agent → readSessionIdentity(session.get().agent) → message-history fallback and reuse of the cached session.get result.",
+            "Release is not complete after acceptance: agreement retains post-merge deploy from merged default branch via scripts/deploy-local.sh --fix, OpenCode restart, and fresh-session live adv-engineer spawn evidence under a naturally active primary cooldown.",
+            "No OpenCode-core source or dependency files changed: main...HEAD diff is limited to plugin implementation/tests."
+          ],
+          "required_main_agent_actions": [
+            "User acceptance may proceed with CAUTION; surface review-coverage-1 as non-blocking regression-hardening work.",
+            "Do not mark release complete until the agreement's mandatory post-merge deploy/restart/live-spawn evidence is recorded. Perform deployment only from merged default branch.",
+            "Optionally add the metadata-only fresh-child redirect regression before release; no scope or agreement change is required."
+          ],
+          "consumer_warnings": [
+            {
+              "kind": "verification_missing",
+              "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin test"
+            },
+            {
+              "kind": "verification_missing",
+              "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin typecheck && bun run --cwd plugin lint && bun run --cwd plugin build"
+            },
+            {
+              "kind": "verification_missing",
+              "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin format:check"
+            }
+          ]
+        },
+        {
+          "schema_version": "1.0",
+          "change_id": "fixFreshSpawnCooldown",
+          "attempt": 3,
+          "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown",
+          "task_id": "tk-ef2e0aaaba8d",
+          "scope": {
+            "kind": "task",
+            "task_id": "tk-ef2e0aaaba8d"
+          },
+          "agent": "adv-reviewer",
+          "phase": "review",
+          "verdict": "READY",
+          "blocking_findings": [],
+          "nonblocking_findings": [],
+          "changes_made": [],
+          "wisdom_candidates": [],
+          "verification": {
+            "tests_run": [
+              "bun run --cwd plugin test -- test/fresh-spawn-cooldown.test.ts",
+              "bun run --cwd plugin typecheck"
+            ],
+            "results": "pass",
+            "evidence": "Remediation test passed: 4/4 tests, 0 failures, including metadata-only fresh child with empty history, one session.get, zero messages/prompt calls (adv_run_test tr_mrx1svj8_4b5d5af6). Typecheck passed (tr_mrx1swz2_26fbd55a). Source inspection confirms the new test omits input.agent and obtains adv-engineer only from MockClient session.get metadata before asserting cooled-primary redirect a/one → b/two."
+          },
+          "scope_drift": null,
+          "risks": [
+            "Release remains pending: after merge, deploy only from merged default branch with scripts/deploy-local.sh --fix; restart OpenCode; then record fresh-session live adv-engineer spawn evidence under naturally active primary cooldown."
+          ],
+          "required_main_agent_actions": [
+            "Acceptance may proceed: prior metadata-only structural identity integration gap is closed.",
+            "Retain and execute agreement release obligations after merge; do not claim release completion beforehand."
+          ],
+          "consumer_warnings": [
+            {
+              "kind": "verification_missing",
+              "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin test -- test/fresh-spawn-cooldown.test.ts"
+            },
+            {
+              "kind": "verification_missing",
+              "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin typecheck"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tk-4fafc36afe6c",
+      "title": "T8 (RELEASE-PHASE): Deploy from merged default + live fresh-spawn verification",
+      "type": "ops",
+      "status": "cancelled",
+      "priority": 7,
+      "created_at": "2026-07-23T04:23:40.606Z",
+      "deps": [
+        {
+          "type": "blocked_by",
+          "target": "tk-ef2e0aaaba8d"
+        }
+      ],
+      "metadata": {
+        "tdd_intent": "not_applicable",
+        "release_phase": "true"
+      },
+      "contract_refs": {
+        "respects": [
+          "C1",
+          "C5"
+        ]
+      },
+      "evidence_policy": "stakeholder_acceptance",
+      "evidence_plan": {
+        "policy": "stakeholder_acceptance",
+        "proof_target": "Stakeholder acceptance evidence",
+        "rationale": "Release-phase deploy + live production verification; evidence is operator-run deploy + session-DB/log observation in a fresh session, not an automated unit test.",
+        "provenance": "new",
+        "stage": "stage-v2"
+      },
+      "cancelApproval": "User approved via question tool: Approve cancellation. Retain release obligation; remove only the misclassified execution task. Reused for immediate bookkeeping re-cancellation after stale ref removal.",
+      "cancelledAt": "2026-07-23T04:59:35.239Z",
+      "completed_at": "2026-07-23T04:59:35.239Z",
+      "cancellation": {
+        "reason": "Bookkeeping recovery complete: task shell remains misclassified release-gate/post-merge work. Stale AC13/AC14 refs were removed after their lifecycle reclassification; mandatory release obligations remain in agreement.",
+        "approved_by_user": true,
+        "approval_evidence": "User approved via question tool: Approve cancellation. Retain release obligation; remove only the misclassified execution task. Reused for immediate bookkeeping re-cancellation after stale ref removal.",
+        "approved_at": "2026-07-23T04:59:35.239Z"
+      },
+      "notes": "Temporary bookkeeping recovery only: reopen canceled T8 to remove stale AC13/AC14 refs after their lifecycle reclassification. It will be immediately re-cancelled under the user's prior explicit approval; no release work is canceled.",
+      "updatedAt": "2026-07-23T04:59:28.632Z"
+    }
+  ],
+  "subagent_reports": [
+    {
+      "schema_version": "1.0",
+      "change_id": "fixFreshSpawnCooldown",
+      "attempt": 1,
+      "workdir_used": "/home/jon/dev/opencode-model-routing",
+      "scope": {
+        "kind": "change",
+        "scope_key": "researcher:design-validation"
+      },
+      "agent": "adv-researcher",
+      "topic": "Design validation: fresh sub-agent identity and TTFT handoff",
+      "sources": [
+        {
+          "label": "OpenCode 1.18.4 version basis",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/package.json#L1-L4",
+          "summary": "Fetched source reports packages/opencode version 1.18.4 at commit 92cede0541305a99579b0575b79297089d37e6da."
+        },
+        {
+          "label": "Task creation and prompt identity propagation",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/tool/task.ts#L151-L214",
+          "summary": "Task creates a child session with agent: next.name and calls prompt with agent: next.name."
+        },
+        {
+          "label": "chat.message hook contract and invocation",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/plugin/src/index.ts#L232-L244",
+          "summary": "Hook input declares agent?: string."
+        },
+        {
+          "label": "chat.message hook invocation",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/session/prompt.ts#L997-L1011",
+          "summary": "Prompt invokes chat.message with agent: input.agent before provider work."
+        },
+        {
+          "label": "Session persistence and loading",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/session/session.ts#L78-L91",
+          "summary": "Loaded Session.Info includes agent: row.agent ?? undefined."
+        },
+        {
+          "label": "Session persistence mapping",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/session/session.ts#L119-L135",
+          "summary": "toRow persists agent: info.agent."
+        },
+        {
+          "label": "Task background wait terminal handling",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/tool/task.ts#L273-L346",
+          "summary": "Child job id is child session id; parent wait maps cancelled child status to Task failed."
+        },
+        {
+          "label": "Session cancellation and background-job cancellation",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/opencode/src/session/run-state.ts#L72-L147",
+          "summary": "Session cancellation cancels matching running background jobs, including jobs whose id/sessionId/parentSessionId links to the target."
+        },
+        {
+          "label": "Core background-job terminal semantics",
+          "locator": "https://github.com/sst/opencode/blob/92cede0541305a99579b0575b79297089d37e6da/packages/core/src/background-job.ts#L292-L360",
+          "summary": "cancel marks a job cancelled, resolves its done Deferred, closes its scope; wait awaits that Deferred."
+        },
+        {
+          "label": "Current OMR identity and timeout code",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/plugin-internal.ts#L235-L403",
+          "summary": "Normalization currently drops input.agent; handler uses message history only; TTFT subagent path only short-circuits fallback."
+        },
+        {
+          "label": "Current OMR preflight gates",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/preemptive.ts#L20-L97",
+          "summary": "Preemptive redirect returns without an agent name."
+        },
+        {
+          "label": "Current OMR availability gate",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/src/availability/preflight.ts#L23-L82",
+          "summary": "Availability preflight likewise returns without an agent name."
+        },
+        {
+          "label": "Current OMR tests",
+          "locator": "file:///home/jon/dev/opencode-model-routing/plugin/test/subagent-fallover-flow.test.ts#L85-L240",
+          "summary": "Existing respawn tests seed committed agent-bearing messages; scenario 5 demonstrates only post-error cooldown marking."
+        }
+      ],
+      "architecture_assessment": "Verdict CAUTION. Claims 1 and 2 are confirmed at upstream commit 92cede0541305a99579b0575b79297089d37e6da, whose fetched package version is 1.18.4. Hook-agent → persisted session-agent → history precedence is sound and structural; reuse of the one session.get response is safe if its unwrap/shape failure stays fail-open. Both current pre-dispatch helpers demonstrably early-return when agentName is absent. Core source is readable, not opaque: session cancellation cancels the child background job and resolves parent background.wait with cancelled. However TaskTool converts cancelled to a Task failure, not an automatic replacement spawn; parent re-spawn depends on the parent model/tool loop and needs live integration proof. Model-key-only chain selection is structurally data-driven but ambiguous whenever the cooled key occurs in multiple chains; Map/config order can be repeatable yet select another agent policy, so it is not sufficiently deterministic semantically without a collision rule.",
+      "validation": {
+        "status": "caution",
+        "blockers": [],
+        "notes": "No source conflict for identity claims. Caution: do not claim abort guarantees parent re-spawn. It guarantees child Task terminal cancellation in core; actual replacement remains an integration behavior. Define and test collision behavior for model key appearing in multiple configured chains, and add resumed task_id coverage before accepting AC5/AC8."
+      },
+      "architecture_judgement": {
+        "applicability": "applicable",
+        "confidence": "high",
+        "risk": "medium",
+        "tradeoffs": [
+          "Using hook input avoids latency and fresh-history races, while session.get adds resilience when hook identity is absent but requires careful single-fetch result sharing.",
+          "A model-key fallback prevents silent known-cooled dispatch but cannot reliably preserve agent-specific fallback policy if identical model keys appear in multiple chains.",
+          "Aborting a stalled child releases the core background wait, but presents a Task failure to the parent rather than a core-created replacement."
+        ],
+        "alternatives_considered": [
+          {
+            "option": "Message-history-only identity",
+            "disposition": "rejected",
+            "rationale": "Fresh child history is empty at chat.message, while upstream supplies both hook agent and persisted session agent before dispatch."
+          },
+          {
+            "option": "Always select first configured chain containing cooled model",
+            "disposition": "deferred",
+            "rationale": "Repeatable config order is not semantic identity; duplicate model membership can route using a different agent chain."
+          },
+          {
+            "option": "Abort + OMR child replay on TTFT",
+            "disposition": "rejected",
+            "rationale": "After child abort, parent Task wait resolves cancelled; replaying the child would be orphaned relative to parent task control."
+          },
+          {
+            "option": "Abort child then assume core re-spawns it",
+            "disposition": "rejected",
+            "rationale": "TaskTool maps cancelled to an error; source contains no automatic Task replacement."
+          }
+        ],
+        "recommendation": "Proceed with hook-agent → shared session.get.agent → history precedence. Build a reverse model-membership index and make duplicate membership an explicit validated/error policy rather than silently choosing a chain. On TTFT, abort the child after cooldown marking; phrase the guarantee as terminal Task cancellation, and prove parent retry/re-spawn with a live/integration test."
+      },
+      "recommendation": "Implement precedence in normalizeChatMessageInput/handleChatMessage and share one session.get payload with detectSubagent. Fix both early-return helpers. Add fresh-empty-history tests through createPluginContext for same-process and read-through cooldown. Add task_id-resume and duplicate-model-chain tests. For TTFT, test source-backed abort → cancelled wait and separately live-test whether the parent agent reissues Task; document no automatic core respawn guarantee.",
+      "follow_ups": [
+        "Version evidence differs from packet's approximate fada1a5: codesearch fetched 92cede0541305a99579b0575b79297089d37e6da, which itself declares 1.18.4. Record the exact validated SHA.",
+        "Need live/integration evidence for the parent agent's behavior after Task receives cancelled; source proves terminal cancellation, not model-directed re-spawn.",
+        "Need explicit configuration/behavior policy for a cooled model key belonging to more than one agent chain.",
+        "Add a resumed task_id test because upstream prompt input uses current next.name whereas session metadata is creation-time agent; precedence selects hook identity, but intended resume semantics need proof."
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "fixFreshSpawnCooldown",
+      "attempt": 2,
+      "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown",
+      "scope": {
+        "kind": "change",
+        "scope_key": "researcher:adjacent-first-dispatch-scan"
+      },
+      "agent": "adv-researcher",
+      "topic": "AC11 prior-test mask and AC12 adjacent first-dispatch scan",
+      "sources": [
+        {
+          "label": "First-dispatch identity resolution and helper calls",
+          "locator": "file:///home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown/plugin/src/plugin-internal.ts#L354-L385",
+          "summary": "Hook agent is cached first, structural session metadata second, committed-message scan last; resolved identity feeds both first-dispatch helpers."
+        },
+        {
+          "label": "Cooldown preemptive first-dispatch gate",
+          "locator": "file:///home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown/plugin/src/preemptive.ts#L26-L35",
+          "summary": "Helper returns without agent identity, now supplied by T1/T2 structural sources."
+        },
+        {
+          "label": "Availability preflight first-dispatch gate",
+          "locator": "file:///home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown/plugin/src/availability/preflight.ts#L40-L53",
+          "summary": "Identical agent-identity gate; same resolved identity fixes fresh first-dispatch selection."
+        },
+        {
+          "label": "Prior-test seed and scenario 5 boundary",
+          "locator": "file:///home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown/plugin/test/subagent-fallover-flow.test.ts#L55-L62",
+          "summary": "messagesWithAgent seeds committed history with agent before legacy first-hook paths; scenario 5 uses empty history first, then commits messages before error."
+        },
+        {
+          "label": "Focused first-hook regressions",
+          "locator": "file:///home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown/plugin/test/plugin.test.ts#L139-L157",
+          "summary": "Fresh empty-history hook agent redirects cooled primary before dispatch."
+        }
+      ],
+      "architecture_assessment": "AC11: historical fallover tests passed because their setup seeded messagesWithAgent(AGENT) before the first chat.message, making the history-only resolver succeed. Scenario 5 proves currentModel is populated despite empty first-hook history and later cooldown marking works after messages appear; it does not prove an already-cooled primary redirects on that first hook. AC12: both first-dispatch gates—applyPreemptiveSkip and applyAvailabilityPreflight—are fixed by T1/T2 structural identity caching. Remaining agent-identity-unavailable behavior belongs to pending T3; no additional first-dispatch gate using the scanned identifiers was found.",
+      "validation": {
+        "status": "caution",
+        "blockers": [],
+        "notes": "No additional first-dispatch gap found. Caution remains only because T3 must define and test deterministic behavior when hook agent, session metadata agent, and committed history are all unavailable."
+      },
+      "architecture_judgement": {
+        "applicability": "applicable",
+        "confidence": "high",
+        "risk": "medium",
+        "tradeoffs": [
+          "Structural identity lookup adds bounded metadata work but eliminates reliance on eventually committed message history.",
+          "Identity-unavailable behavior must remain deterministic rather than guessing an agent chain."
+        ],
+        "alternatives_considered": [
+          {
+            "option": "Continue history-only agent resolution",
+            "disposition": "rejected",
+            "rationale": "Fresh-spawn first-hook history can be empty, as demonstrated by the masked test setup and scenario 5."
+          },
+          {
+            "option": "Infer an agent chain when identity is unavailable",
+            "disposition": "rejected",
+            "rationale": "Could route a request using the wrong agent configuration; T3 owns deterministic non-silent handling."
+          }
+        ],
+        "recommendation": "Record AC11 mask explanation and AC12 classifications. Complete T3 with a no-hook-agent/no-session-agent/empty-history cooled-primary regression; no further first-dispatch code-path change is indicated."
+      },
+      "recommendation": "Mark AC11/AC12 research evidence ready for documentation; retain CAUTION until T3 verification closes identity-unavailable behavior.",
+      "follow_ups": [
+        "Packet omitted TASK_SCOPE/IN_SCOPE/OUT_OF_SCOPE/DONE_WHEN/STOP_WHEN/VERIFICATION anchors; report is constrained to the explicit correction request."
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "fixFreshSpawnCooldown",
+      "attempt": 2,
+      "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown",
+      "task_id": "tk-ef2e0aaaba8d",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-ef2e0aaaba8d"
+      },
+      "agent": "adv-reviewer",
+      "phase": "review",
+      "verdict": "NEEDS_WORK",
+      "blocking_findings": [],
+      "nonblocking_findings": [
+        {
+          "id": "review-coverage-1",
+          "label": "suggestion",
+          "file": "plugin/test/fresh-spawn-cooldown.test.ts",
+          "line": 52,
+          "what": "Fresh-child cooldown redirect coverage always supplies hook input.agent; the session.get().agent fallback is only tested for identity caching, not for the cooled-primary redirect outcome.",
+          "why": "AC1/AC5 require the ordered structural sources to support first dispatch. The implementation path is correct on inspection, but a direct regression would prevent a future refactor from retaining metadata resolution while bypassing preemptive redirect.",
+          "fix": "Add a fresh empty-history regression that omits input.agent, returns sessionInfo.agent, and asserts fallback mutation, one session.get call, and zero session.messages/provider recovery calls."
+        }
+      ],
+      "changes_made": [],
+      "wisdom_candidates": [
+        {
+          "type": "pattern",
+          "content": "Fresh-session routing needs an integration assertion per structural identity source: testing metadata resolution alone does not prove pre-dispatch redirect remains wired through that source."
+        }
+      ],
+      "verification": {
+        "tests_run": [
+          "bun run --cwd plugin test",
+          "bun run --cwd plugin typecheck && bun run --cwd plugin lint && bun run --cwd plugin build",
+          "bun run --cwd plugin format:check"
+        ],
+        "results": "pass",
+        "evidence": "394/394 tests across 24 files passed (10.47s; adv_run_test tr_mrx1p4yx_f6835f97). Typecheck, ESLint, and tsup build passed (tr_mrx1pfid_e0fb1ecc). format:check exited 1 only for plugin/test/detection.test.ts, package-contract.test.ts, production-wiring.test.ts, and subagent-fallover-flow.test.ts; git diff main...HEAD shows none of those four files changed, confirming pre-existing untouched formatter drift."
+      },
+      "scope_drift": null,
+      "risks": [
+        "CAUTION: metadata-identity-to-preemptive-redirect integration test is absent; implementation inspection confirms input.agent → readSessionIdentity(session.get().agent) → message-history fallback and reuse of the cached session.get result.",
+        "Release is not complete after acceptance: agreement retains post-merge deploy from merged default branch via scripts/deploy-local.sh --fix, OpenCode restart, and fresh-session live adv-engineer spawn evidence under a naturally active primary cooldown.",
+        "No OpenCode-core source or dependency files changed: main...HEAD diff is limited to plugin implementation/tests."
+      ],
+      "required_main_agent_actions": [
+        "User acceptance may proceed with CAUTION; surface review-coverage-1 as non-blocking regression-hardening work.",
+        "Do not mark release complete until the agreement's mandatory post-merge deploy/restart/live-spawn evidence is recorded. Perform deployment only from merged default branch.",
+        "Optionally add the metadata-only fresh-child redirect regression before release; no scope or agreement change is required."
+      ],
+      "consumer_warnings": [
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin test"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin typecheck && bun run --cwd plugin lint && bun run --cwd plugin build"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin format:check"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "change_id": "fixFreshSpawnCooldown",
+      "attempt": 3,
+      "workdir_used": "/home/jon/.local/share/opencode/worktree/83d9c2be3d917269afb19d21ca172bdf6fbbbf29/change/fixFreshSpawnCooldown",
+      "task_id": "tk-ef2e0aaaba8d",
+      "scope": {
+        "kind": "task",
+        "task_id": "tk-ef2e0aaaba8d"
+      },
+      "agent": "adv-reviewer",
+      "phase": "review",
+      "verdict": "READY",
+      "blocking_findings": [],
+      "nonblocking_findings": [],
+      "changes_made": [],
+      "wisdom_candidates": [],
+      "verification": {
+        "tests_run": [
+          "bun run --cwd plugin test -- test/fresh-spawn-cooldown.test.ts",
+          "bun run --cwd plugin typecheck"
+        ],
+        "results": "pass",
+        "evidence": "Remediation test passed: 4/4 tests, 0 failures, including metadata-only fresh child with empty history, one session.get, zero messages/prompt calls (adv_run_test tr_mrx1svj8_4b5d5af6). Typecheck passed (tr_mrx1swz2_26fbd55a). Source inspection confirms the new test omits input.agent and obtains adv-engineer only from MockClient session.get metadata before asserting cooled-primary redirect a/one → b/two."
+      },
+      "scope_drift": null,
+      "risks": [
+        "Release remains pending: after merge, deploy only from merged default branch with scripts/deploy-local.sh --fix; restart OpenCode; then record fresh-session live adv-engineer spawn evidence under naturally active primary cooldown."
+      ],
+      "required_main_agent_actions": [
+        "Acceptance may proceed: prior metadata-only structural identity integration gap is closed.",
+        "Retain and execute agreement release obligations after merge; do not claim release completion beforehand."
+      ],
+      "consumer_warnings": [
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin test -- test/fresh-spawn-cooldown.test.ts"
+        },
+        {
+          "kind": "verification_missing",
+          "message": "Reviewer aggregate evidence is non-authoritative; no typed adv_run_test run ID proves command: bun run --cwd plugin typecheck"
+        }
+      ]
+    }
+  ],
+  "test_runs": {
+    "tk-fc058ca3f7ac": [
+      {
+        "runId": "tr_mrx0hyrc_a5bd7658",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test test/plugin.test.ts",
+        "durationMs": 55.357325999997556,
+        "recordedAt": "2026-07-23T04:29:15.237Z"
+      },
+      {
+        "runId": "tr_mrx0ilvb_edff3e79",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test test/plugin.test.ts",
+        "durationMs": 4005.711712999735,
+        "recordedAt": "2026-07-23T04:29:45.175Z"
+      },
+      {
+        "runId": "tr_mrx0jr5x_51ef753c",
+        "phase": "green",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun test test/plugin.test.ts",
+        "durationMs": 4016.0966249997728,
+        "recordedAt": "2026-07-23T04:30:38.680Z"
+      },
+      {
+        "runId": "tr_mrx0l2wg_7f7cca7b",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/plugin.test.ts",
+        "durationMs": 4023.673051999882,
+        "recordedAt": "2026-07-23T04:31:40.571Z"
+      },
+      {
+        "runId": "tr_mrx0lgn0_848ab195",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 1937.7141069998033,
+        "recordedAt": "2026-07-23T04:31:58.365Z"
+      },
+      {
+        "runId": "tr_mrx0m1fx_90549328",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/plugin.test.ts",
+        "durationMs": 4013.071100999601,
+        "recordedAt": "2026-07-23T04:32:25.326Z"
+      }
+    ],
+    "tk-90075044b57e": [
+      {
+        "runId": "tr_mrx0rppu_2a13963e",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/plugin.test.ts test/availability-preflight.test.ts",
+        "durationMs": 4023.366359999869,
+        "recordedAt": "2026-07-23T04:36:50.073Z"
+      },
+      {
+        "runId": "tr_mrx1rh5e_49f44bb7",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/fresh-spawn-cooldown.test.ts",
+        "durationMs": 86.11574199981987,
+        "recordedAt": "2026-07-23T05:04:38.599Z"
+      },
+      {
+        "runId": "tr_mrx1rw09_2264c1ca",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 2122.8086329996586,
+        "recordedAt": "2026-07-23T05:04:57.846Z"
+      }
+    ],
+    "tk-d86d17bb3bc4": [
+      {
+        "runId": "tr_mrx0x0ta_906d3413",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun run test -- test/preemptive.test.ts",
+        "durationMs": 32.58937000017613,
+        "recordedAt": "2026-07-23T04:40:57.749Z"
+      },
+      {
+        "runId": "tr_mrx0xsps_a0917fed",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/preemptive.test.ts",
+        "durationMs": 32.02894299989566,
+        "recordedAt": "2026-07-23T04:41:33.892Z"
+      },
+      {
+        "runId": "tr_mrx0y4v4_b6a81383",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 1742.5925820004195,
+        "recordedAt": "2026-07-23T04:41:49.617Z"
+      },
+      {
+        "runId": "tr_mrx0z1s6_266d0016",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/preemptive.test.ts",
+        "durationMs": 39.425634999759495,
+        "recordedAt": "2026-07-23T04:42:32.306Z"
+      }
+    ],
+    "tk-380c02a1a53b": [
+      {
+        "runId": "tr_mrx10aig_4c5104c0",
+        "phase": "red",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun run test -- test/ttft-subagent-aware.test.ts",
+        "durationMs": 550.908400000073,
+        "recordedAt": "2026-07-23T04:43:30.263Z"
+      },
+      {
+        "runId": "tr_mrx114ar_c1258146",
+        "phase": "green",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/ttft-subagent-aware.test.ts test/subagent-fallover-flow.test.ts",
+        "durationMs": 560.5259129996412,
+        "recordedAt": "2026-07-23T04:44:08.869Z"
+      },
+      {
+        "runId": "tr_mrx11euk_87569de2",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 1860.7618909999728,
+        "recordedAt": "2026-07-23T04:44:22.546Z"
+      }
+    ],
+    "tk-d6703e6df743": [
+      {
+        "runId": "tr_mrx15xad_432b133b",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test -- test/fresh-spawn-cooldown.test.ts",
+        "durationMs": 73.8575740000233,
+        "recordedAt": "2026-07-23T04:47:53.092Z"
+      },
+      {
+        "runId": "tr_mrx18onj_29af0fa9",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run typecheck",
+        "durationMs": 1825.8534469995648,
+        "recordedAt": "2026-07-23T04:50:01.841Z"
+      }
+    ],
+    "tk-ef2e0aaaba8d": [
+      {
+        "runId": "tr_mrx1c0gp_7e909065",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test",
+        "durationMs": 10503.014746000059,
+        "recordedAt": "2026-07-23T04:52:37.116Z"
+      },
+      {
+        "runId": "tr_mrx1orp8_6ec90436",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun --cwd plugin run test",
+        "durationMs": 26.237561999820173,
+        "recordedAt": "2026-07-23T05:02:32.329Z"
+      },
+      {
+        "runId": "tr_mrx1p4yx_f6835f97",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run --cwd plugin test",
+        "durationMs": 10486.564740999602,
+        "recordedAt": "2026-07-23T05:02:49.472Z"
+      },
+      {
+        "runId": "tr_mrx1pc11_f5718f8e",
+        "phase": "verify",
+        "exitCode": 1,
+        "classification": "failed",
+        "command": "bun run --cwd plugin format:check",
+        "durationMs": 1314.50492199976,
+        "recordedAt": "2026-07-23T05:02:58.620Z"
+      },
+      {
+        "runId": "tr_mrx1pfid_e0fb1ecc",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run --cwd plugin typecheck && bun run --cwd plugin lint && bun run --cwd plugin build",
+        "durationMs": 5831.887419999577,
+        "recordedAt": "2026-07-23T05:03:03.159Z"
+      },
+      {
+        "runId": "tr_mrx1svj8_4b5d5af6",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run --cwd plugin test -- test/fresh-spawn-cooldown.test.ts",
+        "durationMs": 84.75071700010449,
+        "recordedAt": "2026-07-23T05:05:43.903Z"
+      },
+      {
+        "runId": "tr_mrx1swz2_26fbd55a",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run --cwd plugin typecheck",
+        "durationMs": 1924.8396789999679,
+        "recordedAt": "2026-07-23T05:05:45.757Z"
+      },
+      {
+        "runId": "tr_mrx236x0_d4d6b324",
+        "phase": "verify",
+        "exitCode": 0,
+        "classification": "passed",
+        "command": "bun run test",
+        "durationMs": 10487.702991999686,
+        "recordedAt": "2026-07-23T05:13:45.203Z"
+      }
+    ]
+  },
+  "deltas": {},
+  "wisdom": [
+    {
+      "id": "ws-BfTuAn",
+      "type": "gotcha",
+      "content": "OPENCODE VERSION-CONFUSION TRAP (root cause of repeated agent errors on opencode-core facts). Three divergent sources existed simultaneously: (1) deployed runtime `~/.opencode/bin/opencode` = 1.18.4; (2) local checkout `~/dev/opencode` = 1.17.18 on an anomalyco FORK, branch `dev`; (3) OMR plugin's bundled types `@opencode-ai/plugin@1.4.8`/`@opencode-ai/sdk@1.4.17`. Reading (2) or (3) as if they were the runtime produced a WRONG conclusion: the stale 1.4.17 SDK `Session` type omitted `agent`, leading to \"session.get can't return agent\" — which is FALSE at 1.18.4. RULE: for opencode-core facts, do NOT trust local checkouts or bundled node_modules SDK types. Delete stale `~/dev/opencode`. Use MCP codesearch (searchcode) against github.com/sst/opencode and PIN to the deployed version (check `opencode --version`, then verify packages/opencode/package.json version in the fetched result). Major 1.18+ changes make pre-1.18 sources actively misleading.",
+      "source_task": "discovery",
+      "recorded_at": "2026-07-23T04:09:43.552Z"
+    },
+    {
+      "id": "ws-I9IFEh",
+      "type": "pattern",
+      "content": "FRESH SUB-AGENT AGENT IDENTITY — authoritative sources at opencode 1.18.4 (codesearch-verified, commit fada1a5). A fresh sub-agent's agent name IS available pre-provider-dispatch via TWO structural sources: (1) chat.message hook `input.agent` — populated with the sub-agent name: Task tool calls `ops.prompt({agent: next.name})` (tool/task.ts:210) → `plugin.trigger(\"chat.message\", {agent: input.agent})` (session/prompt.ts:1002) → hook input type `{sessionID, agent?: string, model?, messageID?, variant?}` (packages/plugin/src/index.ts:237). (2) `session.get().agent` — the session record persists agent: created via `sessions.create({parentID, title, agent: next.name})` (tool/task.ts:160), loaded as `agent: row.agent ?? undefined` (session/session.ts:85-87), persisted `agent: info.agent` (session.ts:130). OMR bug: `resolveAgentName` (agent-resolver.ts) only reads committed `session.messages` (empty on fresh spawn → null), and `normalizeChatMessageInput` DISCARDS the hook `input.agent`. Fix priority: hook input.agent (free/sync) → session.get.agent (reuse detectSubagent's existing session.get call, no extra API) → message scan (last resort).",
+      "source_task": "discovery",
+      "recorded_at": "2026-07-23T04:09:50.116Z"
+    }
+  ],
+  "gates": {
+    "proposal": {
+      "status": "done",
+      "completed_at": "2026-07-23T03:52:23.052Z",
+      "completed_by": "user",
+      "approval_evidence": "User confirmed proposal + RCA. Defect-origin change; RCA source-verified against main. Fix surface: session.get identity resolution + preemptive cooldown before first dispatch + TTFT stall audit.",
+      "artifact_evidence": {
+        "kind": "proposal",
+        "content_hash": "670f516bba48b05a9da422913e1dfa2765b1589f95954932ef98f0d673d67097",
+        "non_whitespace_chars": 4451,
+        "checked_at": "2026-07-23T03:49:55.489Z"
+      }
+    },
+    "discovery": {
+      "status": "done",
+      "completed_at": "2026-07-23T04:14:00.176Z",
+      "completed_by": "user",
+      "approval_evidence": "Agreement approved. Typed contract minted (29 items: AC1-14, C1-6, DONT1-5, OOS1-4). Discovery findings persisted to design.md, version-pinned to opencode 1.18.4 via codesearch. Both identity sources (input.agent, session.get.agent) confirmed populated for fresh sub-agents. TTFT abort-propagation flagged as core-dependency for empirical proof.",
+      "artifact_evidence": {
+        "kind": "agreement",
+        "content_hash": "19ef6b7099728501926f6bc5b593d8d10228933187373ba25e959fb689047e13",
+        "non_whitespace_chars": 3522,
+        "checked_at": "2026-07-23T03:49:55.490Z"
+      }
+    },
+    "design": {
+      "status": "done",
+      "completed_at": "2026-07-23T04:20:13.650Z",
+      "completed_by": "agent",
+      "approval_evidence": "Mandatory adv-researcher validation: CAUTION (advisory, proceed with refinements). Claims 1-2 (both identity sources) independently confirmed @opencode 1.18.4 commit 92cede0. Claim 3 confirmed: session.abort→child job cancelled→background.wait terminal, BUT TaskTool maps cancelled→Task failure (no core auto-respawn). Three refinements folded into design.md: (1) identity-unavailable collision behavior — single-chain redirect / ambiguous→error-log non-silent, never pick wrong agent's chain; (2) TTFT honest boundary — OMR guarantees child-hands-back via abort, parent re-spawn proven live (AC13); (3) task_id resume coverage added. No CONFLICT, no contract compromise, no product tradeoff → no user checkpoint required.",
+      "artifact_evidence": {
+        "kind": "design",
+        "content_hash": "508c7ae4e782c3d5a4f517c84d969c7192e3bf8befd740a1ccfdfe3af2e8604a",
+        "non_whitespace_chars": 5208,
+        "checked_at": "2026-07-23T03:49:55.491Z"
+      }
+    },
+    "planning": {
+      "status": "done",
+      "completed_at": "2026-07-23T04:26:13.912Z",
+      "completed_by": "user",
+      "approval_evidence": "User approved 8-task graph. Worktree change/fixFreshSpawnCooldown materialized. Full contract coverage validated; spec delta dl-freshSpawnIdentity01 staged on change."
+    },
+    "execution": {
+      "status": "done",
+      "completed_at": "2026-07-23T05:00:13.917Z",
+      "completed_by": "agent",
+      "approval_evidence": "T1–T7 complete. Evidence: fresh structural identity/cooldown/availability/TTFT regressions; 394/394 full plugin tests; typecheck, lint, and build green. Full check’s only blocker is source-classified pre-existing formatting drift in four untouched tests. Release obligations remain mandatory and are correctly lifecycle-owned after merge, not execution tasks. Spec delta dl-freshSpawnIdentity01 re-recorded after contract recovery."
+    },
+    "acceptance": {
+      "status": "done",
+      "started_at": "2026-07-23T05:14:34.348Z",
+      "completed_at": "2026-07-23T05:15:38.762Z",
+      "completed_by": "user",
+      "approval_evidence": "Acceptance retry after explicit full-matrix persistence.",
+      "artifact_evidence": {
+        "kind": "acceptance",
+        "content_hash": "3508a540483eeb69287d19364fd308716976b08fd5106ecd0cae3b3b9e18d190",
+        "non_whitespace_chars": 2420,
+        "checked_at": "2026-07-23T03:49:55.495Z"
+      }
+    },
+    "release": {
+      "status": "pending"
+    }
+  },
+  "reentry_history": [
+    {
+      "from_gate": "acceptance",
+      "reason": "Clear acceptance readiness cache after correcting contract review-matrix coverage and refreshing authoritative T7 test evidence. No scope change.",
+      "scope_delta": "No scope change; acceptance readiness bookkeeping repaired after reviewer remediation.",
+      "reopened_by": "agent",
+      "reopened_at": "2026-07-23T05:14:27.550Z",
+      "gates_reset": [
+        "acceptance",
+        "release"
+      ]
+    }
+  ],
+  "origin": {
+    "kind": "adhoc"
+  },
+  "contract": {
+    "version": 1,
+    "rigor": "strict",
+    "source": {
+      "artifact": "agreement",
+      "contentHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+      "approvedAt": "2026-07-23T04:14:00.176Z"
+    },
+    "items": [
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "text": "**AC1 (core regression):** Fresh child + existing active primary cooldown + EMPTY session message history at first `chat.message` + session metadata identifies `adv-engineer` → `output.message.model` changes to the first healthy fallback BEFORE dispatch, and the cooled primary receives NO provider request. Test must NOT seed `messagesWithAgent(AGENT)` for the first hook.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "text": "**AC2:** AC1 driven through the real production `createPluginContext()` path (not an injected mock).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "text": "**AC3:** Same-process persisted-cooldown case covered.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "text": "**AC4:** Fresh-context / cross-process read-through cooldown case covered.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "text": "**AC5:** Agent identity resolved from a structural source — `chat.message` `input.agent` primary, `session.get().agent` authoritative fallback — verified populated for fresh sub-agents. No heuristic inference (P33).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "text": "**AC6:** Identity-unavailable behavior is deterministic and tested: never silently dispatch a model known to be cooled.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "text": "**AC7:** Ordered first-healthy fallback selection preserved (existing `resolveFallbackModel` semantics unchanged).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "text": "**AC8:** Both first-dispatch paths fixed — `applyPreemptiveSkip` AND `applyAvailabilityPreflight` (identical `if (!agentName) return` defect).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC9",
+        "kind": "acceptance_criterion",
+        "text": "**AC9 (TTFT):** TTFT-stalled sub-agent handoff audited and proven. OMR-owned lifecycle gap fixed so a stalled child hands control back and rollover is not blocked; regression test for TTFT-stalled sub-agent handoff. If a genuine core limitation remains, source-backed evidence + concrete upstream follow-up recorded — but every OMR-owned fix shipped.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC10",
+        "kind": "acceptance_criterion",
+        "text": "**AC10:** All existing plugin tests pass unchanged; full repository check green or a source-backed classification of pre-existing unrelated hygiene drift is recorded.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC11",
+        "kind": "acceptance_criterion",
+        "text": "**AC11:** Documented explanation of precisely why previous tests passed despite the production defect (the `messagesWithAgent` first-hook seeding mask).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "AC12",
+        "kind": "acceptance_criterion",
+        "text": "**AC12:** Adjacent first-dispatch paths scanned for the same message-history timing assumption; findings recorded.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "test",
+        "status": "approved"
+      },
+      {
+        "id": "C1",
+        "kind": "constraint",
+        "text": "**C1:** No opencode-core patch/fork/rebuild (global rule + req 7).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C2",
+        "kind": "constraint",
+        "text": "**C2:** Structural identity only — `input.agent` / `session.get().agent`. No heuristic inference.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C3",
+        "kind": "constraint",
+        "text": "**C3:** Fail-open — identity-resolution or `session.get` failure must never crash routing or block a healthy dispatch.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C4",
+        "kind": "constraint",
+        "text": "**C4:** Reuse `detectSubagent`'s existing `session.get` response for the agent fallback; no redundant API calls.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C5",
+        "kind": "constraint",
+        "text": "**C5:** Work only in the ADV-managed worktree; merge before deploy; deploy from merged default branch.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "C6",
+        "kind": "constraint",
+        "text": "**C6:** Route tests through `bin/oc-test` if present; otherwise cap Vitest/bun workers.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "static_check",
+        "status": "approved"
+      },
+      {
+        "id": "DONT1",
+        "kind": "avoidance",
+        "text": "**DONT1:** Do not seed `messagesWithAgent(AGENT)` for the first-hook regression tests.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT2",
+        "kind": "avoidance",
+        "text": "**DONT2:** Do not break existing preemptive redirect for primary sessions with committed history.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT3",
+        "kind": "avoidance",
+        "text": "**DONT3:** Do not silently dispatch a model known to be cooled.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT4",
+        "kind": "avoidance",
+        "text": "**DONT4:** Do not expand into unrelated OMR refactors or bump the SDK as part of this change.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "DONT5",
+        "kind": "avoidance",
+        "text": "**DONT5:** Do not leave TTFT sub-agent rollover permanently blocked.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": true,
+        "evidencePolicy": "review",
+        "status": "approved"
+      },
+      {
+        "id": "OOS1",
+        "kind": "out_of_scope",
+        "text": "Rewriting `resolveFallbackModel` ordered selection.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS2",
+        "kind": "out_of_scope",
+        "text": "Rewriting `CooldownStore` file protocol/locking.",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS3",
+        "kind": "out_of_scope",
+        "text": "Bumping `@opencode-ai/plugin`/`sdk` deps (separate follow-up).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      },
+      {
+        "id": "OOS4",
+        "kind": "out_of_scope",
+        "text": "Any opencode-core change (upstream follow-up only).",
+        "sourceArtifact": "agreement",
+        "sourceHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+        "verificationRequired": false,
+        "evidencePolicy": "not_applicable",
+        "status": "approved",
+        "notRequiredReason": "Out-of-scope contract item"
+      }
+    ],
+    "amendments": [],
+    "reviewMatrix": {
+      "reviewedAt": "2026-07-23T05:15:30.000Z",
+      "rows": [
+        {
+          "contractId": "AC1",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Same-process empty-history redirect."
+        },
+        {
+          "contractId": "AC2",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "createPluginContext coverage."
+        },
+        {
+          "contractId": "AC3",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Same-process cooldown."
+        },
+        {
+          "contractId": "AC4",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Persisted read-through."
+        },
+        {
+          "contractId": "AC5",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Hook and metadata identity coverage."
+        },
+        {
+          "contractId": "AC6",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Unique/zero/multiple chain coverage."
+        },
+        {
+          "contractId": "AC7",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Fallback order preserved."
+        },
+        {
+          "contractId": "AC8",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "Fresh preemptive/availability coverage."
+        },
+        {
+          "contractId": "AC9",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "TTFT abort coverage."
+        },
+        {
+          "contractId": "AC10",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "test",
+          "evidence": "395/395 full suite tr_mrx236x0_d4d6b324."
+        },
+        {
+          "contractId": "AC11",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "T6 review evidence."
+        },
+        {
+          "contractId": "AC12",
+          "kind": "acceptance_criterion",
+          "status": "pass",
+          "evidencePolicy": "review",
+          "evidence": "T6 scan evidence."
+        },
+        {
+          "contractId": "C1",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "source_audit",
+          "evidence": "No core changes."
+        },
+        {
+          "contractId": "C2",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Structural-only identity."
+        },
+        {
+          "contractId": "C3",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Fail-open handling."
+        },
+        {
+          "contractId": "C4",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "One session.get assertion."
+        },
+        {
+          "contractId": "C5",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "source_audit",
+          "evidence": "Worktree-only."
+        },
+        {
+          "contractId": "C6",
+          "kind": "constraint",
+          "status": "respected",
+          "evidencePolicy": "review",
+          "evidence": "Isolated Bun tests."
+        },
+        {
+          "contractId": "DONT1",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "source_audit",
+          "evidence": "No message seed."
+        },
+        {
+          "contractId": "DONT2",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Regression suite green."
+        },
+        {
+          "contractId": "DONT3",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "No ambiguity guessing."
+        },
+        {
+          "contractId": "DONT4",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "source_audit",
+          "evidence": "Targeted diff."
+        },
+        {
+          "contractId": "DONT5",
+          "kind": "avoidance",
+          "status": "respected",
+          "evidencePolicy": "test",
+          "evidence": "Child abort coverage."
+        }
+      ]
+    }
+  },
+  "acceptanceCriteria": [
+    "**AC1 (core regression):** Fresh child + existing active primary cooldown + EMPTY session message history at first `chat.message` + session metadata identifies `adv-engineer` → `output.message.model` changes to the first healthy fallback BEFORE dispatch, and the cooled primary receives NO provider request. Test must NOT seed `messagesWithAgent(AGENT)` for the first hook.",
+    "**AC2:** AC1 driven through the real production `createPluginContext()` path (not an injected mock).",
+    "**AC3:** Same-process persisted-cooldown case covered.",
+    "**AC4:** Fresh-context / cross-process read-through cooldown case covered.",
+    "**AC5:** Agent identity resolved from a structural source — `chat.message` `input.agent` primary, `session.get().agent` authoritative fallback — verified populated for fresh sub-agents. No heuristic inference (P33).",
+    "**AC6:** Identity-unavailable behavior is deterministic and tested: never silently dispatch a model known to be cooled.",
+    "**AC7:** Ordered first-healthy fallback selection preserved (existing `resolveFallbackModel` semantics unchanged).",
+    "**AC8:** Both first-dispatch paths fixed — `applyPreemptiveSkip` AND `applyAvailabilityPreflight` (identical `if (!agentName) return` defect).",
+    "**AC9 (TTFT):** TTFT-stalled sub-agent handoff audited and proven. OMR-owned lifecycle gap fixed so a stalled child hands control back and rollover is not blocked; regression test for TTFT-stalled sub-agent handoff. If a genuine core limitation remains, source-backed evidence + concrete upstream follow-up recorded — but every OMR-owned fix shipped.",
+    "**AC10:** All existing plugin tests pass unchanged; full repository check green or a source-backed classification of pre-existing unrelated hygiene drift is recorded.",
+    "**AC11:** Documented explanation of precisely why previous tests passed despite the production defect (the `messagesWithAgent` first-hook seeding mask).",
+    "**AC12:** Adjacent first-dispatch paths scanned for the same message-history timing assumption; findings recorded."
+  ],
+  "documents": {
+    "proposal": "# Fix fresh spawn cooldown\n\n## Root Cause Analysis\n\nDefect-origin change. Production evidence below is source-verified against `main`.\n\n### Observed production evidence\n- An unexpired persisted cooldown existed for `kimi-for-coding/kimi-for-coding`.\n- Fresh `adv-engineer` spawn `ses_072f9a527ffeM2p0i3cqbvkZsq` still selected `kimi-for-coding/kimi-for-coding`.\n- It returned the same quota HTTP 403.\n- The cooldown was renewed only after the redundant request.\n- Same-child retry previously selected `opencode-go/kimi-k2.7-code`, proving cooldown/fallback state becomes usable after message history exists.\n\n### Root cause chain (source-verified)\n1. `handleChatMessage()` (plugin-internal.ts:305) invokes `applyPreemptiveSkip()` (plugin-internal.ts:354).\n2. Preemptive selection depends on `resolveAgentName()` (preemptive.ts:33: `if (!input.agentName) return`).\n3. `resolveAgentName()` (agent-resolver.ts:31-39) only reads committed session messages via `client.session.messages()`.\n4. During a fresh child's first `chat.message`, message history can be empty or uncommitted.\n5. Agent resolution returns null, so `applyPreemptiveSkip()` exits at line 33 BEFORE consulting in-memory or persisted cooldown state (`store.health.isInCooldown` at line 41 is never reached).\n6. The exhausted primary therefore reaches the provider.\n7. The archived `wireCooldownStoreActivation` change fixed persistence wiring and recording `state.currentModel` before later `session.error` handling (plugin-internal.ts:329-336). It did NOT fix first-dispatch identity resolution.\n8. Its respawn tests incorrectly supplied `messagesWithAgent(AGENT)` (`subagent-fallover-flow.test.ts` lines 140, 171), unlike production first-hook timing.\n9. Its empty-history test (scenario 5) only proved that a later error creates a cooldown. It never tested fresh spawn + existing cooldown + empty history → preemptive redirect.\n\n### Verified fix surface\n- `client.session.get()` (already used by `detectSubagent`, plugin-internal.ts:290) returns session metadata available before provider dispatch. This is the authoritative structural source for agent identity on a fresh child — no heuristic inference.\n\n## User Outcomes\n\n- A freshly-spawned sub-agent whose primary model is already cooled (in-memory or persisted) starts on the first healthy fallback BEFORE the first provider request — never dispatches a model known to be cooled.\n- Cooldown state set by one process/sub-agent is honored by the very next fresh spawn, same-process and cross-process.\n- If authoritative agent identity is temporarily unavailable, behavior is deterministic and safe: never silently dispatch a cooled model.\n- A stalled TTFT sub-agent does not leave rollover permanently blocked.\n\n## Chosen Direction\n\n1. **Resolve fresh-child agent identity from session metadata** (`session.get`) before provider dispatch, not from committed messages. The session record is the authoritative structural source.\n2. **Apply global cooldown selection before the first provider request** — extend `applyPreemptiveSkip` / its caller so the cooldown check runs even when message-history-based resolution is unavailable.\n3. **Preserve ordered first-healthy fallback selection** (existing `resolveFallbackModel`).\n4. **Cover same-process and cross-process persisted cooldowns** (the read-through in `isInCooldown` already exists; the gap is reaching it).\n5. **Define deterministic identity-unavailable behavior** — never silently dispatch a model known cooled; safe no-op or explicit redirect depending on what identity IS available.\n6. **Audit the TTFT sub-agent path**: it marks the model unhealthy with no abort/recovery call (orchestrator.ts:224). Prove whether a stalled child can hand control back to the parent. Fix all OMR-owned lifecycle gaps so rollover is not left blocked.\n7. **No local core patch/rebuild.** If an unavoidable OpenCode-core limitation remains, produce source-backed evidence + a concrete upstream follow-up, but complete every OMR-owned fix.\n\n## Scope\n\n### In Scope\n- Fresh-child agent identity resolution from `session.get` metadata (before dispatch).\n- Cooldown-aware preemptive selection on the first `chat.message` of a fresh spawn.\n- Same-process and cross-process cooldown coverage.\n- Identity-unavailable deterministic behavior.\n- TTFT sub-agent stall lifecycle audit + OMR-owned fixes.\n- Regression tests that do NOT seed `messagesWithAgent(AGENT)` for the first-hook.\n- Scan of adjacent first-dispatch paths for the same message-history timing assumption.\n\n### Out of Scope\n- Rewriting `resolveFallbackModel` ordered-selection logic (reuse as-is).\n- Rewriting `CooldownStore` file protocol/locking (reuse as-is).\n- OpenCode core patch/rebuild (surface as upstream follow-up if needed).\n\n### Must Not\n- Must not use heuristic inference for agent identity (structural source only).\n- Must not silently dispatch a model already known to be cooled.\n- Must not break existing preemptive redirect for primary sessions with committed history.\n- Must not change the fail-open persistence contract.\n- Must not leave the TTFT sub-agent rollover permanently blocked.\n",
+    "agreement": "# Agreement — Fix fresh spawn cooldown\n\n## Objective\nA freshly-spawned sub-agent whose primary model is already in cooldown (in-memory OR persisted) starts on the first healthy fallback BEFORE the first provider request — resolving agent identity from a structural pre-dispatch source, never from committed message history, never heuristically. Fix all OMR-owned lifecycle gaps (including the TTFT-stall sub-agent path) so rollover is not left blocked. No opencode-core patch.\n\n## Acceptance Criteria\n\n- **AC1 (core regression):** Fresh child + existing active primary cooldown + EMPTY session message history at first `chat.message` + session metadata identifies `adv-engineer` → `output.message.model` changes to the first healthy fallback BEFORE dispatch, and the cooled primary receives NO provider request. Test must NOT seed `messagesWithAgent(AGENT)` for the first hook.\n- **AC2:** AC1 driven through the real production `createPluginContext()` path (not an injected mock).\n- **AC3:** Same-process persisted-cooldown case covered.\n- **AC4:** Fresh-context / cross-process read-through cooldown case covered.\n- **AC5:** Agent identity resolved from a structural source — `chat.message` `input.agent` primary, `session.get().agent` authoritative fallback — verified populated for fresh sub-agents. No heuristic inference (P33).\n- **AC6:** Identity-unavailable behavior is deterministic and tested: never silently dispatch a model known to be cooled.\n- **AC7:** Ordered first-healthy fallback selection preserved (existing `resolveFallbackModel` semantics unchanged).\n- **AC8:** Both first-dispatch paths fixed — `applyPreemptiveSkip` AND `applyAvailabilityPreflight` (identical `if (!agentName) return` defect).\n- **AC9 (TTFT):** TTFT-stalled sub-agent handoff audited and proven. OMR-owned lifecycle gap fixed so a stalled child hands control back and rollover is not blocked; regression test for TTFT-stalled sub-agent handoff. If a genuine core limitation remains, source-backed evidence + concrete upstream follow-up recorded — but every OMR-owned fix shipped.\n- **AC10:** All existing plugin tests pass unchanged; full repository check green or a source-backed classification of pre-existing unrelated hygiene drift is recorded.\n- **AC11:** Documented explanation of precisely why previous tests passed despite the production defect (the `messagesWithAgent` first-hook seeding mask).\n- **AC12:** Adjacent first-dispatch paths scanned for the same message-history timing assumption; findings recorded.\n\n## Release Obligations\n\nThese obligations are intentionally release-gate owned rather than execution-gate tasks because they require a merged default branch and a fresh OpenCode session. They remain mandatory for release completion.\n\n1. After merge, deploy from the merged default branch only using the documented `scripts/deploy-local.sh --fix` procedure. No opencode-core patch, fork, or rebuild.\n2. Remind the user to restart OpenCode after deployment. In a fresh OpenCode session, perform a live fresh `adv-engineer` spawn while the primary model has a naturally active cooldown. Record session-DB/log evidence that the first stream uses the healthy fallback and no new stream reaches the cooled primary.\n\n## Constraints\n- **C1:** No opencode-core patch/fork/rebuild (global rule + req 7).\n- **C2:** Structural identity only — `input.agent` / `session.get().agent`. No heuristic inference.\n- **C3:** Fail-open — identity-resolution or `session.get` failure must never crash routing or block a healthy dispatch.\n- **C4:** Reuse `detectSubagent`'s existing `session.get` response for the agent fallback; no redundant API calls.\n- **C5:** Work only in the ADV-managed worktree; merge before deploy; deploy from merged default branch.\n- **C6:** Route tests through `bin/oc-test` if present; otherwise cap Vitest/bun workers.\n\n## Avoidances\n- **DONT1:** Do not seed `messagesWithAgent(AGENT)` for the first-hook regression tests.\n- **DONT2:** Do not break existing preemptive redirect for primary sessions with committed history.\n- **DONT3:** Do not silently dispatch a model known to be cooled.\n- **DONT4:** Do not expand into unrelated OMR refactors or bump the SDK as part of this change.\n- **DONT5:** Do not leave TTFT sub-agent rollover permanently blocked.\n\n## Out of Scope\n- Rewriting `resolveFallbackModel` ordered selection.\n- Rewriting `CooldownStore` file protocol/locking.\n- Bumping `@opencode-ai/plugin`/`sdk` deps (separate follow-up).\n- Any opencode-core change (upstream follow-up only).\n",
+    "design": "# Design — Fix fresh spawn cooldown\n\n## Version-pinned source basis (opencode 1.18.4, upstream sst/opencode)\n\nAll opencode-core facts are codesearch-verified against the DEPLOYED runtime (1.18.4), NOT local checkouts or the plugin's stale bundled SDK (`@opencode-ai/plugin@1.4.8`). Stale `~/dev/opencode` (1.17.18 fork) deleted. Independent adv-researcher validation confirmed at commit 92cede0.\n\n### Authoritative fresh-child agent identity — two structural sources (both confirmed)\n\n| Source | Pre-dispatch? | Cost | Evidence (1.18.4) |\n|---|---|---|---|\n| `chat.message` **input.agent** | yes (= sub-agent name) | free (in-hook, sync) | `tool/task.ts:151-214` `ops.prompt({agent: next.name})`; `session/prompt.ts:997-1011` `trigger(\"chat.message\",{agent: input.agent})`; `packages/plugin/src/index.ts:232-244` input `{sessionID, agent?: string, ...}` |\n| `session.get().agent` | yes (persisted at create) | 1 async call — **detectSubagent already makes it** | `tool/task.ts:160` `sessions.create({agent: next.name})`; `session/session.ts:78-135` load `agent: row.agent ?? undefined` / persist `agent: info.agent` |\n\n### Defect chain (source-verified)\n- `applyPreemptiveSkip` (preemptive.ts:33) + `applyAvailabilityPreflight` (preflight.ts:51) both early-exit `if (!input.agentName) return` before the cooldown/availability check.\n- `resolveAgentName` (agent-resolver.ts:31-39) reads only committed `session.messages` → empty on fresh spawn → null.\n- `normalizeChatMessageInput` (plugin-internal.ts:235-245) DISCARDS hook `input.agent`.\n\n### Why previous tests passed (the mask)\n`subagent-fallover-flow.test.ts` seeded `messagesWithAgent(AGENT)` on the respawn client (lines 140,171) → `resolveAgentName` succeeded → masked fresh-spawn empty-history timing. Scenario 5 only proved a *later* error marks cooldown; never tested fresh-spawn + existing-cooldown + empty-history → preemptive redirect.\n\n## Fix architecture\n\n### Identity resolution (reqs 1–5)\nNew precedence in `handleChatMessage`, cached on `state.agentName`:\n1. **Primary:** `input.agent` from hook (plumbed through `normalizeChatMessageInput`). Sync, zero-cost.\n2. **Authoritative fallback:** `session.get().agent` — reuse the SAME `session.get` response `detectSubagent` fetches (refactor detectSubagent to return `{isSubagent, agent}` or cache agent alongside `isSubagent`). No extra API call. Fail-open on any shape/throw.\n3. **Last resort:** existing `resolveAgentName` message scan (for primary sessions with committed history).\n4. Resolved agent → `applyPreemptiveSkip` + `applyAvailabilityPreflight` run existing checks correctly.\n\n### Identity-unavailable determinism (req 5) — REFINED per validation\nTriggers only if ALL identity sources miss (≈never for a real sub-agent, since input.agent + session.get.agent are both confirmed). When it does, and `output.message.model` is known-cooled:\n- Search configured chains for one CONTAINING that exact model key.\n- **Exactly one chain matches** → redirect to its first healthy entry (deterministic, structural).\n- **Zero or MULTIPLE chains match** → AMBIGUOUS. Do NOT pick another agent's chain (validation risk: same model in multiple chains). Emit an **error-level** log (`identity_unavailable.ambiguous_cooled_dispatch`) — explicitly NON-silent — and leave the selection unchanged (cannot structurally determine the correct fallback). \"Never silently dispatch a cooled model\" is honored by the mandatory error log; correctness is never guessed.\n- Behavior is deterministic and unit-tested for all three branches (one/zero/multiple).\n\n### TTFT stalled sub-agent (req 6) — REFINED per validation\n- session.error sub-agents: opencode auto-cancels → parent's `background.wait` resolves terminal → parent handles. OMR correctly skips recovery.\n- TTFT-stall sub-agents: no token, no error → no auto-cancel → parent blocked on `background.wait({id})` → OMR marks unhealthy but never aborts → child hangs.\n- **OMR-owned fix (guaranteed):** on sub-agent TTFT timeout, after marking unhealthy, OMR issues `client.session.abort` on the stalled child. Source-confirmed (session/run-state.ts:72-147, core/background-job.ts:292-360): abort → child job `cancelled` → parent's `background.wait` resolves terminal `cancelled`. This UNBLOCKS the parent — the child hands control back. THIS is the OMR-owned lifecycle gap being closed.\n- **Boundary (honest, source-confirmed):** TaskTool maps `cancelled` → Task FAILURE (tool/task.ts:273-346); core does NOT auto-respawn. Whether the parent then re-spawns is the parent agent's decision — and IF it re-spawns, the identity fix guarantees it starts on the healthy fallback. OMR claims ONLY \"child hands control back (terminal cancellation),\" never \"parent auto-rolls-over.\" Parent re-spawn-on-fallback is proven by the AC13 live test. No unavoidable core patch is required for the OMR-owned abort; if the live test shows the parent cannot re-spawn cleanly, that is an upstream follow-up (req 7), but the OMR abort ships regardless.\n\n### task_id resume coverage (req, added per validation)\nSub-agent resume path (`tool/task.ts:135` `session = params.task_id ? sessions.get(...) : undefined`) still calls `ops.prompt({agent: next.name})`, so `input.agent` and `session.get().agent` remain populated. Add explicit regression coverage for the resume path to prevent a future regression from assuming fresh-only.\n\n## SDK-staleness observation (OOS, note only)\nPlugin type-checks against `@opencode-ai/plugin@1.4.8`; runtime 1.18.4. The `agent?: string` hook-input field exists in both → no SDK bump needed for this fix. Dependency refresh is a separate follow-up.\n\n## Validation record\nadv-researcher (scope researcher:design-validation, attempt 1): VERDICT CAUTION. Claims 1–2 confirmed @92cede0; claim 3 confirmed (abort→terminal cancelled) with the no-auto-respawn boundary above. Refinements (collision behavior, TTFT honest-boundary, task_id resume) folded in. No CONFLICT, no contract compromise.\n",
+    "executiveSummary": "# Executive Summary — Fix fresh spawn cooldown\n\n## Outcome\nFresh OpenCode sub-agents now resolve their agent identity before provider dispatch from structural runtime data: `chat.message` input first, then persisted `session.get().agent`, then committed-message history only as a last fallback. A primary model already in cooldown is redirected to the first healthy fallback before a redundant provider request.\n\n## Value\nThis prevents newly spawned `adv-engineer` children from repeating known quota failures solely because their first hook arrives before message history is committed. The same protection now covers availability preflight. When identity is genuinely unavailable, routing is deterministic: a unique exact chain match redirects; zero or ambiguous matches log an error instead of guessing another agent’s chain.\n\n## Delivered\n- Fresh-hook structural identity cache (`input.agent` → `session.get().agent` → history).\n- Pre-dispatch cooldown and availability redirect coverage for empty-history children.\n- Unique-chain collision-safe fallback with `identity_unavailable.ambiguous_cooled_dispatch` on zero/multiple matches.\n- TTFT-stalled sub-agent abort after cooldown marking, returning control to the parent; session-error behavior unchanged.\n- Same-process + persisted fresh-context regression coverage through `createPluginContext()`.\n- Metadata-only integration coverage proving `session.get().agent` alone redirects a cooled fresh child.\n\n## Verification\n- Focused regressions: 118/118 pass.\n- Full plugin suite: 394/394 across 24 files.\n- Typecheck, ESLint, and build pass.\n- Independent acceptance review: PASS after metadata-only remediation (`fixFreshSpawnCooldown|tk-ef2e0aaaba8d|adv-reviewer|3`).\n\n## Release Readiness Summary\n- **Ready to merge/release:** implementation, structural identity behavior, collision behavior, and TTFT abort boundary are independently reviewed and locally verified.\n- **Known hygiene warning:** `bun run check` stops at Prettier drift in four untouched existing tests (`detection.test.ts`, `package-contract.test.ts`, `production-wiring.test.ts`, `subagent-fallover-flow.test.ts`). Verifier confirmed the change does not touch them; typecheck/lint/full tests/build are green.\n- **Post-merge obligations:** deploy from merged default branch with `scripts/deploy-local.sh --fix`; restart OpenCode; in a fresh session, perform a live `adv-engineer` spawn while a naturally active cooldown exists and capture DB/log proof that the first stream uses fallback with no cooled-primary request.\n- **TTFT boundary:** OMR can guarantee stalled child cancellation/parent control return. Core does not guarantee automatic parent re-spawn; live post-deploy evidence determines whether an upstream follow-up is required.\n",
+    "acceptance": "# Acceptance\n\nReviewed at: 2026-07-23T05:15:30.000Z\n\n## Contract Review Matrix\n\n| ID | Kind | Requirement | Status | Evidence |\n|---|---|---|---|---|\n| AC1 | acceptance_criterion | **AC1 (core regression):** Fresh child + existing active primary cooldown + EMPTY session message history at first `chat.message` + session metadata identifies `adv-engineer` → `output.message.model` changes to the first healthy fallback BEFORE dispatch, and the cooled primary receives NO provider request. Test must NOT seed `messagesWithAgent(AGENT)` for the first hook. | pass | Same-process empty-history redirect. |\n| AC2 | acceptance_criterion | **AC2:** AC1 driven through the real production `createPluginContext()` path (not an injected mock). | pass | createPluginContext coverage. |\n| AC3 | acceptance_criterion | **AC3:** Same-process persisted-cooldown case covered. | pass | Same-process cooldown. |\n| AC4 | acceptance_criterion | **AC4:** Fresh-context / cross-process read-through cooldown case covered. | pass | Persisted read-through. |\n| AC5 | acceptance_criterion | **AC5:** Agent identity resolved from a structural source — `chat.message` `input.agent` primary, `session.get().agent` authoritative fallback — verified populated for fresh sub-agents. No heuristic inference (P33). | pass | Hook and metadata identity coverage. |\n| AC6 | acceptance_criterion | **AC6:** Identity-unavailable behavior is deterministic and tested: never silently dispatch a model known to be cooled. | pass | Unique/zero/multiple chain coverage. |\n| AC7 | acceptance_criterion | **AC7:** Ordered first-healthy fallback selection preserved (existing `resolveFallbackModel` semantics unchanged). | pass | Fallback order preserved. |\n| AC8 | acceptance_criterion | **AC8:** Both first-dispatch paths fixed — `applyPreemptiveSkip` AND `applyAvailabilityPreflight` (identical `if (!agentName) return` defect). | pass | Fresh preemptive/availability coverage. |\n| AC9 | acceptance_criterion | **AC9 (TTFT):** TTFT-stalled sub-agent handoff audited and proven. OMR-owned lifecycle gap fixed so a stalled child hands control back and rollover is not blocked; regression test for TTFT-stalled sub-agent handoff. If a genuine core limitation remains, source-backed evidence + concrete upstream follow-up recorded — but every OMR-owned fix shipped. | pass | TTFT abort coverage. |\n| AC10 | acceptance_criterion | **AC10:** All existing plugin tests pass unchanged; full repository check green or a source-backed classification of pre-existing unrelated hygiene drift is recorded. | pass | 395/395 full suite tr_mrx236x0_d4d6b324. |\n| AC11 | acceptance_criterion | **AC11:** Documented explanation of precisely why previous tests passed despite the production defect (the `messagesWithAgent` first-hook seeding mask). | pass | T6 review evidence. |\n| AC12 | acceptance_criterion | **AC12:** Adjacent first-dispatch paths scanned for the same message-history timing assumption; findings recorded. | pass | T6 scan evidence. |\n| C1 | constraint | **C1:** No opencode-core patch/fork/rebuild (global rule + req 7). | respected | No core changes. |\n| C2 | constraint | **C2:** Structural identity only — `input.agent` / `session.get().agent`. No heuristic inference. | respected | Structural-only identity. |\n| C3 | constraint | **C3:** Fail-open — identity-resolution or `session.get` failure must never crash routing or block a healthy dispatch. | respected | Fail-open handling. |\n| C4 | constraint | **C4:** Reuse `detectSubagent`'s existing `session.get` response for the agent fallback; no redundant API calls. | respected | One session.get assertion. |\n| C5 | constraint | **C5:** Work only in the ADV-managed worktree; merge before deploy; deploy from merged default branch. | respected | Worktree-only. |\n| C6 | constraint | **C6:** Route tests through `bin/oc-test` if present; otherwise cap Vitest/bun workers. | respected | Isolated Bun tests. |\n| DONT1 | avoidance | **DONT1:** Do not seed `messagesWithAgent(AGENT)` for the first-hook regression tests. | respected | No message seed. |\n| DONT2 | avoidance | **DONT2:** Do not break existing preemptive redirect for primary sessions with committed history. | respected | Regression suite green. |\n| DONT3 | avoidance | **DONT3:** Do not silently dispatch a model known to be cooled. | respected | No ambiguity guessing. |\n| DONT4 | avoidance | **DONT4:** Do not expand into unrelated OMR refactors or bump the SDK as part of this change. | respected | Targeted diff. |\n| DONT5 | avoidance | **DONT5:** Do not leave TTFT sub-agent rollover permanently blocked. | respected | Child abort coverage. |\n| OOS1 | out_of_scope | Rewriting `resolveFallbackModel` ordered selection. | missing |  |\n| OOS2 | out_of_scope | Rewriting `CooldownStore` file protocol/locking. | missing |  |\n| OOS3 | out_of_scope | Bumping `@opencode-ai/plugin`/`sdk` deps (separate follow-up). | missing |  |\n| OOS4 | out_of_scope | Any opencode-core change (upstream follow-up only). | missing |  |\n\n"
+  },
+  "artifacts": {
+    "proposal": {
+      "updatedAt": "2026-07-23T03:49:55.590Z",
+      "contentHash": "670f516bba48b05a9da422913e1dfa2765b1589f95954932ef98f0d673d67097",
+      "source": "temporal",
+      "readable": false
+    },
+    "agreement": {
+      "updatedAt": "2026-07-23T04:58:28.361Z",
+      "contentHash": "53fcf5db7912663cfe68bcd6fad7f2efe80b1df82838d70319571bc58b31c911",
+      "source": "temporal",
+      "readable": false
+    },
+    "design": {
+      "updatedAt": "2026-07-23T04:20:04.804Z",
+      "contentHash": "508c7ae4e782c3d5a4f517c84d969c7192e3bf8befd740a1ccfdfe3af2e8604a",
+      "source": "temporal",
+      "readable": false
+    },
+    "executiveSummary": {
+      "updatedAt": "2026-07-23T05:06:46.229Z",
+      "contentHash": "3508a540483eeb69287d19364fd308716976b08fd5106ecd0cae3b3b9e18d190",
+      "source": "temporal",
+      "readable": false
+    }
+  },
+  "lastSignalAt": "2026-07-23T05:15:38.762Z",
+  "adv_project_id": "83d9c2be3d917269afb19d21ca172bdf6fbbbf29",
+  "same_project_dependencies": [],
+  "worktree_auto_managed": true
+}
