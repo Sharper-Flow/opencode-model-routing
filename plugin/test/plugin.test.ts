@@ -126,7 +126,12 @@ describe("handleChatMessage", () => {
     });
     const output = { message: { model: { providerID: "a", modelID: "one" } } };
 
-    await handleChatMessage(ctx, client, { sessionID: "fresh-session-agent" }, output);
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "fresh-session-agent" },
+      output,
+    );
 
     expect(ctx.store.sessions.get("fresh-session-agent").agentName).toBe(
       "adv-engineer",

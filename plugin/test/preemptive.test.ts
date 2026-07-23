@@ -74,8 +74,10 @@ describe("applyPreemptiveSkip", () => {
     expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
   });
 
-  test("missing agentName → no mutation", () => {
-    const store = new FallbackStore();
+  test("missing identity redirects a cooled model when exactly one chain matches", () => {
+    const now = 1_000_000;
+    const store = new FallbackStore(() => now);
+    store.health.cooldown("a/one" as ModelKey, 5_000);
     const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
     const out = output("a", "one");
     applyPreemptiveSkip(
@@ -85,7 +87,56 @@ describe("applyPreemptiveSkip", () => {
       defaultConfig,
       silentLogger,
     );
+    expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+  });
+
+  test("missing identity logs an error when no configured chain contains a cooled model", () => {
+    const now = 1_000_000;
+    const store = new FallbackStore(() => now);
+    store.health.cooldown("a/one" as ModelKey, 5_000);
+    const logs: string[] = [];
+    const logger = createLogger({
+      minLevel: "error",
+      write: (line) => logs.push(line),
+    });
+    const out = output("a", "one");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: null, output: out },
+      store,
+      new Map([["scout", ["b/two"]]]) as Map<string, ModelKey[]>,
+      defaultConfig,
+      logger,
+    );
     expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(logs.map((line) => JSON.parse(line).event)).toContain(
+      "identity_unavailable.ambiguous_cooled_dispatch",
+    );
+  });
+
+  test("missing identity logs an error instead of picking an ambiguous chain", () => {
+    const now = 1_000_000;
+    const store = new FallbackStore(() => now);
+    store.health.cooldown("a/one" as ModelKey, 5_000);
+    const logs: string[] = [];
+    const logger = createLogger({
+      minLevel: "error",
+      write: (line) => logs.push(line),
+    });
+    const out = output("a", "one");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: null, output: out },
+      store,
+      new Map([
+        ["scout", ["a/one", "b/two"]],
+        ["builder", ["a/one", "c/three"]],
+      ]) as Map<string, ModelKey[]>,
+      defaultConfig,
+      logger,
+    );
+    expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(logs.map((line) => JSON.parse(line).event)).toContain(
+      "identity_unavailable.ambiguous_cooled_dispatch",
+    );
   });
 
   test("tracks session.currentModel when healthy", () => {

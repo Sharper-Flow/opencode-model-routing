@@ -377,7 +377,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
   test("fresh hook agent redirects unavailable Anthropic selection with empty history", async () => {
     writeSnapshot(freshUnavailable());
     const ctx = createPluginContext({ logger: silentLogger });
-    ctx.chains.set("adv-engineer", ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
+    ctx.chains.set("adv-engineer", [
+      "anthropic/claude-sonnet-4-5",
+      "openai/gpt-5",
+    ]);
     const client = new MockClient({ messages: [] });
     const out = output("anthropic", "claude-sonnet-4-5");
 
@@ -388,7 +391,10 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
       out,
     );
 
-    expect(out.message.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(out.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
     expect(client.callsTo("session.messages")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(0);
     ctx.ttft.clear("fresh-agent");

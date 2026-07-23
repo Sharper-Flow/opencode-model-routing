@@ -346,7 +346,8 @@ export async function handleChatMessage(
   if (hookModel) {
     const state = ctx.store.sessions.get(sessionId);
     if (!state.currentModel) {
-      state.currentModel = `${hookModel.providerID}/${hookModel.modelID}` as ModelKey;
+      state.currentModel =
+        `${hookModel.providerID}/${hookModel.modelID}` as ModelKey;
       state.originalModel = state.currentModel;
     }
   }

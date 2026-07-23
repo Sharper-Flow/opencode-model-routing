@@ -30,13 +30,33 @@ export function applyPreemptiveSkip(
   config: PluginConfig,
   logger: Logger,
 ): void {
-  if (!input.agentName) return;
-  const chain = chains.get(input.agentName);
-  if (!chain || chain.length === 0) return;
-
   const current = input.output.message.model;
   if (!current) return;
   const key = `${current.providerID}/${current.modelID}` as ModelKey;
+
+  let chain: ModelKey[] | undefined;
+  if (input.agentName) {
+    chain = chains.get(input.agentName);
+    if (!chain || chain.length === 0) return;
+  } else {
+    // A structurally resolved agent should always be available for production
+    // child sessions. If every source is temporarily unavailable, only use a
+    // chain when the cooled model belongs to exactly one configured chain.
+    // Selecting among multiple matching agents would be heuristic routing.
+    if (!store.health.isInCooldown(key)) return;
+    const matches = [...chains.values()].filter((candidate) =>
+      candidate.includes(key),
+    );
+    if (matches.length !== 1) {
+      logger.error("identity_unavailable.ambiguous_cooled_dispatch", {
+        sessionId: input.sessionId,
+        current: key,
+        matchingChainCount: matches.length,
+      });
+      return;
+    }
+    chain = matches[0]!;
+  }
 
   if (!store.health.isInCooldown(key)) {
     // Healthy — leave the user's selection alone.
