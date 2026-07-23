@@ -410,7 +410,7 @@ export async function handleTtftTimeout(
   // already try/catch-defaults to false on session.get failure (EC5).
   const isSubagent = await detectSubagent(sessionId, client, ctx.store);
   try {
-    await attemptFallback({
+    const result = await attemptFallback({
       sessionId,
       reason: "ttft_timeout",
       chain,
@@ -420,6 +420,19 @@ export async function handleTtftTimeout(
       logger: ctx.logger,
       isSubagent,
     });
+    if (isSubagent && result.success && result.subagentSkipped) {
+      // Unlike session.error, a TTFT timeout has no provider error to
+      // terminate the child. Abort only this stalled-child path so the parent
+      // Task wait observes a terminal cancellation and regains control.
+      try {
+        await client.session.abort({ path: { id: sessionId } } as never);
+      } catch (err) {
+        ctx.logger.error("ttft.subagent_abort_failed", {
+          sessionId,
+          err: errorSummary(err),
+        });
+      }
+    }
   } catch (err) {
     ctx.logger.error("ttft.callback_failed", {
       sessionId,

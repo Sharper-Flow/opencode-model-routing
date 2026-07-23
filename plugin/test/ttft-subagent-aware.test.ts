@@ -32,7 +32,7 @@ function userMsg(id = "msg-1", agent = "scout") {
 // ---------------------------------------------------------------------------
 
 describe("handleTtftTimeout — subagent-aware (Part 2, AC5)", () => {
-  test("subagent session (parentID present) → short-circuit: NO messages/abort/revert/prompt", async () => {
+  test("subagent TTFT stall aborts child after cooldown so parent regains control", async () => {
     const ctx = createPluginContext({ logger: silentLogger });
     ctx.chains.set("scout", ["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
@@ -46,9 +46,11 @@ describe("handleTtftTimeout — subagent-aware (Part 2, AC5)", () => {
 
     // detectSubagent fires session.get once.
     expect(client.callsTo("session.get")).toHaveLength(1);
-    // Subagent short-circuit: NO recovery SDK calls.
+    // TTFT has no stream error to auto-cancel the stalled child. OMR marks the
+    // model unhealthy, then aborts the child so the parent background wait can
+    // resolve terminally. It does NOT replay within the child.
     expect(client.callsTo("session.messages")).toHaveLength(0);
-    expect(client.callsTo("session.abort")).toHaveLength(0);
+    expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(0);
     // Cooldown WAS set on the failing model.
