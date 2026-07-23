@@ -183,6 +183,25 @@ deploy_plugin() {
 	rm -rf "$RUNTIME_PLUGIN_PATH"
 	mv "$tmp_path" "$RUNTIME_PLUGIN_PATH"
 	echo "    ✓ deployed plugin: $RUNTIME_PLUGIN_PATH"
+
+	# Install runtime dependencies at the deployed path. The bundled dist uses
+	# external imports for runtime deps (tsup marks dependencies as external).
+	# Without node_modules at the deploy target, the plugin module fails to
+	# import silently — OpenCode logs no error but the plugin never loads.
+	# This was the root cause of the OMR plugin silently not loading after
+	# addPersistentCrossProcess added proper-lockfile as a runtime dep.
+	if command -v bun >/dev/null 2>&1; then
+		echo "    installing runtime dependencies..."
+		(
+			cd "$RUNTIME_PLUGIN_PATH"
+			bun install --production 2>/dev/null || bun install 2>/dev/null || \
+				echo "    ⚠ bun install failed — plugin may not load if it has external deps"
+		)
+		echo "    ✓ dependencies installed"
+	else
+		echo "    ⚠ bun not found — skipping dependency install" >&2
+		echo "      If the plugin has runtime deps, run: cd $RUNTIME_PLUGIN_PATH && bun install" >&2
+	fi
 }
 
 verify_runtime_bundle() {
