@@ -409,7 +409,8 @@ describe("message-scan retryPatterns coverage (P23 campsite rule)", () => {
       classifySessionError({
         name: "AI_RetryError",
         data: {
-          message: "5 hour usage limit reached. It will reset in 4 hours 21 minutes.",
+          message:
+            "5 hour usage limit reached. It will reset in 4 hours 21 minutes.",
           isRetryable: false,
         },
       }),
@@ -438,5 +439,74 @@ describe("message-scan retryPatterns coverage (P23 campsite rule)", () => {
         },
       }),
     ).toBe("quota_exhausted");
+  });
+});
+
+describe("provider-exhaustion signals (opencode-go + claude-max)", () => {
+  // Real observed failures (2026-07-23). Both previously misclassified — the
+  // opencode-go workspace spending-limit (HTTP 403) fell through to
+  // auth_error (30min), and the claude-max exhaustion marker (no HTTP status)
+  // fell through to unknown (5min). Both defeated subagent rollover by giving
+  // day/month-scale exhaustion a too-short cooldown. Fixed via producer-owned
+  // patterns → quota_exhausted.
+
+  describe("opencode-go workspace spending-limit (F2)", () => {
+    test("HTTP 403 'monthly spending limit' message → quota_exhausted (not auth_error)", () => {
+      // Verbatim from the opencode-go Go-bundle failure (adv-engineer 19:18).
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 403,
+            message:
+              "Your workspace has reached its monthly spending limit of $100. Manage your limits here: https://opencode.ai/workspace/wrk_01KP7173C62CT643YJQAEKA5CS/billing",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("classifyRetryStatusText 'spending limit' → quota_exhausted", () => {
+      expect(classifyRetryStatusText("monthly spending limit reached")).toBe(
+        "quota_exhausted",
+      );
+    });
+    test("classifyRetryStatusText opencode.ai billing URL → quota_exhausted", () => {
+      expect(
+        classifyRetryStatusText(
+          "Limit reached — see https://opencode.ai/workspace/wrk_abc/billing",
+        ),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 403 with no quota/spending signal → auth_error (regression guard)", () => {
+      // Genuine forbidden/access-denied keeps auth_error semantics.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode: 403, message: "Forbidden", isRetryable: false },
+        }),
+      ).toBe("auth_error");
+    });
+  });
+
+  describe("claude-max exhaustion marker (F1)", () => {
+    test("CLAUDE_MAX_UNAVAILABLE message, no statusCode → quota_exhausted (not unknown)", () => {
+      // Verbatim marker thrown by the opencode-claude-max plugin when all
+      // accounts are exhausted (carries no HTTP status code).
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            message:
+              "CLAUDE_MAX_UNAVAILABLE: All configured Claude Max accounts are temporarily unavailable",
+            isRetryable: false,
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("classifyRetryStatusText 'claude_max_unavailable' marker → quota_exhausted", () => {
+      expect(
+        classifyRetryStatusText("opencode-claude-max: CLAUDE_MAX_UNAVAILABLE"),
+      ).toBe("quota_exhausted");
+    });
   });
 });

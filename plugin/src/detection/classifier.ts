@@ -86,7 +86,8 @@ export function classifySessionError(
       msg403.includes("usage limit") ||
       msg403.includes("quota") ||
       msg403.includes("billing cycle") ||
-      msg403.includes("fully used up")
+      msg403.includes("fully used up") ||
+      msg403.includes("spending limit")
     ) {
       return "quota_exhausted";
     }
