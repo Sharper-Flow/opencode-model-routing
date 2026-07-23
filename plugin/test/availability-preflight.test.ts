@@ -374,6 +374,26 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     ctx.ttft.clear("s1");
   });
 
+  test("fresh hook agent redirects unavailable Anthropic selection with empty history", async () => {
+    writeSnapshot(freshUnavailable());
+    const ctx = createPluginContext({ logger: silentLogger });
+    ctx.chains.set("adv-engineer", ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
+    const client = new MockClient({ messages: [] });
+    const out = output("anthropic", "claude-sonnet-4-5");
+
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "fresh-agent", agent: "adv-engineer" },
+      out,
+    );
+
+    expect(out.message.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(client.callsTo("session.messages")).toHaveLength(0);
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+    ctx.ttft.clear("fresh-agent");
+  });
+
   test("missing snapshot → no-op", async () => {
     process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY = join(dir, "absent.json");
     const ctx = createPluginContext({ logger: silentLogger });

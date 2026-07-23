@@ -136,6 +136,26 @@ describe("handleChatMessage", () => {
     ctx.ttft.clear("fresh-session-agent");
   });
 
+  test("fresh hook identity redirects a cooled primary before dispatch", async () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    ctx.chains.set("adv-engineer", ["a/one", "b/two"]);
+    await ctx.store.health.cooldown("a/one" as ModelKey, 60_000);
+    const client = new MockClient({ messages: [] });
+    const output = { message: { model: { providerID: "a", modelID: "one" } } };
+
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "fresh-cooled-agent", agent: "adv-engineer" },
+      output,
+    );
+
+    expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(client.callsTo("session.messages")).toHaveLength(0);
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+    ctx.ttft.clear("fresh-cooled-agent");
+  });
+
   test("preemptive skip + TTFT arm on cooled current", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     // Cool current model
