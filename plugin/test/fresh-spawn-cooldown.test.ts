@@ -65,6 +65,25 @@ async function routeFreshChild(
 }
 
 describe("fresh sub-agent cooldown redirect through createPluginContext", () => {
+  test("session metadata alone redirects a cooled fresh child before dispatch", async () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    ctx.chains.set(AGENT, CHAIN);
+    await ctx.store.health.cooldown(PRIMARY, 60_000, "quota_exhausted");
+    const sessionId = "ses_fresh_session_metadata";
+    const client = freshChildClient(sessionId);
+    const output = primaryOutput();
+
+    // Deliberately omit hook input.agent: session.get().agent is the
+    // authoritative structural fallback for this first empty-history hook.
+    await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
+
+    expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(client.callsTo("session.get")).toHaveLength(1);
+    expect(client.callsTo("session.messages")).toHaveLength(0);
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+    ctx.ttft.clear(sessionId);
+  });
+
   test("same-process active cooldown redirects before first provider dispatch", async () => {
     const ctx = createPluginContext({ logger: silentLogger });
     ctx.chains.set(AGENT, CHAIN);
