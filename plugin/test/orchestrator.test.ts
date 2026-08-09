@@ -826,3 +826,122 @@ describe("attemptFallback — subagent short-circuit", () => {
     expect(methods).toContain("session.prompt");
   });
 });
+
+// A user message with NO agent key at all. `userMsg` defaults its `agent`
+// parameter to "scout", so passing `undefined` cannot reach the unresolved
+// path — the message must genuinely omit the field.
+function userMsgNoAgent(id = "msg-1") {
+  return {
+    info: { id, role: "user" },
+    parts: [{ type: "text", text: "hello" }],
+  };
+}
+
+describe("attemptFallback — agent/from attribution on fallback.* logs", () => {
+  test("fallback.exhausted carries agent + from", async () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "a/one";
+    state.agentName = "adv";
+    state.fallbackDepth = defaultConfig.maxDepth; // force exhaustion
+    const { logger, events } = makeCapturingLogger();
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client: new MockClient({ messages: [userMsg()] }),
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.error).toBe("exhausted");
+    const exhausted = events.find((e) => e.event === "fallback.exhausted");
+    expect(exhausted).toBeDefined();
+    expect(exhausted?.data.agent).toBe("adv");
+    // The terminal event must report the model that was active when the
+    // chain ran dry — attribution parity with the non-terminal events.
+    expect(exhausted?.data.from).toBe("a/one");
+  });
+
+  test("fallback.success carries agent", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const { logger, events } = makeCapturingLogger();
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client: new MockClient({ messages: [userMsg()] }),
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success).toBeDefined();
+    expect(success?.data.agent).toBe("scout");
+  });
+
+  // D1: `agent` is a correlation dimension, not an anomaly marker. It must be
+  // ALWAYS PRESENT with an explicit null when unresolved — never `undefined`
+  // and never an absent key. An absent key is invisible to `grep '"agent":'`
+  // and indistinguishable from null via jq's `.agent`, which would make the
+  // dimension unusable for partitioning the log. Do NOT copy the
+  // `orphanMessageId` conditional-omission pattern here.
+  test("unresolved agent → explicit null, key present (fallback.success)", async () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "a/one";
+    // state.agentName left at its null default, and the user message carries
+    // no agent — so neither resolution source yields a name.
+    const { logger, events } = makeCapturingLogger();
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client: new MockClient({ messages: [userMsgNoAgent()] }),
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    const success = events.find((e) => e.event === "fallback.success");
+    expect(success).toBeDefined();
+    expect(success?.data.agent).toBeNull();
+    expect(Object.hasOwn(success!.data, "agent")).toBe(true);
+  });
+
+  test("unresolved agent → explicit null, key present (fallback.exhausted)", async () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "a/one";
+    state.fallbackDepth = defaultConfig.maxDepth;
+    // state.agentName left at its null default.
+    const { logger, events } = makeCapturingLogger();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client: new MockClient({ messages: [userMsgNoAgent()] }),
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+
+    const exhausted = events.find((e) => e.event === "fallback.exhausted");
+    expect(exhausted).toBeDefined();
+    expect(exhausted?.data.agent).toBeNull();
+    expect(Object.hasOwn(exhausted!.data, "agent")).toBe(true);
+  });
+});

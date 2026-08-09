@@ -185,11 +185,18 @@ export async function attemptFallback(
       config.maxDepth,
     );
     if (!next) {
+      // `agent` and `from` mirror preemptive.redirected so the whole failover
+      // family shares one correlation dimension set. The terminal event is the
+      // one operators debug — it must not carry less attribution than the
+      // events that precede it. `agent` is always present (explicit null when
+      // unresolved); see the successPayload note below.
       logger.warn("fallback.exhausted", {
         sessionId,
+        from: current,
         depth: state.fallbackDepth,
         maxDepth: config.maxDepth,
         chain,
+        agent: state.agentName,
       });
       return { success: false, error: "exhausted" };
     }
@@ -344,12 +351,21 @@ export async function attemptFallback(
     state.lastFallbackAt = Date.now();
     if (!state.originalModel && current) state.originalModel = current;
 
+    // `agent` is a correlation dimension, not an anomaly marker, so it is
+    // ALWAYS present — `?? null` normalizes the `undefined` that agentName
+    // resolves to when neither the last user message nor session state names
+    // an agent. Deliberately NOT the conditional-omission pattern used for
+    // orphanMessageId below: an absent key is invisible to `grep '"agent":'`
+    // and indistinguishable from null via jq's `.agent`, which would make the
+    // dimension unusable for partitioning the log. Matches preemptive.ts,
+    // which already emits `agent` as explicit null.
     const successPayload: Record<string, unknown> = {
       sessionId,
       from: current,
       to: next,
       reason,
       depth: state.fallbackDepth,
+      agent: agentName ?? null,
     };
     // Only attach orphanMessageId when actually detected — avoids fabricating
     // IDs and keeps the log payload clean for operators searching for orphans.
