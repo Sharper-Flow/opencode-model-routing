@@ -58,7 +58,9 @@ describe("Production init path wires CooldownStore (AC2)", () => {
     const raw = JSON.parse(fs.readFileSync(cooldownPath, "utf-8"));
     expect(raw.schema).toBe("opencode-model-routing/cooldown@1");
     expect(raw.entries["kimi-for-coding/kimi-for-coding"]).toBeDefined();
-    expect(raw.entries["kimi-for-coding/kimi-for-coding"].reason).toBe("quota_exhausted");
+    expect(raw.entries["kimi-for-coding/kimi-for-coding"].reason).toBe(
+      "quota_exhausted",
+    );
   });
 
   test("fresh createPluginContext() reads persisted cooldown (cross-process read-through)", async () => {
@@ -76,7 +78,11 @@ describe("Production init path wires CooldownStore (AC2)", () => {
     // (in-memory Map is empty in the fresh context, so isInCooldown must
     // consult the persistent file store).
     const ctxB = createPluginContext({ logger: silentLogger });
-    expect(ctxB.store.health.isInCooldown("kimi-for-coding/kimi-for-coding" as ModelKey)).toBe(true);
+    expect(
+      ctxB.store.health.isInCooldown(
+        "kimi-for-coding/kimi-for-coding" as ModelKey,
+      ),
+    ).toBe(true);
   });
 
   test("fail-open: missing cooldown directory does not throw on init", () => {

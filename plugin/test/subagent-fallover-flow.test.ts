@@ -33,7 +33,12 @@ const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 const AGENT = "adv-engineer";
 const PRIMARY = "opencode-go/kimi-k2.7-code" as ModelKey;
 const FALLBACK_1 = "openai/gpt-5.6-terra" as ModelKey;
-const CHAIN: ModelKey[] = [PRIMARY, FALLBACK_1, "minimax-coding-plan/MiniMax-M3", "opencode-go/mimo-v2.5-pro"];
+const CHAIN: ModelKey[] = [
+  PRIMARY,
+  FALLBACK_1,
+  "minimax-coding-plan/MiniMax-M3",
+  "opencode-go/mimo-v2.5-pro",
+];
 
 let dir: string;
 let cooldownPath: string;
@@ -73,7 +78,8 @@ function quotaErrorEvent(sessionId: string): EventInputShape {
       error: {
         name: "APIError",
         data: {
-          message: "5 hour usage limit reached. It will reset in 4 hours 21 minutes.",
+          message:
+            "5 hour usage limit reached. It will reset in 4 hours 21 minutes.",
           statusCode: 429,
           isRetryable: false,
         },
@@ -93,7 +99,9 @@ async function setupSubagent(
   });
   // Fire chat.message FIRST — this sets state.currentModel via applyPreemptiveSkip.
   const output = {
-    message: { model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" } },
+    message: {
+      model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" },
+    },
   };
   await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
   return client;
@@ -145,7 +153,12 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
         model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" },
       },
     };
-    await handleChatMessage(ctx, respawnClient, { sessionID: respawnSession }, output);
+    await handleChatMessage(
+      ctx,
+      respawnClient,
+      { sessionID: respawnSession },
+      output,
+    );
 
     // Preemptive skip should redirect to the first healthy fallback.
     expect(output.message.model?.providerID).toBe("openai");
@@ -176,7 +189,12 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
         model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" },
       },
     };
-    await handleChatMessage(ctxB, respawnClient, { sessionID: respawnSession }, output);
+    await handleChatMessage(
+      ctxB,
+      respawnClient,
+      { sessionID: respawnSession },
+      output,
+    );
 
     expect(output.message.model?.providerID).toBe("openai");
     expect(output.message.model?.modelID).toBe("gpt-5.6-terra");
@@ -223,7 +241,9 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
 
     // chat.message fires with model but no messages committed yet.
     const output = {
-      message: { model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" } },
+      message: {
+        model: { providerID: "opencode-go", modelID: "kimi-k2.7-code" },
+      },
     };
     await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
 

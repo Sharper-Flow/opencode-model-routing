@@ -47,8 +47,14 @@ describe("package runtime contract", () => {
     // the production init path instantiates it — these markers must be present.
     const distPath = new URL("../dist/index.js", import.meta.url);
     const distContent = await Bun.file(distPath).text();
-    expect(distContent, "CooldownStore class must be in the bundle (not tree-shaken)").toContain("CooldownStore");
-    expect(distContent, "cooldown.json path constant must be in the bundle").toContain("cooldown.json");
+    expect(
+      distContent,
+      "CooldownStore class must be in the bundle (not tree-shaken)",
+    ).toContain("CooldownStore");
+    expect(
+      distContent,
+      "cooldown.json path constant must be in the bundle",
+    ).toContain("cooldown.json");
 
     const mod = (await import(
       new URL("../dist/index.js", import.meta.url).href
