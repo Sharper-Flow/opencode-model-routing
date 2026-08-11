@@ -251,8 +251,8 @@ install_cli_wrapper() {
 
 	local cli_bundle="$SOURCE_PLUGIN_PATH/dist/cli.js"
 	local wrapper_path="$HOME/.local/bin/omr-cooldown"
-	local wrapper_body='#!/bin/sh
-exec node ${HOME}/.local/share/opencode-model-routing/plugin/dist/cli.js "$@"'
+	local wrapper_body="#!/bin/sh
+exec node \"$RUNTIME_PLUGIN_PATH/dist/cli.js\" \"\$@\""
 	if [ ! -f "$cli_bundle" ]; then
 		echo "    ⚠ CLI bundle missing: $cli_bundle — wrapper not installed"
 		return 0
@@ -265,10 +265,7 @@ exec node ${HOME}/.local/share/opencode-model-routing/plugin/dist/cli.js "$@"'
 	fi
 
 	mkdir -p "$(dirname "$wrapper_path")"
-	cat <<'WRAPPER' >"$wrapper_path"
-#!/bin/sh
-exec node ${HOME}/.local/share/opencode-model-routing/plugin/dist/cli.js "$@"
-WRAPPER
+	printf '%s\n' "$wrapper_body" >"$wrapper_path"
 	chmod +x "$wrapper_path"
 	echo "    ✓ installed CLI wrapper: $wrapper_path"
 }
