@@ -26,7 +26,11 @@ afterEach(() => {
 function seed(entries: Record<string, CooldownEntry>): void {
   fs.writeFileSync(
     cooldownPath,
-    JSON.stringify({ schema: COOLDOWN_SCHEMA, version: COOLDOWN_VERSION, entries }),
+    JSON.stringify({
+      schema: COOLDOWN_SCHEMA,
+      version: COOLDOWN_VERSION,
+      entries,
+    }),
     { mode: 0o600 },
   );
   fs.chmodSync(cooldownPath, 0o600);
@@ -61,7 +65,9 @@ describe("omr-cooldown CLI", () => {
     expect(list.stdout.join("")).toContain("MODEL");
 
     const status = capture();
-    expect(await runCli(["status", "--model", "openai/gpt-5.6-sol"], env, status.io)).toBe(0);
+    expect(
+      await runCli(["status", "--model", "openai/gpt-5.6-sol"], env, status.io),
+    ).toBe(0);
     expect(status.stdout.join("")).toContain("cooled");
 
     const reset = capture();
@@ -105,7 +111,9 @@ describe("omr-cooldown CLI", () => {
     const output = capture();
 
     expect(await runCli(["reset"], env, output.io)).toBe(0);
-    expect(JSON.parse(fs.readFileSync(cooldownPath, "utf8")).entries).toEqual({});
+    expect(JSON.parse(fs.readFileSync(cooldownPath, "utf8")).entries).toEqual(
+      {},
+    );
     expect(output.stdout.join("")).toContain("cleared 2 entries");
   });
 
@@ -113,7 +121,9 @@ describe("omr-cooldown CLI", () => {
     seed({ "openai/a": live(), "kimi/b": live() });
     const output = capture();
 
-    expect(await runCli(["reset", "--model", "openai/a"], env, output.io)).toBe(0);
+    expect(await runCli(["reset", "--model", "openai/a"], env, output.io)).toBe(
+      0,
+    );
     const entries = JSON.parse(fs.readFileSync(cooldownPath, "utf8")).entries;
     expect(entries["openai/a"]).toBeUndefined();
     expect(entries["kimi/b"]).toBeDefined();
@@ -124,7 +134,9 @@ describe("omr-cooldown CLI", () => {
     seed({ "openai/a": live() });
     const output = capture();
 
-    expect(await runCli(["reset", "--model", "missing/model"], env, output.io)).toBe(0);
+    expect(
+      await runCli(["reset", "--model", "missing/model"], env, output.io),
+    ).toBe(0);
     expect(output.stdout.join("")).toContain("cleared 0");
   });
 
@@ -148,7 +160,9 @@ describe("omr-cooldown CLI", () => {
     seed({ "openai/env": live() });
     const output = capture();
 
-    expect(await runCli(["status", "--model", "openai/env"], env, output.io)).toBe(0);
+    expect(
+      await runCli(["status", "--model", "openai/env"], env, output.io),
+    ).toBe(0);
     expect(output.stdout.join("")).toContain("cooled");
   });
 
@@ -157,14 +171,24 @@ describe("omr-cooldown CLI", () => {
 
     const list = capture();
     expect(await runCli(["list", "--json"], env, list.io)).toBe(0);
-    expect(JSON.parse(list.stdout.join("")).entries[0].model).toBe("openai/json");
+    expect(JSON.parse(list.stdout.join("")).entries[0].model).toBe(
+      "openai/json",
+    );
 
     const status = capture();
-    expect(await runCli(["status", "--model", "openai/json", "--json"], env, status.io)).toBe(0);
+    expect(
+      await runCli(
+        ["status", "--model", "openai/json", "--json"],
+        env,
+        status.io,
+      ),
+    ).toBe(0);
     expect(JSON.parse(status.stdout.join("")).state).toBe("cooled");
 
     const reset = capture();
     expect(await runCli(["reset", "--json"], env, reset.io)).toBe(0);
-    expect(JSON.parse(reset.stdout.join(""))).toEqual({ cleared: ["openai/json"] });
+    expect(JSON.parse(reset.stdout.join(""))).toEqual({
+      cleared: ["openai/json"],
+    });
   });
 });

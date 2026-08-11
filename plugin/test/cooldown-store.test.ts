@@ -477,9 +477,21 @@ describe("CooldownStore.persistCooldown — fail-open invariants (AC3, C1, DONT1
 describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
   test("clearCooldowns() with no arg removes all non-expired entries and returns them", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow },
-      "kimi/b": { expiresAt: baseNow + 3_600_000, reason: "rate_limited", setAt: baseNow },
-      "openai/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 2000 },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "quota_exhausted",
+        setAt: baseNow,
+      },
+      "kimi/b": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "rate_limited",
+        setAt: baseNow,
+      },
+      "openai/expired": {
+        expiresAt: baseNow - 1000,
+        reason: "old",
+        setAt: baseNow - 2000,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     const result = await store.clearCooldowns();
@@ -490,7 +502,11 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns() writes a valid empty file (not deleted) and preserves 0600 perms", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     await store.clearCooldowns();
@@ -506,7 +522,11 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns(modelKey) removes only the matching entry", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
       "kimi/b": { expiresAt: baseNow + 3_600_000, reason: "y", setAt: baseNow },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
@@ -519,7 +539,11 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns(modelKey) returns [] when no match, file unchanged for live entries", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     const result = await store.clearCooldowns("nonexistent/model");
@@ -530,8 +554,16 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns prunes expired entries regardless of modelKey match (AC4)", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "live", setAt: baseNow },
-      "openai/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 2000 },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "live",
+        setAt: baseNow,
+      },
+      "openai/expired": {
+        expiresAt: baseNow - 1000,
+        reason: "old",
+        setAt: baseNow - 2000,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     const result = await store.clearCooldowns("nonexistent/model");
@@ -544,7 +576,11 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns invalidates the in-process cache so next read returns fresh state (AC5)", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     // Populate cache via readCooldowns.
@@ -557,7 +593,11 @@ describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
 
   test("clearCooldowns cleans up the atomic temp file", async () => {
     writeCooldownFile({
-      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/a": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
     });
     const store = new CooldownStore(cooldownPath, { now: () => baseNow });
     await store.clearCooldowns();
@@ -617,9 +657,15 @@ describe("CooldownStore.clearCooldowns — fail-open invariants (AC3, C1, DONT1)
 describe("CooldownStore.clearCooldowns — lock + concurrent writes (AC6, C2)", () => {
   test("clear-vs-persist under cooperative lock preserve both intents", async () => {
     writeCooldownFile({
-      "openai/existing": { expiresAt: baseNow + 3_600_000, reason: "old", setAt: baseNow },
+      "openai/existing": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "old",
+        setAt: baseNow,
+      },
     });
-    const storePersist = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const storePersist = new CooldownStore(cooldownPath, {
+      now: () => baseNow,
+    });
     const storeClear = new CooldownStore(cooldownPath, { now: () => baseNow });
     await Promise.all([
       storePersist.persistCooldown(
@@ -639,9 +685,15 @@ describe("CooldownStore.clearCooldowns — lock + concurrent writes (AC6, C2)", 
 
   test("clear-all vs persist: no corruption; final state bounded", async () => {
     writeCooldownFile({
-      "openai/pre": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "openai/pre": {
+        expiresAt: baseNow + 3_600_000,
+        reason: "x",
+        setAt: baseNow,
+      },
     });
-    const storePersist = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const storePersist = new CooldownStore(cooldownPath, {
+      now: () => baseNow,
+    });
     const storeClear = new CooldownStore(cooldownPath, { now: () => baseNow });
     await Promise.all([
       storePersist.persistCooldown(

@@ -483,9 +483,7 @@ export class CooldownStore {
    * cache invalidation, same fail-open (C1, DONT1). Every failure path
    * resolves `{ cleared: [] }` without throwing.
    */
-  async clearCooldowns(
-    modelKey?: ModelKey,
-  ): Promise<{ cleared: ModelKey[] }> {
+  async clearCooldowns(modelKey?: ModelKey): Promise<{ cleared: ModelKey[] }> {
     try {
       const dir = path.dirname(this.filePath);
       try {

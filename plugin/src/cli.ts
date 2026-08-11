@@ -131,7 +131,9 @@ function renderList(
     return;
   }
 
-  io.stdout("MODEL                    EXPIRES (UTC)        REMAINING  REASON\n");
+  io.stdout(
+    "MODEL                    EXPIRES (UTC)        REMAINING  REASON\n",
+  );
   for (const [model, entry] of entries) {
     io.stdout(
       `${model.padEnd(24)} ${expiresUtc(entry.expiresAt).padEnd(20)} ${humanizeRemaining((entry.expiresAt - now) / 1000).padEnd(10)} ${entry.reason}\n`,
@@ -187,7 +189,9 @@ function renderStatus(
   io.stdout(`Model: ${model}\nState: ${state}\n`);
   if (entry && state === "cooled") {
     io.stdout(`Reason: ${entry.reason}\n`);
-    io.stdout(`Remaining: ${humanizeRemaining((entry.expiresAt - now) / 1000)}\n`);
+    io.stdout(
+      `Remaining: ${humanizeRemaining((entry.expiresAt - now) / 1000)}\n`,
+    );
     io.stdout(`Expires: ${expiresUtc(entry.expiresAt)}\n`);
   } else {
     io.stdout("Reason: -\nRemaining: -\nExpires: -\n");
@@ -220,7 +224,8 @@ export async function runCli(
   io: CliIo = defaultIo,
 ): Promise<number> {
   const parsed = parseArgs(argv);
-  if ("message" in parsed) return emitError(parsed, { json: false, help: false, version: false }, io);
+  if ("message" in parsed)
+    return emitError(parsed, { json: false, help: false, version: false }, io);
 
   if (parsed.help || (parsed.command === undefined && !parsed.version)) {
     io.stderr(usage);
@@ -233,7 +238,10 @@ export async function runCli(
       return 0;
     } catch (error) {
       return emitError(
-        { message: `failed to read version: ${(error as Error).message}`, exitCode: 1 },
+        {
+          message: `failed to read version: ${(error as Error).message}`,
+          exitCode: 1,
+        },
         parsed,
         io,
       );
@@ -245,7 +253,11 @@ export async function runCli(
     return emitError(usageError(`unknown subcommand: ${command}`), parsed, io);
   }
   if (command === "list" && parsed.model !== undefined) {
-    return emitError(usageError("--model is only valid with status or reset"), parsed, io);
+    return emitError(
+      usageError("--model is only valid with status or reset"),
+      parsed,
+      io,
+    );
   }
 
   try {
@@ -275,11 +287,14 @@ export async function runCli(
       return 0;
     }
 
-    const result = await store.clearCooldowns(parsed.model as ModelKey | undefined);
+    const result = await store.clearCooldowns(
+      parsed.model as ModelKey | undefined,
+    );
     if (parsed.json) {
       writeJson(io, result);
     } else {
-      const names = result.cleared.length > 0 ? `: ${result.cleared.join(", ")}` : "";
+      const names =
+        result.cleared.length > 0 ? `: ${result.cleared.join(", ")}` : "";
       io.stdout(`cleared ${result.cleared.length} entries${names}\n`);
     }
     return 0;
