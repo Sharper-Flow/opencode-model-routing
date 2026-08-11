@@ -460,4 +460,131 @@ export class CooldownStore {
       );
     }
   }
+
+  /**
+   * Clear cooldown entries under the same cooperative lock + atomic write
+   * protocol as persistCooldown. Symmetric write-side counterpart: where
+   * persistCooldown grows entries via max-merge, clearCooldowns removes
+   * them.
+   *
+   * Semantics:
+   *   - modelKey omitted → remove all non-expired entries (still prunes
+   *     expired, matching persistCooldown's prune-on-write).
+   *   - modelKey provided → remove only that entry; no-op if absent.
+   *
+   * Returns the model keys actually removed (typed ModelKey[]). Returning
+   * the cleared keys keeps the report atomic with the mutation under one
+   * lock hold; a void + read-before-clear alternative introduces a TOCTOU
+   * race and double lock acquisition.
+   *
+   * Contract parity with persistCooldown (verified by adv-researcher
+   * design-validation 2026-08-11): same mkdir, same lock acquisition +
+   * options, same atomic write (temp file 0600 + rename + cleanup), same
+   * cache invalidation, same fail-open (C1, DONT1). Every failure path
+   * resolves `{ cleared: [] }` without throwing.
+   */
+  async clearCooldowns(
+    modelKey?: ModelKey,
+  ): Promise<{ cleared: ModelKey[] }> {
+    try {
+      const dir = path.dirname(this.filePath);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch {
+        this.logger.warn(`cooldown clear: mkdir failed for ${dir}`);
+        return { cleared: [] };
+      }
+
+      let release: (() => Promise<void>) | undefined;
+      try {
+        release = await lock(this.filePath, {
+          retries: {
+            retries: LOCK_RETRIES,
+            minTimeout: LOCK_MIN_TIMEOUT_MS,
+            maxTimeout: LOCK_MAX_TIMEOUT_MS,
+          },
+          stale: LOCK_STALE_MS,
+          realpath: false,
+          onCompromised: () => {
+            this.logger.warn(
+              "cooldown lock compromised — proceeding in-memory only",
+            );
+          },
+          update: LOCK_UPDATE_MS,
+        });
+      } catch {
+        this.logger.warn(
+          `cooldown clear: lock acquisition failed for ${this.filePath}`,
+        );
+        return { cleared: [] };
+      }
+
+      try {
+        const now = this.now();
+        const existing = readCooldownFileFromDisk(this.io, this.filePath);
+
+        // Build new entries map: drop the modelKey (or all if undefined),
+        // prune expired, and record what was actually removed.
+        const cleared: ModelKey[] = [];
+        const newEntries: Record<string, CooldownEntry> = {};
+        for (const [k, v] of Object.entries(existing)) {
+          if (v.expiresAt <= now) continue; // prune expired
+          if (modelKey === undefined || k === modelKey) {
+            cleared.push(k as ModelKey);
+            continue;
+          }
+          newEntries[k] = v;
+        }
+
+        const file: CooldownFile = {
+          schema: COOLDOWN_SCHEMA,
+          version: COOLDOWN_VERSION,
+          entries: newEntries,
+        };
+        const text = JSON.stringify(file);
+        const bytes = new TextEncoder().encode(text);
+        if (bytes.length > MAX_COOLDOWN_BYTES) {
+          this.logger.warn(
+            `cooldown clear: serialized size ${bytes.length} exceeds cap ${MAX_COOLDOWN_BYTES}`,
+          );
+          return { cleared: [] };
+        }
+
+        // Atomic write: temp file in same directory (avoid EXDEV) + rename.
+        const tmpPath = `${this.filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 10)}`;
+        try {
+          fs.writeFileSync(tmpPath, bytes, { mode: 0o600 });
+          fs.renameSync(tmpPath, this.filePath);
+        } catch (e) {
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {
+            // tmp cleanup best-effort
+          }
+          this.logger.warn(
+            `cooldown clear: write/rename failed: ${(e as Error).message}`,
+          );
+          return { cleared: [] };
+        }
+
+        // Invalidate cache so next read reflects the new state.
+        this.cachedAt = 0;
+        return { cleared };
+      } finally {
+        if (release) {
+          try {
+            await release();
+          } catch {
+            // Release failure non-fatal.
+          }
+        }
+      }
+    } catch (e) {
+      // Outer fail-open.
+      this.logger.warn(
+        `cooldown clear: outer failure: ${(e as Error).message}`,
+      );
+      return { cleared: [] };
+    }
+  }
 }

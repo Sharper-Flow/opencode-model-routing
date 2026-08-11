@@ -244,12 +244,42 @@ for (const rel of [pkg.main, pkg.types]) {
 	echo "    ✓ runtime bundle verified: $RUNTIME_ENTRY"
 }
 
+install_cli_wrapper() {
+	if [ "$MODE" = "check" ]; then
+		return 0
+	fi
+
+	local cli_bundle="$SOURCE_PLUGIN_PATH/dist/cli.js"
+	local wrapper_path="$HOME/.local/bin/omr-cooldown"
+	local wrapper_body='#!/bin/sh
+exec node ${HOME}/.local/share/opencode-model-routing/plugin/dist/cli.js "$@"'
+	if [ ! -f "$cli_bundle" ]; then
+		echo "    ⚠ CLI bundle missing: $cli_bundle — wrapper not installed"
+		return 0
+	fi
+
+	if [ "$DRY_RUN" = true ]; then
+		echo "    dry-run: would write wrapper: $wrapper_path"
+		printf '%s\n' "$wrapper_body"
+		return 0
+	fi
+
+	mkdir -p "$(dirname "$wrapper_path")"
+	cat <<'WRAPPER' >"$wrapper_path"
+#!/bin/sh
+exec node ${HOME}/.local/share/opencode-model-routing/plugin/dist/cli.js "$@"
+WRAPPER
+	chmod +x "$wrapper_path"
+	echo "    ✓ installed CLI wrapper: $wrapper_path"
+}
+
 if [ "$MODE" = "check" ]; then
 	check_config
 	exit $?
 fi
 
 deploy_plugin
+install_cli_wrapper
 if [ "$MODE" = "fix" ]; then
 	patch_config_if_possible || true
 else

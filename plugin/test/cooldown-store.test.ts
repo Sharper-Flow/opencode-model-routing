@@ -474,6 +474,194 @@ describe("CooldownStore.persistCooldown — fail-open invariants (AC3, C1, DONT1
   });
 });
 
+describe("CooldownStore.clearCooldowns — semantics (AC1-AC5)", () => {
+  test("clearCooldowns() with no arg removes all non-expired entries and returns them", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "quota_exhausted", setAt: baseNow },
+      "kimi/b": { expiresAt: baseNow + 3_600_000, reason: "rate_limited", setAt: baseNow },
+      "openai/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 2000 },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const result = await store.clearCooldowns();
+    expect(result.cleared.sort()).toEqual(["kimi/b", "openai/a"]);
+    const after = store.readCooldowns();
+    expect(after.size).toBe(0);
+  });
+
+  test("clearCooldowns() writes a valid empty file (not deleted) and preserves 0600 perms", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    await store.clearCooldowns();
+    expect(fs.existsSync(cooldownPath)).toBe(true);
+    const raw = fs.readFileSync(cooldownPath, "utf8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.schema).toBe(COOLDOWN_SCHEMA);
+    expect(parsed.version).toBe(COOLDOWN_VERSION);
+    expect(parsed.entries).toEqual({});
+    const stat = fs.statSync(cooldownPath);
+    expect(stat.mode & 0o077).toBe(0); // no group/world perms
+  });
+
+  test("clearCooldowns(modelKey) removes only the matching entry", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+      "kimi/b": { expiresAt: baseNow + 3_600_000, reason: "y", setAt: baseNow },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const result = await store.clearCooldowns("openai/a");
+    expect(result.cleared).toEqual(["openai/a"]);
+    const after = store.readCooldowns();
+    expect(after.has("openai/a")).toBe(false);
+    expect(after.has("kimi/b")).toBe(true);
+  });
+
+  test("clearCooldowns(modelKey) returns [] when no match, file unchanged for live entries", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const result = await store.clearCooldowns("nonexistent/model");
+    expect(result.cleared).toEqual([]);
+    const after = store.readCooldowns();
+    expect(after.has("openai/a")).toBe(true);
+  });
+
+  test("clearCooldowns prunes expired entries regardless of modelKey match (AC4)", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "live", setAt: baseNow },
+      "openai/expired": { expiresAt: baseNow - 1000, reason: "old", setAt: baseNow - 2000 },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const result = await store.clearCooldowns("nonexistent/model");
+    expect(result.cleared).toEqual([]);
+    const after = store.readCooldowns();
+    expect(after.size).toBe(1);
+    expect(after.has("openai/a")).toBe(true);
+    expect(after.has("openai/expired")).toBe(false);
+  });
+
+  test("clearCooldowns invalidates the in-process cache so next read returns fresh state (AC5)", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    // Populate cache via readCooldowns.
+    expect(store.readCooldowns().size).toBe(1);
+    await store.clearCooldowns();
+    // Immediate re-read must NOT return cached entry (cache invalidated).
+    const after = store.readCooldowns();
+    expect(after.size).toBe(0);
+  });
+
+  test("clearCooldowns cleans up the atomic temp file", async () => {
+    writeCooldownFile({
+      "openai/a": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+    });
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    await store.clearCooldowns();
+    const files = fs.readdirSync(path.dirname(cooldownPath));
+    const tmpFiles = files.filter((f) => f.includes(".tmp."));
+    expect(tmpFiles).toEqual([]);
+  });
+});
+
+describe("CooldownStore.clearCooldowns — fail-open invariants (AC3, C1, DONT1)", () => {
+  test("clearCooldowns() never rejects on lock failure (unwritable path)", async () => {
+    const store = new CooldownStore("/proc/cannot-create/cooldown.json");
+    const result = await store.clearCooldowns();
+    expect(result.cleared).toEqual([]);
+  });
+
+  test("clearCooldowns(modelKey) never rejects on lock failure (unwritable path)", async () => {
+    const store = new CooldownStore("/proc/cannot-create/cooldown.json");
+    const result = await store.clearCooldowns("openai/x");
+    expect(result.cleared).toEqual([]);
+  });
+
+  test("logger.warn is called when lock acquisition fails during clear", async () => {
+    const { logger, warns } = captureLogger();
+    const store = new CooldownStore("/proc/cannot-create/cooldown.json", {
+      logger,
+    });
+    await store.clearCooldowns();
+    expect(warns.length).toBeGreaterThan(0);
+  });
+
+  test("clearCooldowns handles malformed cooldown.json (writes valid empty file)", async () => {
+    fs.writeFileSync(cooldownPath, "not valid json {", { mode: 0o600 });
+    fs.chmodSync(cooldownPath, 0o600);
+    const store = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const result = await store.clearCooldowns();
+    expect(result.cleared).toEqual([]);
+    const raw = fs.readFileSync(cooldownPath, "utf8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.schema).toBe(COOLDOWN_SCHEMA);
+    expect(parsed.version).toBe(COOLDOWN_VERSION);
+    expect(parsed.entries).toEqual({});
+  });
+
+  test("clearCooldowns handles unreachable path (mkdir fail → fail-open)", async () => {
+    const { logger, warns } = captureLogger();
+    const store = new CooldownStore(
+      "/nonexistent-deep-dir-omr/sub/cooldown.json",
+      { logger },
+    );
+    const result = await store.clearCooldowns();
+    expect(result.cleared).toEqual([]);
+    expect(warns.some((w) => w.includes("mkdir"))).toBe(true);
+  });
+});
+
+describe("CooldownStore.clearCooldowns — lock + concurrent writes (AC6, C2)", () => {
+  test("clear-vs-persist under cooperative lock preserve both intents", async () => {
+    writeCooldownFile({
+      "openai/existing": { expiresAt: baseNow + 3_600_000, reason: "old", setAt: baseNow },
+    });
+    const storePersist = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const storeClear = new CooldownStore(cooldownPath, { now: () => baseNow });
+    await Promise.all([
+      storePersist.persistCooldown(
+        "kimi/new",
+        baseNow + 3_600_000,
+        "quota_exhausted",
+        baseNow,
+      ),
+      storeClear.clearCooldowns("openai/existing"),
+    ]);
+    const reader = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const after = reader.readCooldowns();
+    expect(after.has("kimi/new")).toBe(true);
+    expect(after.has("openai/existing")).toBe(false);
+    expect(after.size).toBe(1);
+  });
+
+  test("clear-all vs persist: no corruption; final state bounded", async () => {
+    writeCooldownFile({
+      "openai/pre": { expiresAt: baseNow + 3_600_000, reason: "x", setAt: baseNow },
+    });
+    const storePersist = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const storeClear = new CooldownStore(cooldownPath, { now: () => baseNow });
+    await Promise.all([
+      storePersist.persistCooldown(
+        "kimi/new",
+        baseNow + 3_600_000,
+        "quota_exhausted",
+        baseNow,
+      ),
+      storeClear.clearCooldowns(),
+    ]);
+    const raw = fs.readFileSync(cooldownPath, "utf8");
+    expect(() => JSON.parse(raw)).not.toThrow();
+    const reader = new CooldownStore(cooldownPath, { now: () => baseNow });
+    const after = reader.readCooldowns();
+    // Ordering under lock determines whether kimi/new survived clear-all.
+    // Both outcomes are valid; size must be 0 or 1, never corrupted.
+    expect(after.size).toBeLessThanOrEqual(1);
+  });
+});
+
 describe("getCooldownPath — path resolution (KD6)", () => {
   test("uses OPENCODE_MODEL_ROUTING_COOLDOWN env override when set", () => {
     const p = getCooldownPath({
