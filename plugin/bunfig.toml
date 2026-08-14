@@ -1,0 +1,6 @@
+[test]
+# Neutralizes inherited production env (OMR_LOG_FILE, cooldown store) before any
+# test module loads. Binds isolation to the runner rather than the invocation, so
+# a direct `bun test` is protected identically to `bun run test`.
+# See test/setup.ts for the incident this prevents.
+preload = ["./test/setup.ts"]

@@ -39,7 +39,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "OPENCODE_MODEL_ROUTING_COOLDOWN=/dev/null/omr-test-isolation bun test",
+    "test": "bun test",
     "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "dependencies": {
