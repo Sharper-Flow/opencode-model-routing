@@ -1,13 +1,15 @@
-// Structured stderr logger for the model-routing plugin.
+// Structured logger for the model-routing plugin.
 //
-// All log lines are emitted as single-line JSON to stderr. Format mirrors the
+// Two independently gated sinks:
+//   - console (stderr): warn+ by default. Plugin stderr is visible inside the
+//     OpenCode TUI, so routine routing narrative (info/debug) must stay off
+//     it; only actionable warnings and errors are emitted there.
+//   - file (opts.file or OMR_LOG_FILE): debug+ whenever configured. Captures
+//     the full routing narrative for post-hoc debugging, because opencode.log
+//     does not capture plugin stderr.
+//
+// All log lines are emitted as single-line JSON. Format mirrors the
 // reference Smart-Coders-HQ plugin for grep/jq compatibility.
-//
-// Optional file sink: set OMR_LOG_FILE=/path/to/omr.log to ALSO append every
-// line to that file (sync, best-effort). The default stderr-only sink is
-// unchanged when unset. This exists because OpenCode's opencode.log does not
-// capture plugin stderr, which made preemptive-redirect / cooldown verdicts
-// invisible during rollover debugging (the "fallback unreachable" mystery).
 
 import { appendFileSync } from "node:fs";
 
@@ -21,14 +23,16 @@ export interface Logger {
 }
 
 export interface LoggerOptions {
-  // Minimum level to emit. "debug" lets everything through; "info" suppresses
-  // debug; etc.
+  // Minimum level for the console/stderr sink. Default "warn".
   minLevel?: LogLevel;
-  // Override stderr sink — primarily a test seam.
+  // Override the console sink — primarily a test seam. The file sink, when
+  // configured, is unaffected by this override.
   write?: (line: string) => void;
-  // Optional file path to additionally append every line to (sync,
-  // best-effort). Falls back to the OMR_LOG_FILE env var when unset.
+  // Optional file path to append every line to (sync, best-effort). Falls
+  // back to the OMR_LOG_FILE env var when unset.
   file?: string;
+  // Minimum level for the file sink. Default "debug" (full narrative).
+  fileMinLevel?: LogLevel;
 }
 
 const levelRank: Record<LogLevel, number> = {
@@ -39,35 +43,36 @@ const levelRank: Record<LogLevel, number> = {
 };
 
 export function createLogger(opts: LoggerOptions = {}): Logger {
-  const minLevel = opts.minLevel ?? "info";
+  const consoleMin = opts.minLevel ?? "warn";
+  const fileMin = opts.fileMinLevel ?? "debug";
   const fileSink = opts.file ?? process.env.OMR_LOG_FILE;
   const write =
-    opts.write ??
-    ((line) => {
-      process.stderr.write(line + "\n");
-      if (fileSink) {
-        try {
-          appendFileSync(fileSink, line + "\n");
-        } catch {
-          // Best-effort: a bad log path must never break routing.
-        }
-      }
-    });
+    opts.write ?? ((line: string) => process.stderr.write(line + "\n"));
 
   function emit(
     level: LogLevel,
     event: string,
     fields?: Record<string, unknown>,
   ) {
-    if (levelRank[level] < levelRank[minLevel]) return;
-    const record = {
+    const toConsole = levelRank[level] >= levelRank[consoleMin];
+    const toFile =
+      fileSink !== undefined && levelRank[level] >= levelRank[fileMin];
+    if (!toConsole && !toFile) return;
+    const line = JSON.stringify({
       ts: new Date().toISOString(),
       level,
       plugin: "opencode-model-routing",
       event,
       ...(fields ?? {}),
-    };
-    write(JSON.stringify(record));
+    });
+    if (toConsole) write(line);
+    if (toFile) {
+      try {
+        appendFileSync(fileSink, line + "\n");
+      } catch {
+        // Best-effort: a bad log path must never break routing.
+      }
+    }
   }
 
   return {
