@@ -25,7 +25,8 @@ describe("test environment isolation", () => {
 
   test("a default logger writes nothing to disk under the preload", () => {
     // Exercises the real default `write` path — the one the leaking test hit
-    // via pluginModule.server(). stderr output is expected; a file write is not.
+    // via pluginModule.server(). Warn reaches the default console sink; a
+    // file write does not, because the preload neutralized OMR_LOG_FILE.
     const lines: string[] = [];
     const originalWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string) => {
@@ -34,7 +35,7 @@ describe("test environment isolation", () => {
     }) as typeof process.stderr.write;
     try {
       const logger = createLogger();
-      logger.info("test.isolation.probe", { marker: "should-not-reach-disk" });
+      logger.warn("test.isolation.probe", { marker: "should-not-reach-disk" });
     } finally {
       process.stderr.write = originalWrite;
     }
