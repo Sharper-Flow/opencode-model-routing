@@ -13,6 +13,7 @@ import { FallbackStore } from "../src/state/store.ts";
 import { ModelHealthMap } from "../src/state/model-health.ts";
 import {
   CooldownStore,
+  COOLDOWN_CACHE_TTL_MS,
   COOLDOWN_SCHEMA,
   COOLDOWN_VERSION,
 } from "../src/state/cooldown-store.ts";
@@ -175,10 +176,10 @@ describe("ModelHealthMap with cooldownStore — read-through (cross-process)", (
     expect(m.isInCooldown("never/seen" as ModelKey)).toBe(false);
   });
 
-  test("isInCooldown skips cooldownStore read when in-memory already says cooling", () => {
+  test("isInCooldown does not consult cooldownStore while the record is unpersisted", () => {
     let readCallCount = 0;
     const fakeStore = {
-      persistCooldown: async (): Promise<void> => {},
+      persistCooldown: () => new Promise<void>(() => {}), // never settles
       readCooldowns: () => {
         readCallCount++;
         return new Map();
@@ -187,8 +188,101 @@ describe("ModelHealthMap with cooldownStore — read-through (cross-process)", (
     const m = new ModelHealthMap(() => baseNow, fakeStore as any);
     m.cooldown("a/one" as ModelKey, 5_000, "rate_limit");
     expect(m.isInCooldown("a/one" as ModelKey)).toBe(true);
-    // No need to read from cooldownStore — in-memory had the answer.
+    // Persist has not landed, so in-memory is the only authority (C1).
     expect(readCallCount).toBe(0);
+  });
+
+  test("persist failure leaves the in-memory record authoritative", async () => {
+    const fakeStore = {
+      persistCooldown: async (): Promise<void> => {
+        throw new Error("simulated persist failure");
+      },
+      readCooldowns: () => new Map(),
+    };
+    const m = new ModelHealthMap(() => baseNow, fakeStore as any);
+    await m.cooldown("a/one" as ModelKey, 5_000, "rate_limit");
+    // The store never held the entry; that is not a clear, so cooling stands.
+    expect(m.isInCooldown("a/one" as ModelKey)).toBe(true);
+  });
+
+  test("persisted record consults cooldownStore; a cleared entry frees the model", async () => {
+    const entries = new Map<
+      ModelKey,
+      { expiresAt: number; reason: string; setAt: number }
+    >();
+    const fakeStore = {
+      persistCooldown: async (
+        modelKey: ModelKey,
+        expiresAt: number,
+        reason: string,
+        setAt: number,
+      ): Promise<void> => {
+        entries.set(modelKey, { expiresAt, reason, setAt });
+      },
+      readCooldowns: () => new Map(entries),
+    };
+    const m = new ModelHealthMap(() => baseNow, fakeStore as any);
+    await m.cooldown("a/one" as ModelKey, 3_600_000, "quota_exhausted");
+    expect(m.isInCooldown("a/one" as ModelKey)).toBe(true);
+    // Operator reset: the entry leaves the store.
+    entries.delete("a/one" as ModelKey);
+    expect(m.isInCooldown("a/one" as ModelKey)).toBe(false);
+    expect(m.get("a/one" as ModelKey).state).toBe("healthy");
+  });
+
+  test("persisted record adopts the store's expiresAt", async () => {
+    let virtualNow = baseNow;
+    const entries = new Map<
+      ModelKey,
+      { expiresAt: number; reason: string; setAt: number }
+    >();
+    const fakeStore = {
+      persistCooldown: async (
+        modelKey: ModelKey,
+        expiresAt: number,
+        reason: string,
+        setAt: number,
+      ): Promise<void> => {
+        entries.set(modelKey, { expiresAt, reason, setAt });
+      },
+      readCooldowns: () => new Map(entries),
+    };
+    const m = new ModelHealthMap(() => virtualNow, fakeStore as any);
+    await m.cooldown("a/one" as ModelKey, 3_600_000, "quota_exhausted");
+    // The store now holds a shorter window than memory (a rewritten file).
+    entries.set("a/one" as ModelKey, {
+      expiresAt: baseNow + 5_000,
+      reason: "quota_exhausted",
+      setAt: baseNow,
+    });
+    expect(m.isInCooldown("a/one" as ModelKey)).toBe(true);
+    virtualNow += 5_001;
+    expect(m.isInCooldown("a/one" as ModelKey)).toBe(false);
+    expect(m.get("a/one" as ModelKey).state).toBe("healthy");
+  });
+
+  test("read-through record from a sibling is also freed by a clear", () => {
+    const entries = new Map<
+      ModelKey,
+      { expiresAt: number; reason: string; setAt: number }
+    >([
+      [
+        "sibling/cooldown" as ModelKey,
+        {
+          expiresAt: baseNow + 3_600_000,
+          reason: "quota_exhausted",
+          setAt: baseNow,
+        },
+      ],
+    ]);
+    const fakeStore = {
+      persistCooldown: async (): Promise<void> => {},
+      readCooldowns: () => new Map(entries),
+    };
+    const m = new ModelHealthMap(() => baseNow, fakeStore as any);
+    expect(m.isInCooldown("sibling/cooldown" as ModelKey)).toBe(true);
+    entries.clear();
+    expect(m.isInCooldown("sibling/cooldown" as ModelKey)).toBe(false);
   });
 
   test("isInCooldown expires persistent entry same as in-memory (write-back then expire)", () => {
@@ -262,5 +356,29 @@ describe("FallbackStore — passes cooldownStore to ModelHealthMap", () => {
 
     // B's in-memory Map has no entry; read-through should find A's persisted cooldown.
     expect(storeB.health.isInCooldown("kimi/kimi" as ModelKey)).toBe(true);
+  });
+
+  test("FallbackStore with cooldownStore: clearCooldowns frees live sibling maps", async () => {
+    let virtualNow = baseNow;
+    const clock = () => virtualNow;
+    const cooldownStoreA = new CooldownStore(cooldownPath, { now: clock });
+    const cooldownStoreB = new CooldownStore(cooldownPath, { now: clock });
+    const cli = new CooldownStore(cooldownPath, { now: clock });
+    const storeA = new FallbackStore(clock, cooldownStoreA);
+    const storeB = new FallbackStore(clock, cooldownStoreB);
+    const key = "openai/gpt-5.6-sol" as ModelKey;
+
+    await storeA.health.cooldown(key, 3_600_000, "quota_exhausted");
+    expect(storeA.health.isInCooldown(key)).toBe(true);
+    expect(storeB.health.isInCooldown(key)).toBe(true);
+
+    // `omr-cooldown reset --model openai/gpt-5.6-sol` from a third process.
+    const { cleared } = await cli.clearCooldowns(key);
+    expect(cleared).toEqual([key]);
+
+    // Past the read cache TTL, both live maps see the clear.
+    virtualNow += COOLDOWN_CACHE_TTL_MS + 1;
+    expect(storeA.health.isInCooldown(key)).toBe(false);
+    expect(storeB.health.isInCooldown(key)).toBe(false);
   });
 });

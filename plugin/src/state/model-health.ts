@@ -13,8 +13,13 @@
 //   - isInCooldown() does read-through: when the in-memory Map misses,
 //     consults cooldownStore; if a fresh entry is found, writes it back
 //     to the in-memory Map so subsequent reads are cache-local.
+//   - The store is authoritative for a cooling record it is known to hold
+//     (`persisted`). Every isInCooldown() on such a record re-reads the
+//     store (TTL-cached), so `omr-cooldown reset` from another process
+//     frees this one, and a sibling's rewrite of expiresAt is adopted.
 //   - Persist failure is swallowed (fail-open per C1): the in-memory
-//     update stands; siblings simply don't see the cooldown.
+//     update stands and stays authoritative, because the store never held
+//     the entry and its absence is not a clear.
 
 import type { ModelKey } from "../types.ts";
 
@@ -26,6 +31,9 @@ export interface HealthRecord {
   cooldownUntil: number;
   // Last error category seen (informational; surfaced in logs).
   lastCategory?: string;
+  // True once the cooldown store is known to hold this cooling record.
+  // From then on the store's entry, or its absence, wins over this record.
+  persisted?: boolean;
 }
 
 export type NowFn = () => number;
@@ -100,14 +108,33 @@ export class ModelHealthMap {
       return Promise.resolve();
     }
     const reason = category ?? "default";
+    const store = this.cooldownStore;
     // Fire-and-forget from caller's perspective unless they await; but the
     // returned promise reflects persist settle. Wrap in .catch to enforce
     // fail-open (defensive — CooldownStore.persistCooldown should never
     // reject, but a misbehaving fake or future impl might).
-    return this.cooldownStore
+    return store
       .persistCooldown(key, cooldownUntil, reason, now)
       .catch(() => {
         // Fail-open: in-memory update stands, sibling visibility lost.
+      })
+      .then(() => {
+        // persistCooldown resolves on failure too, so the store is read
+        // back to learn whether it holds the entry. Only then does the
+        // store become authoritative for this record. Max-merge may have
+        // kept a sibling's longer window; adopt it.
+        const current = this.records.get(key);
+        if (
+          !current ||
+          current.state !== "cooling" ||
+          current.cooldownUntil !== cooldownUntil
+        ) {
+          return;
+        }
+        const stored = store.readCooldowns().get(key);
+        if (!stored || stored.expiresAt < cooldownUntil) return;
+        current.persisted = true;
+        current.cooldownUntil = stored.expiresAt;
       });
   }
 
@@ -120,18 +147,29 @@ export class ModelHealthMap {
    * so subsequent reads are cache-local and the existing side-effect
    * (expiry → upgrade to "healthy") applies uniformly.
    *
+   * Store authority: a cooling record the store is known to hold
+   * (`persisted`) is re-checked against the store on every call. The
+   * store's read is TTL-cached, so this costs one file read per
+   * COOLDOWN_CACHE_TTL_MS at most. An entry that is gone or expired in
+   * the store clears the record; a different expiresAt is adopted. An
+   * unpersisted record (persist pending or failed) stays in-memory-only.
+   *
    * Side-effect: if the cooldown has expired (in-memory or persistent),
    * the record is upgraded to "healthy" so the caller sees a consistent
    * view.
    */
   isInCooldown(key: ModelKey): boolean {
+    const now = this.now();
     const r = this.records.get(key);
     if (r) {
       if (r.state !== "cooling") return false;
-      if (r.cooldownUntil > this.now()) return true;
-      // Cooldown expired — upgrade to healthy.
-      this.records.set(key, { state: "healthy", cooldownUntil: 0 });
-      return false;
+      if (r.cooldownUntil <= now) return this.markHealthy(key);
+      if (!r.persisted || !this.cooldownStore) return true;
+
+      const stored = this.cooldownStore.readCooldowns().get(key);
+      if (!stored || stored.expiresAt <= now) return this.markHealthy(key);
+      r.cooldownUntil = stored.expiresAt;
+      return true;
     }
 
     // In-memory miss. Consult cooldownStore if configured (read-through).
@@ -139,15 +177,22 @@ export class ModelHealthMap {
 
     const persistent = this.cooldownStore.readCooldowns().get(key);
     if (!persistent) return false;
-    if (persistent.expiresAt <= this.now()) return false;
+    if (persistent.expiresAt <= now) return false;
 
     // Write-back to in-memory Map so future reads are cache-local and
-    // expiry side-effects fire uniformly.
+    // expiry side-effects fire uniformly. The entry came from the store,
+    // so the store is authoritative for it from the start.
     this.records.set(key, {
       state: "cooling",
       cooldownUntil: persistent.expiresAt,
       lastCategory: persistent.reason,
+      persisted: true,
     });
     return true;
+  }
+
+  private markHealthy(key: ModelKey): false {
+    this.records.set(key, { state: "healthy", cooldownUntil: 0 });
+    return false;
   }
 }
