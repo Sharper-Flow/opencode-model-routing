@@ -1238,7 +1238,7 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
       logger: silentLogger,
     });
     // Override rate_limit; default quota_exhausted + auth_error + rate_limit(30min) preserved
-    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(60 * 60_000);
+    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.auth_error).toBe(30 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(60 * 60_000); // override wins
   });
@@ -1249,9 +1249,9 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
       cooldownOverrides: { rate_limit: 60 * 60_000 },
       logger: silentLogger,
     });
-    // 3 layers: default quota_exhausted(1hr) preserved; auth_error overridden by config(10min);
+    // 3 layers: default quota_exhausted(10min) preserved; auth_error overridden by config(10min);
     // rate_limit overridden by pluginOptions(60min)
-    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(60 * 60_000);
+    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.auth_error).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(60 * 60_000);
   });
@@ -1259,7 +1259,7 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
   test("no overrides supplied — default cooldownMsByCategory intact", () => {
     const ctx = createPluginContext({ logger: silentLogger });
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(30 * 60_000);
-    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(60 * 60_000);
+    expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.auth_error).toBe(30 * 60_000);
   });
 });

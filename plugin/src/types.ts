@@ -90,9 +90,13 @@ export const defaultConfig: PluginConfig = {
   abortWaitMs: 150,
   preserveContext: true,
   // Category-aware defaults: persistent or hour-scale failure modes get
-  // longer cooldowns than the 5-minute default. Quota exhaustion typically
-  // lasts hours (plan reset cycle) — a 1-hour window prevents the thrash
-  // cycle while still allowing eventual retry if the plan resets mid-process.
+  // longer cooldowns than the 5-minute default. Quota exhaustion lasts
+  // until the plan's reset boundary, which no provider reports here, so the
+  // window is a probe interval: on expiry the next send tries the model
+  // once and re-cools on failure. A probe against an exhausted plan is a
+  // fast 4xx that burns no tokens, and the shared cooldown file means one
+  // failed probe re-cools every process. Ten minutes bounds the time a
+  // reset goes unseen to ten minutes at a cost of six probes per hour.
   // Auth errors rarely self-heal in 5 minutes; 30 minutes gives a reasonable
   // window for credential rotation. Rate-limit windows vary by provider:
   // MiniMax Token Plan exhaustion surfaces as HTTP 429 but recovers on
@@ -103,7 +107,7 @@ export const defaultConfig: PluginConfig = {
   // unknown) intentionally fall through to the 5-minute default — they ARE
   // likely to recover quickly.
   cooldownMsByCategory: {
-    quota_exhausted: 60 * 60_000, // 1 hour
+    quota_exhausted: 10 * 60_000, // 10 minutes
     auth_error: 30 * 60_000, // 30 minutes
     rate_limit: 30 * 60_000, // 30 minutes — covers hour-scale provider windows (e.g. MiniMax Token Plan); user-tunable via pluginOptions.cooldownMsByCategory
   },
