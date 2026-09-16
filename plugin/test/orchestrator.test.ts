@@ -945,3 +945,101 @@ describe("attemptFallback — agent/from attribution on fallback.* logs", () => 
     expect(Object.hasOwn(exhausted!.data, "agent")).toBe(true);
   });
 });
+
+describe("attemptFallback — cooldown attribution", () => {
+  test("failedModel (the message's own model) is cooled instead of state.currentModel", async () => {
+    const store = new FallbackStore();
+    // Session state already advanced past the failing model (e.g. a prior
+    // subagent short-circuit advanced currentModel without serving it).
+    store.sessions.get("s1").currentModel = "b/two";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      failedModel: "a/one",
+    });
+
+    expect(result.success).toBe(true);
+    // The message's own model is cooled...
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+    // ...the advanced-but-never-served currentModel is NOT...
+    expect(store.health.isInCooldown("b/two" as ModelKey)).toBe(false);
+    // ...and rotation still advances from currentModel (design unchanged).
+    expect(store.sessions.get("s1").currentModel).toBe("c/three");
+  });
+
+  test("model-less signal cools lastServedModel when currentModel was advanced without serving", async () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    // Incident shape: subagent short-circuit advanced currentModel to the
+    // next rung; the dying primary's terminal error resurfaces model-less
+    // (transient session.error carries no model identity).
+    state.currentModel = "b/two";
+    state.lastServedModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+    expect(store.health.isInCooldown("b/two" as ModelKey)).toBe(false);
+  });
+
+  test("model-less signal falls back to currentModel when lastServedModel is unset", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+  });
+
+  test("successful recovery makes next the last-served model; subagent skip does not", async () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "a/one";
+    state.lastServedModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    // prompt(b/two) was dispatched — b/two is now the serving model.
+    expect(store.sessions.get("s1").lastServedModel).toBe("b/two");
+  });
+});

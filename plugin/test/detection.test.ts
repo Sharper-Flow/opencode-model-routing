@@ -208,27 +208,40 @@ describe("classifySessionError", () => {
         }),
       ).toBe("quota_exhausted");
     });
-    test("HTTP 429 5-hourly quota → rate_limit (statusCode precedence preserved)", () => {
-      // 429 keeps precedence — Kimi's 5-hourly wording still classifies as
-      // rate_limit, matching existing ChatGPT Pro precedent. Do NOT promote
-      // 429 to quota_exhausted based on message; the team's intentional
-      // design choice stands.
+    test("HTTP 429 OpenAI plan exhaustion wording → quota_exhausted (message inspected before bare-429)", () => {
+      // OpenAI plan exhaustion arrives as 429 "The usage limit has been
+      // reached". The message/body scan must run BEFORE the bare-429
+      // rate_limit return so usage-limit wording classifies as
+      // quota_exhausted and gets the quota cooldown instead of cooling for
+      // the rate_limit window.
       expect(
         classifySessionError({
           name: "APIError",
           data: {
             statusCode: 429,
-            message: "You've reached your usage limit for this period",
+            message: "The usage limit has been reached",
             isRetryable: false,
           },
         }),
-      ).toBe("rate_limit");
+      ).toBe("quota_exhausted");
     });
-    test("HTTP 429 Kimi monthly quota → rate_limit (statusCode precedence)", () => {
-      // Monthly wording matches "kimi monthly" pattern in the body scan, but
-      // 429 status code short-circuits first. This is intentional — cooldown
-      // for 429 is 30min vs quota's 60min, and the Kimi monthly window
-      // rolls on hour-scale.
+    test("HTTP 429 usage-limit wording in responseBody only → quota_exhausted (body scan)", () => {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 429,
+            message: "Request failed",
+            isRetryable: false,
+            responseBody:
+              '{"error":{"message":"You have reached your usage limit for this billing cycle"}}',
+          },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 429 Kimi monthly usage-limit wording → quota_exhausted", () => {
+      // Same usage-limit family as the OpenAI wording — quota signals in
+      // the message win over the bare-429 default regardless of provider.
       expect(
         classifySessionError({
           name: "APIError",
@@ -238,6 +251,29 @@ describe("classifySessionError", () => {
               "You've reached kimi monthly usage limit for this billing cycle",
             isRetryable: false,
           },
+        }),
+      ).toBe("quota_exhausted");
+    });
+    test("HTTP 429 transient rate-limit wording → rate_limit (default preserved)", () => {
+      // True transient rate limits keep the rate_limit classification: no
+      // quota signal in message or responseBody.
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: {
+            statusCode: 429,
+            message:
+              "Rate limit reached for gpt-5.6-luna on tokens per min (TPM): Limit 30000, Used 30000",
+            isRetryable: true,
+          },
+        }),
+      ).toBe("rate_limit");
+    });
+    test("HTTP 429 with no message/body → rate_limit (bare-429 default preserved)", () => {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false },
         }),
       ).toBe("rate_limit");
     });
@@ -368,7 +404,12 @@ describe("classifySessionError — verbatim ChatGPT Pro 429 payload", () => {
   // Real session.error payload shape constructed from observed AI_APICallError
   // (after OpenCode wraps via parseAPICallError → APIError NamedError).
   // Observed in log 2026-05-23T180338.log @ 18:04:02 ses_1a9fdfb70ffeExYV11DljnFqU0.
-  test("APIError APIError with usage_limit_reached responseBody → rate_limit (statusCode precedence)", () => {
+  test("APIError APIError with usage_limit_reached responseBody → quota_exhausted (message inspected before bare-429)", () => {
+    // OpenAI/ChatGPT Pro plan exhaustion on 429 classifies as
+    // quota_exhausted: the message scan runs before the bare-429 rate_limit
+    // return, so "The usage limit has been reached" (and the
+    // usage_limit_reached body) map to the quota cooldown instead of the
+    // rate_limit window.
     expect(
       classifySessionError({
         name: "APIError",
@@ -380,7 +421,7 @@ describe("classifySessionError — verbatim ChatGPT Pro 429 payload", () => {
             '{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1779820400,"eligible_promo":null,"resets_in_seconds":260964}}',
         },
       }),
-    ).toBe("rate_limit");
+    ).toBe("quota_exhausted");
   });
   test("APIError with usage_limit_reached responseBody and NO statusCode → quota_exhausted (responseBody scan fallback)", () => {
     expect(

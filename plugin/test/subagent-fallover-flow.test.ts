@@ -258,4 +258,49 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
     // Cooldown should be marked because currentModel was set by the fix.
     expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(true);
   });
+
+  test("scenario 6: terminal resurface after subagent advance cools the served model, not the advanced rung", async () => {
+    // Incident shape (2026-09-16 omr.log): a subagent's primary fails;
+    // the retry-status quota signal advances currentModel to the next rung
+    // without serving it; the terminal error then resurfaces through
+    // session.error/message.updated outside the dedup TTL and cooled the
+    // never-served rung for the rate_limit window. The cooldown must land
+    // on the model that actually served (lastServedModel) instead.
+    const ctx = createPluginContext({ logger: silentLogger });
+    ctx.chains.set(AGENT, CHAIN);
+
+    const sessionId = "ses_sub_resurface";
+    const client = await setupSubagent(ctx, sessionId);
+
+    // First failure: retry-status quota exhaustion → subagent skip cools
+    // the serving model and advances currentModel to FALLBACK_1 unserved.
+    await handleEvent(ctx, client, {
+      type: "session.status",
+      properties: {
+        sessionID: sessionId,
+        status: {
+          type: "retry",
+          message: "usage limit reached",
+          action: { reason: "free_tier_limit", provider: "opencode-go" },
+        },
+      },
+    } as any);
+    expect(ctx.store.sessions.get(sessionId).currentModel).toBe(FALLBACK_1);
+    expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(true);
+    expect(ctx.store.sessions.get(sessionId).lastServedModel).toBe(PRIMARY);
+
+    // The real gap between the last retry signal and the terminal error
+    // exceeds the 30s dedup TTL; simulate it by clearing the registry.
+    ctx.store.failures.clearSession(sessionId);
+
+    // Terminal error resurfaces (429 usage-limit wording — classifies as
+    // quota_exhausted now that the 429 branch scans the message).
+    await handleEvent(ctx, client, quotaErrorEvent(sessionId));
+
+    // The served model stays cooled; the advanced-but-never-served rung
+    // must NOT be cooled.
+    expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(true);
+    expect(ctx.store.health.isInCooldown(FALLBACK_1)).toBe(false);
+    expect(ctx.store.sessions.get(sessionId).lastServedModel).toBe(PRIMARY);
+  });
 });

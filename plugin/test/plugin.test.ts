@@ -3,6 +3,7 @@ import { createLogger } from "../src/logging/logger.ts";
 import {
   createPluginContext,
   extractCooldownOverrides,
+  failureFingerprint,
   handleChatMessage,
   handleEvent,
   normalizeEventInput,
@@ -1309,5 +1310,134 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
     } finally {
       Date.now = originalNow;
     }
+  });
+});
+
+describe("failureFingerprint — stability across error representations", () => {
+  test("transient session.error and persisted message.updated copies fingerprint identically", () => {
+    // The transient copy reports isRetryable while the provider still
+    // retries and may lack responseBody; the persisted copy flips
+    // isRetryable at termination and can carry the body. Only the shared
+    // identity fields (name, statusCode, message) take part.
+    const transient = {
+      name: "APIError",
+      data: {
+        message: "The usage limit has been reached",
+        statusCode: 429,
+        isRetryable: true,
+      },
+    };
+    const persisted = {
+      name: "APIError",
+      data: {
+        message: "The usage limit has been reached",
+        statusCode: 429,
+        isRetryable: false,
+        responseBody: '{"error":{"code":"usage_limit_reached"}}',
+      },
+    };
+    expect(failureFingerprint(persisted)).toBe(failureFingerprint(transient));
+  });
+
+  test("NamedError spelling drift (ApiError vs APIError) does not change the fingerprint", () => {
+    expect(
+      failureFingerprint({
+        name: "ApiError",
+        data: { message: "boom", statusCode: 500 },
+      }),
+    ).toBe(
+      failureFingerprint({
+        name: "APIError",
+        data: { message: "boom", statusCode: 500 },
+      }),
+    );
+  });
+
+  test("distinct failures keep distinct fingerprints", () => {
+    expect(
+      failureFingerprint({
+        name: "APIError",
+        data: { message: "rate limit exceeded", statusCode: 429 },
+      }),
+    ).not.toBe(
+      failureFingerprint({
+        name: "APIError",
+        data: { message: "usage limit reached", statusCode: 429 },
+      }),
+    );
+  });
+});
+
+describe("cooldown attribution to the message's own model", () => {
+  test("message.updated cools the message's model, not the advanced currentModel", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two", "c/three"]);
+    const state = ctx.store.sessions.get("s1");
+    // Incident shape: an earlier subagent skip advanced currentModel to
+    // b/two without serving it; the dying primary a/one's terminal error
+    // arrives on the persisted message copy.
+    state.currentModel = "b/two";
+    state.lastServedModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "message.updated",
+      properties: {
+        sessionID: "s1",
+        info: {
+          id: "assistant-1",
+          sessionID: "s1",
+          role: "assistant",
+          providerID: "a",
+          modelID: "one",
+          error: {
+            name: "APIError",
+            data: {
+              statusCode: 429,
+              isRetryable: false,
+              message: "The usage limit has been reached",
+            },
+          },
+        },
+      },
+    } as any);
+
+    expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
+    expect(ctx.store.health.isInCooldown("b/two" as ModelKey)).toBe(false);
+  });
+
+  test("chat.message records the post-redirect model as lastServedModel", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    // Cool a/one so the preemptive skip redirects the dispatch to b/two.
+    await ctx.store.health.cooldown("a/one" as ModelKey, 60_000, "rate_limit");
+    const output = {
+      message: { model: { providerID: "a", modelID: "one" } },
+    };
+    await handleChatMessage(
+      ctx,
+      new MockClient({ messages: [userMsg()] }),
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+
+    // The redirect mutated output AND lastServedModel follows the model
+    // that will actually serve.
+    expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(ctx.store.sessions.get("s1").lastServedModel).toBe("b/two");
+  });
+
+  test("chat.message without redirect records the requested model as lastServedModel", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    const output = {
+      message: { model: { providerID: "a", modelID: "one" } },
+    };
+    await handleChatMessage(
+      ctx,
+      new MockClient({ messages: [userMsg()] }),
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+
+    expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(ctx.store.sessions.get("s1").lastServedModel).toBe("a/one");
   });
 });

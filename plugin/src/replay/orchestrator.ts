@@ -58,6 +58,17 @@ export interface AttemptFallbackArgs {
   // redirected to the next healthy chain entry via chat.message) and
   // return without recovering.
   isSubagent?: boolean;
+  // Model the failure signal itself attributes the request to — the
+  // message's own model when the signal carries a message (message.updated
+  // info carries providerID/modelID). The cooldown applies to THIS model:
+  // state.currentModel can already have been advanced to the next chain
+  // rung without that model ever serving a request (the subagent
+  // short-circuit advances bookkeeping only), and cooling the advanced
+  // model would bench a healthy model for a terminal error that belongs to
+  // the previous one. Absent → the signal carries no model identity and
+  // the cooldown falls back to the session's last-served model, then to
+  // state.currentModel.
+  failedModel?: ModelKey | null;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -176,6 +187,19 @@ export async function attemptFallback(
 
     const state = store.sessions.get(sessionId);
     const current = state.currentModel;
+    // Cooldown attribution — cool the model that actually served the
+    // failing request, not whichever model session state currently names:
+    //   1. Message-carrying signals name it directly (args.failedModel).
+    //   2. Model-less signals fall back to the last-served model. The
+    //      subagent short-circuit advances currentModel without a request
+    //      being served on it, so a terminal error resurfacing afterwards
+    //      (the transient session.error copy and the persisted
+    //      message.updated copy dedup independently) would otherwise cool
+    //      a model that never failed.
+    //   3. currentModel remains the final fallback; on every path that did
+    //      not skip serving it is the last-served model.
+    const cooldownTarget =
+      args.failedModel ?? state.lastServedModel ?? current;
 
     const next = resolveFallbackModel(
       current,
@@ -210,7 +234,7 @@ export async function attemptFallback(
     // fallback.
     const cooldownMs =
       config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
-    if (current) {
+    if (cooldownTarget) {
       // KD8 (validator finding #3): await cooldown persist settle before
       // dispatching the replacement spawn (or returning from the subagent
       // short-circuit). Sibling processes that observe the same failure and
@@ -219,7 +243,7 @@ export async function attemptFallback(
       // when no cooldownStore is wired, so the await is a no-op in tests that
       // don't exercise persistence. The promise never rejects (fail-open per
       // C1), so this await cannot throw.
-      await store.health.cooldown(current, cooldownMs, reason);
+      await store.health.cooldown(cooldownTarget, cooldownMs, reason);
     }
 
     // Subagent short-circuit: mark unhealthy and exit without recovering.
@@ -238,6 +262,9 @@ export async function attemptFallback(
       });
       // Still advance depth/original-model bookkeeping so a later
       // same-session event (rare but possible) doesn't re-enter recovery.
+      // lastServedModel is deliberately NOT advanced: no request was
+      // served on next, so a later model-less terminal error for this
+      // session must keep attributing to the model that actually failed.
       state.currentModel = next;
       state.fallbackDepth += 1;
       state.lastFallbackAt = Date.now();
@@ -345,8 +372,11 @@ export async function attemptFallback(
       return { success: false, error: "prompt failed" };
     }
 
-    // Success — update session state.
+    // Success — update session state. prompt(next) was just dispatched, so
+    // next is now the model serving this session; later model-less failure
+    // signals must attribute to it.
     state.currentModel = next;
+    state.lastServedModel = next;
     state.fallbackDepth += 1;
     state.lastFallbackAt = Date.now();
     if (!state.originalModel && current) state.originalModel = current;

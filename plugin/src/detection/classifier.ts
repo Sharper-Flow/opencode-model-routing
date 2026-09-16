@@ -43,12 +43,37 @@ export interface SessionErrorLike {
  * Precedence: non-retryable user abort → name → data.statusCode →
  * data.message → data.responseBody scan → unknown.
  *
- * Status-code 403 is the one ambiguous code: Kimi returns it for billing-cycle
- * quota exhaustion ("You've reached your usage limit for this billing cycle")
- * while most providers use it for auth/forbidden. For 403 only, scan the
- * message and responseBody for quota signals first; if none match, fall
- * through to auth_error. Other status codes keep their direct mapping.
+ * Status codes 403 and 429 are the ambiguous ones:
+ *   - 403: Kimi returns it for billing-cycle quota exhaustion ("You've
+ *     reached your usage limit for this billing cycle") while most providers
+ *     use it for auth/forbidden. Scan the message and responseBody for quota
+ *     signals first; if none match, fall through to auth_error.
+ *   - 429: providers use it both for transient rate limiting and for
+ *     plan/quota exhaustion. OpenAI plan exhaustion arrives as 429 "The
+ *     usage limit has been reached". Scan the message and responseBody for
+ *     quota signals first; if none match, fall through to rate_limit.
+ * On both codes only quota_exhausted short-circuits; everything else keeps
+ * the status code's direct mapping.
  */
+// Quota wordings that mark plan exhaustion rather than a transient rate
+// limit or an auth failure. Shared by the 403 and 429 branches: both status
+// codes are ambiguous between their default semantics and quota exhaustion,
+// and both resolve the ambiguity the same way — scan the message for these
+// signals, then the responseBody through the retry patterns.
+const quotaMessageSignals = [
+  "usage limit",
+  "quota",
+  "billing cycle",
+  "fully used up",
+  "spending limit",
+] as const;
+
+function hasQuotaSignal(lowerCasedText: string): boolean {
+  return quotaMessageSignals.some((signal) =>
+    lowerCasedText.includes(signal),
+  );
+}
+
 export function classifySessionError(
   err: SessionErrorLike,
 ): ErrorCategory | null {
@@ -71,7 +96,24 @@ export function classifySessionError(
 
   const data = err.data ?? {};
   const code = data.statusCode ?? 0;
-  if (code === 429) return "rate_limit";
+  // HTTP 429 is ambiguous: providers use it both for transient rate limiting
+  // and for plan/quota exhaustion (OpenAI plan exhaustion is 429 "The usage
+  // limit has been reached" — the usage-limit→quota mapping otherwise lives
+  // only in the 403 branch below and in classifyRetryStatusText). Scan the
+  // message and responseBody for quota signals before the bare-429 return.
+  // Only quota_exhausted short-circuits here — everything else keeps the
+  // rate_limit classification.
+  if (code === 429) {
+    const msg429 = (data.message ?? "").toLowerCase();
+    if (hasQuotaSignal(msg429)) return "quota_exhausted";
+    const body429 = data.responseBody;
+    if (typeof body429 === "string" && body429.length > 0) {
+      if (classifyRetryStatusText(body429) === "quota_exhausted") {
+        return "quota_exhausted";
+      }
+    }
+    return "rate_limit";
+  }
   if (code === 401) return "auth_error";
   // HTTP 403 is ambiguous: Kimi's billing-cycle quota exhaustion returns 403
   // with a message containing "usage limit" / "quota" / "billing cycle"
@@ -81,14 +123,7 @@ export function classifySessionError(
   // here — rate_limit and other categories still fall through to the
   // responseBody scan at the bottom of this function.
   if (code === 403) {
-    const msg403 = (data.message ?? "").toLowerCase();
-    if (
-      msg403.includes("usage limit") ||
-      msg403.includes("quota") ||
-      msg403.includes("billing cycle") ||
-      msg403.includes("fully used up") ||
-      msg403.includes("spending limit")
-    ) {
+    if (hasQuotaSignal((data.message ?? "").toLowerCase())) {
       return "quota_exhausted";
     }
     const body403 = data.responseBody;
