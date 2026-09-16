@@ -385,6 +385,18 @@ export async function handleChatMessage(
     ctx.logger,
   );
 
+  // Record the model actually about to serve this dispatch — captured AFTER
+  // the availability preflight and preemptive skip, either of which may have
+  // redirected output.message.model to a healthy chain entry. Later
+  // model-less failure signals attribute their cooldown to this model
+  // instead of currentModel, which the subagent short-circuit can advance
+  // without a request ever being served.
+  const servedModel = output.message.model;
+  if (servedModel) {
+    state.lastServedModel =
+      `${servedModel.providerID}/${servedModel.modelID}` as ModelKey;
+  }
+
   // Arm the TTFT timer for this round. Cleared when the first token arrives
   // via the event hook (message.part.updated).
   ctx.ttft.arm(sessionId, ctx.config.ttftMs, () => {
@@ -477,6 +489,12 @@ export interface EventInputShape {
       sessionID?: string;
       sessionId?: string;
       role?: "user" | "assistant";
+      // Assistant messages carry the model that produced them
+      // (@opencode-ai/sdk AssistantMessage.modelID/providerID). Present on
+      // message.updated; used to attribute the failure cooldown to the
+      // message's own model.
+      modelID?: string;
+      providerID?: string;
       error?: SessionErrorLike;
     };
   };
@@ -565,6 +583,8 @@ function isEventInputShape(event: unknown): event is EventInputShape {
       if (info.error.data !== undefined && !isRecord(info.error.data))
         return false;
     }
+    if (!isOptionalString(info.modelID) || !isOptionalString(info.providerID))
+      return false;
   }
   return true;
 }
@@ -596,15 +616,26 @@ function bounded(value: unknown, max: number): string | null {
   return typeof value === "string" ? value.slice(0, max) : null;
 }
 
+/**
+ * Stable failure fingerprint across error representations.
+ *
+ * One provider failure reaches the plugin twice: as the transient
+ * session.error payload and again on the persisted message.updated copy.
+ * The two copies can disagree on isRetryable (true while the provider still
+ * reports the failure retryable, false once the turn terminates) and on
+ * whether responseBody survived serialization, so only the identity-bearing
+ * fields both copies carry take part: the error name (case-folded and
+ * trimmed — NamedError spelling has drifted across OpenCode versions), the
+ * status code, and the bounded message text. Both representations of one
+ * failure therefore dedup to a single dispatch regardless of which copy
+ * arrives first.
+ */
 export function failureFingerprint(error: SessionErrorLike): string {
   const data = error.data ?? {};
   return JSON.stringify({
-    name: error.name ?? null,
+    name: (error.name ?? "").trim().toLowerCase() || null,
     statusCode: typeof data.statusCode === "number" ? data.statusCode : null,
-    isRetryable:
-      typeof data.isRetryable === "boolean" ? data.isRetryable : null,
-    message: bounded(data.message, 256),
-    responseBody: bounded(data.responseBody, 512),
+    message: bounded(data.message, 256)?.trim() ?? null,
   });
 }
 
@@ -614,6 +645,10 @@ interface TypedFailureInput {
   messageId?: string;
   category: ErrorCategory;
   fingerprint: string;
+  // Model identity carried by the signal itself (message.updated info
+  // providerID/modelID). attemptFallback attributes the cooldown to it
+  // instead of state.currentModel — see AttemptFallbackArgs.failedModel.
+  failedModel?: ModelKey;
 }
 
 async function handleFailureSignal(
@@ -667,6 +702,7 @@ async function handleFailureSignal(
     config: ctx.config,
     logger: ctx.logger,
     isSubagent,
+    failedModel: input.failedModel,
   });
   // OpenCode may deliver an event before the Hooks.config callback has
   // populated chains. Preserve the existing lifecycle behavior: the same
@@ -747,12 +783,24 @@ export async function handleEvent(
       if (!sessionId) return;
       const category = classifySessionError(info.error);
       if (!category) return;
+      // The persisted assistant message names the model that actually
+      // served the failing request. Attribute the failure to it so the
+      // cooldown lands on the failing model even when session state has
+      // already advanced past it (subagent short-circuit advance).
+      const failedModel =
+        typeof info.providerID === "string" &&
+        info.providerID.length > 0 &&
+        typeof info.modelID === "string" &&
+        info.modelID.length > 0
+          ? (`${info.providerID}/${info.modelID}` as ModelKey)
+          : undefined;
       await handleFailureSignal(ctx, client, {
         source: "message_updated",
         sessionId,
         messageId: info.id,
         category,
         fingerprint: failureFingerprint(info.error),
+        failedModel,
       });
       return;
     }

@@ -12,6 +12,14 @@ export interface SessionState {
   originalModel: ModelKey | null;
   // The model currently in use after fallback.
   currentModel: ModelKey | null;
+  // The model that last had a request dispatched for this session: set from
+  // chat.message (after availability preflight and preemptive redirect have
+  // settled the final model) and after a successful recovery prompt. Failure
+  // signals that carry no model identity attribute their cooldown here —
+  // currentModel can name a model this session advanced to without that
+  // model ever serving a request (subagent short-circuit), and cooling it
+  // would bench a healthy model for another model's failure.
+  lastServedModel: ModelKey | null;
   // Agent name resolved from session.messages[0]; cached.
   agentName: string | null;
   // Agent file path (markdown frontmatter source), if applicable.
@@ -37,6 +45,7 @@ export function newSessionState(): SessionState {
   return {
     originalModel: null,
     currentModel: null,
+    lastServedModel: null,
     agentName: null,
     agentFile: null,
     fallbackDepth: 0,
