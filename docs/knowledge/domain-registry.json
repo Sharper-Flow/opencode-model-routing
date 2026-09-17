@@ -1,0 +1,14 @@
+{
+  "domains": [
+    {
+      "architecture_relations": [],
+      "domain_id": "product-root:opencode-model-routing",
+      "name": "OpenCode Model Routing",
+      "purpose": "Product-wide OpenCode Model Routing law: the routing plugin contract that binds per-agent fallback chains, model health cooldowns, and per-agent model admission while no child Domain has yet been enacted.",
+      "status": "current"
+    }
+  ],
+  "product_key": "opencode-model-routing",
+  "root_domain_id": "product-root:opencode-model-routing",
+  "schema_version": "1.0"
+}
