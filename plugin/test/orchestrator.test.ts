@@ -1043,3 +1043,81 @@ describe("attemptFallback — cooldown attribution", () => {
     expect(store.sessions.get("s1").lastServedModel).toBe("b/two");
   });
 });
+
+describe("attemptFallback — blocked_models", () => {
+  test("rotation skips blocked chain entries", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      blocked: new Set<ModelKey>(["b/two"]),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.fallbackModel).toBe("c/three");
+    const promptArgs = client.callsTo("session.prompt")[0]?.args as {
+      body: { model: { providerID: string; modelID: string } };
+    };
+    expect(promptArgs.body.model).toEqual({
+      providerID: "c",
+      modelID: "three",
+    });
+    expect(store.sessions.get("s1").currentModel).toBe("c/three");
+  });
+
+  test("all alternatives blocked → exhausted, no prompt dispatched", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      blocked: new Set<ModelKey>(["b/two", "c/three"]),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("exhausted");
+    expect(client.callsTo("session.abort").length).toBe(0);
+    expect(client.callsTo("session.prompt").length).toBe(0);
+  });
+
+  test("exhausted rotation leaves the failed model uncooled (cooldown lands only when a replacement is found)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      blocked: new Set<ModelKey>(["b/two", "c/three"]),
+    });
+
+    // Pre-existing exhaustion semantics: the cooldown write happens after a
+    // next model is resolved, so an exhausted rotation (all entries blocked
+    // or cooled) cools nothing.
+    expect(result.success).toBe(false);
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(false);
+  });
+});

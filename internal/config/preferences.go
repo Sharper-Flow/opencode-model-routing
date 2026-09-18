@@ -9,7 +9,9 @@
 // plugin tuple option `plugin[N][1].agents.<name>.fallback_models`. See
 // schema/fallback-schema.json for the cross-stack contract — both this Go
 // writer and the TypeScript plugin reader reference the field name
-// `fallback_models` verbatim.
+// `fallback_models` verbatim. Blocked models live beside it at
+// `plugin[N][1].agents.<name>.blocked_models` (plugin-tuple-only, no legacy
+// path).
 package config
 
 import (
@@ -28,11 +30,15 @@ import (
 // OMR plugin tuple options. See schema/fallback-schema.json for the contract;
 // empty/missing means no
 // fallback (single-model behavior).
+// TargetBlocked maps each target to its blocked-model set — written to
+// `plugin[N][1].agents.<name>.blocked_models`. Empty/missing means nothing
+// blocked for that target.
 type PreferencesConfig struct {
 	TargetModels    map[string]string            `json:"target_models"`
 	ClearedModels   map[string]bool              `json:"cleared_models,omitempty"`
 	AdvProviders    map[string]AdvProviderConfig `json:"adv_providers,omitempty"`
 	TargetFallbacks map[string][]string          `json:"target_fallbacks,omitempty"`
+	TargetBlocked   map[string][]string          `json:"target_blocked,omitempty"`
 }
 
 // AdvProviderConfig holds enable/disable and optional model for a provider ADV variant.
@@ -79,6 +85,10 @@ func sanitizePreferences(pc PreferencesConfig) (PreferencesConfig, bool) {
 		pc.TargetFallbacks = make(map[string][]string)
 		changed = true
 	}
+	if pc.TargetBlocked == nil {
+		pc.TargetBlocked = make(map[string][]string)
+		changed = true
+	}
 
 	for name := range pc.TargetModels {
 		if !(Target{Name: name, Kind: KindAgent}).IsModelMappable() {
@@ -111,6 +121,18 @@ func sanitizePreferences(pc PreferencesConfig) (PreferencesConfig, bool) {
 		// belt-and-braces for malformed on-disk preferences.
 		if err := ValidateFallbackChain(chain); err != nil {
 			delete(pc.TargetFallbacks, name)
+			changed = true
+		}
+	}
+
+	for name, blocked := range pc.TargetBlocked {
+		if !(Target{Name: name, Kind: KindAgent}).IsModelMappable() {
+			delete(pc.TargetBlocked, name)
+			changed = true
+			continue
+		}
+		if err := ValidateBlockedModels(blocked); err != nil {
+			delete(pc.TargetBlocked, name)
 			changed = true
 		}
 	}

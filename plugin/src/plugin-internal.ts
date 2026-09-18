@@ -75,6 +75,10 @@ export interface PluginContext {
   ttft: TtftRegistry;
   guard: ExhaustionGuardRegistry;
   chains: Map<string, ModelKey[]>;
+  // Per-agent blocked-model sets from plugin tuple options
+  // (agents.<name>.blocked_models). Same lifecycle as `chains`: populated
+  // by the Hooks.config callback, mutated in-place on re-delivery.
+  blocked: Map<string, Set<ModelKey>>;
   config: PluginConfig;
   logger: Logger;
   pluginOptions?: unknown;
@@ -198,6 +202,7 @@ export function createPluginContext(
     ttft: new TtftRegistry(),
     guard: new ExhaustionGuardRegistry(),
     chains: new Map(),
+    blocked: new Map(),
     config: merged,
     logger,
     pluginOptions: opts.pluginOptions,
@@ -383,6 +388,7 @@ export async function handleChatMessage(
     ctx.chains,
     ctx.config,
     ctx.logger,
+    ctx.blocked,
   );
 
   // Record the model actually about to serve this dispatch — captured AFTER
@@ -417,6 +423,8 @@ export async function handleTtftTimeout(
 ): Promise<void> {
   if (shouldSuppressReplay(sessionId, ctx)) return;
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
+  // Blocklist follows agent identity: unresolved identity leaves it inactive.
+  const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
   // Subagent-aware routing (Part 2): mirror the pattern at lines 463 and 499
   // in handleEvent's session.error/session.status paths. detectSubagent
   // already try/catch-defaults to false on session.get failure (EC5).
@@ -431,6 +439,7 @@ export async function handleTtftTimeout(
       config: ctx.config,
       logger: ctx.logger,
       isSubagent,
+      blocked,
     });
     if (isSubagent && result.success && result.subagentSkipped) {
       // Unlike session.error, a TTFT timeout has no provider error to
@@ -692,6 +701,8 @@ async function handleFailureSignal(
 
   const agentName = await resolveAgentName(input.sessionId, client, ctx.store);
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
+  // Blocklist follows agent identity: unresolved identity leaves it inactive.
+  const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
   const isSubagent = await detectSubagent(input.sessionId, client, ctx.store);
   const result = await attemptFallback({
     sessionId: input.sessionId,
@@ -703,6 +714,7 @@ async function handleFailureSignal(
     logger: ctx.logger,
     isSubagent,
     failedModel: input.failedModel,
+    blocked,
   });
   // OpenCode may deliver an event before the Hooks.config callback has
   // populated chains. Preserve the existing lifecycle behavior: the same
@@ -879,15 +891,19 @@ export async function createPluginHooks(
     // in plugin.test.ts ("event before config") will catch it: chains stay
     // empty, attemptFallback short-circuits with "no chain", no crash.
     // Mutation is in-place (clear + set) to preserve Map identity for handler
-    // closures that hold ctx by reference.
+    // closures that hold ctx by reference. The blocked map follows the same
+    // lifecycle so a re-delivery cannot leave a stale blocklist behind for an
+    // agent whose tuple entry disappeared.
     config: async (input: unknown) => {
-      const { chains: loaded, warnings } = loadFallbackChains(
-        input,
-        ctx.logger,
-        ctx.pluginOptions,
-      );
+      const {
+        chains: loaded,
+        blocked: loadedBlocked,
+        warnings,
+      } = loadFallbackChains(input, ctx.logger, ctx.pluginOptions);
       ctx.chains.clear();
       for (const [name, chain] of loaded) ctx.chains.set(name, chain);
+      ctx.blocked.clear();
+      for (const [name, set] of loadedBlocked) ctx.blocked.set(name, set);
       for (const w of warnings)
         ctx.logger.warn("loader.warning", { message: w });
       ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });

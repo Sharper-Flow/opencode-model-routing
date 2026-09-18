@@ -12,15 +12,16 @@ This repository ships two artifacts:
 
 ## Schema Contract
 
-The per-agent fallback chain lives in the OMR plugin tuple options inside
-OpenCode's global `opencode.json`. The shape, allowed value pattern, and length
-cap are defined in [`schema/fallback-schema.json`](./schema/fallback-schema.json).
+The per-agent fallback chain and blocked-model set live in the OMR plugin
+tuple options inside OpenCode's global `opencode.json`. The shape, allowed
+value pattern, and length caps are defined in
+[`schema/fallback-schema.json`](./schema/fallback-schema.json).
 
 Both the Go writer (`internal/config/`) and the TypeScript plugin reader
-(`plugin/src/`) reference the field name `fallback_models` verbatim. The
-`schema-contract-check.sh` script (wired into `make lint`) enforces this
-cross-stack contract; renaming the field on one side without updating the other
-will fail CI.
+(`plugin/src/`) reference the field names `fallback_models` and
+`blocked_models` verbatim. The `schema-contract-check.sh` script (wired into
+`make lint`) enforces this cross-stack contract; renaming a field on one side
+without updating the other will fail CI.
 
 Why plugin options rather than `agent.<name>.options.fallback_models`: OpenCode
 merges `agent.options` into model/provider options before LLM execution, then
@@ -50,6 +51,64 @@ Example:
 
 Legacy `agent.<name>.options.fallback_models` is still read as a migration
 fallback and removed by `omr` when it writes the plugin-owned option.
+
+### Blocked models
+
+`agents.<name>.blocked_models` lists exact `provider/model` keys the routing
+plugin must never select for that agent — for example a model on a metered
+plan you want kept away from one agent but available to the others. It is
+declared beside the chain in the plugin tuple options and is plugin-tuple-only
+(there is no legacy `agent.options` path for it). Keys may name models outside
+the fallback chain, for instance a user-selected primary. The runtime plugin
+enforces it at both selection points:
+
+- Preemptive redirect (`chat.message`): when OpenCode is about to dispatch the
+  agent on a blocked model, the plugin redirects to the first chain entry that
+  is healthy and not blocked — regardless of the current model's cooldown
+  state. When the agent identity cannot be resolved, the blocklist stays
+  inactive (matching the existing anti-heuristic guard).
+- Fallback rotation: the resolver scan skips blocked entries, so a blocked key
+  inside a configured chain is never rotated onto.
+
+When every alternative is blocked or cooled, the plugin logs
+`preemptive.no_allowed_model` and leaves the selection unchanged — a hard
+failure would kill the session for want of a model, so the misconfiguration is
+surfaced in the log instead. Matching is exact-key only; patterns and model
+classes are intentionally not supported. The `omr` writer carries the field
+with the same validation (`internal/config`), and `schema-contract-check.sh`
+enforces the field name on both stacks.
+
+Worked example — `adv-researcher` falls back from `openai/gpt-5` to
+`google/gemini-2.5-pro` but must never run on the metered Claude plan, and the
+user-selected `minimax/token-plan` primary is also forbidden for this agent:
+
+```jsonc
+{
+  "plugin": [
+    [
+      "/home/you/.local/share/opencode-model-routing/plugin",
+      {
+        "agents": {
+          "adv-researcher": {
+            "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"],
+            "blocked_models": [
+              "anthropic/claude-sonnet-4-5",
+              "minimax/token-plan"
+            ]
+          }
+        }
+      }
+    ]
+  ]
+}
+```
+
+With that config: a dispatch starting on `anthropic/claude-sonnet-4-5` or
+`minimax/token-plan` is redirected to `openai/gpt-5` (first healthy
+non-blocked entry); if `openai/gpt-5` later fails, rotation lands on
+`google/gemini-2.5-pro`; and if both chain entries are unavailable, the
+session stays on its current model with a `preemptive.no_allowed_model` warn
+log.
 
 Markdown agent frontmatter may use either inline or multi-line YAML list form:
 
