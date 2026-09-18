@@ -69,9 +69,7 @@ const quotaMessageSignals = [
 ] as const;
 
 function hasQuotaSignal(lowerCasedText: string): boolean {
-  return quotaMessageSignals.some((signal) =>
-    lowerCasedText.includes(signal),
-  );
+  return quotaMessageSignals.some((signal) => lowerCasedText.includes(signal));
 }
 
 export function classifySessionError(

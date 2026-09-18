@@ -32,3 +32,13 @@ process.env.OMR_LOG_FILE = "";
 // cooldown state leak between test files and breaks cross-process cooldown
 // tests that assume a cold store.
 process.env.OPENCODE_MODEL_ROUTING_COOLDOWN = "/dev/null/omr-test-isolation";
+
+// Same isolation principle for the Claude Max availability snapshot. Unset,
+// it falls back to the REAL ~/.config/opencode-claude-max/availability.json,
+// whose live state (e.g. `unavailable` during a real exhaustion window)
+// vetoes anthropic chain entries in every resolver call — tests that never
+// asked for a snapshot would depend on the operator's actual quota.
+// A nonexistent path reads as absent → null snapshot → no veto.
+// Tests that exercise availability set their own env and override this.
+process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY =
+  "/nonexistent/omr-test-availability.json";

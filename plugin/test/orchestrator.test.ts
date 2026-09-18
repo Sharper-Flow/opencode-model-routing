@@ -1097,7 +1097,7 @@ describe("attemptFallback — blocked_models", () => {
     expect(client.callsTo("session.prompt").length).toBe(0);
   });
 
-  test("exhausted rotation leaves the failed model uncooled (cooldown lands only when a replacement is found)", async () => {
+  test("exhausted rotation still cools the failed model (sibling sessions share the cooldown store)", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({ messages: [userMsg()] });
@@ -1114,10 +1114,12 @@ describe("attemptFallback — blocked_models", () => {
       blocked: new Set<ModelKey>(["b/two", "c/three"]),
     });
 
-    // Pre-existing exhaustion semantics: the cooldown write happens after a
-    // next model is resolved, so an exhausted rotation (all entries blocked
-    // or cooled) cools nothing.
+    // The failed model DID fail: cooling it benches the model for every
+    // other session sharing the cross-session cooldown store, so sibling
+    // lanes do not each rediscover the death. (Pre-fix, the cooldown write
+    // sat after the next-model resolution and an exhausted rotation — all
+    // entries blocked or cooled — cooled nothing.)
     expect(result.success).toBe(false);
-    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(false);
+    expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
 });

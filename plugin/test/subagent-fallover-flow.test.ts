@@ -126,8 +126,11 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
     const raw = JSON.parse(fs.readFileSync(cooldownPath, "utf-8"));
     expect(raw.entries[PRIMARY]).toBeDefined();
 
-    // Sub-agent short-circuit: no abort/revert/prompt.
-    expect(client.callsTo("session.abort")).toHaveLength(0);
+    // Sub-agent short-circuit: no in-place recovery (revert/prompt stay
+    // untouched — recovery would be orphaned), but the child IS aborted so
+    // the parent Task wait regains control immediately instead of watching
+    // the child sit in the host's retry loop on a dead provider.
+    expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(0);
   });

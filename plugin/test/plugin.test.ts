@@ -339,9 +339,12 @@ describe("handleEvent — session.error", () => {
 
     // session.get called once for subagent detection (cached thereafter).
     expect(client.callsTo("session.get").length).toBe(1);
-    // CRITICAL: no abort/revert/prompt — parent Task tool already saw
-    // the stream-error cancel as terminal; recovery would be orphaned.
-    expect(client.callsTo("session.abort").length).toBe(0);
+    // CRITICAL: no revert/prompt — the parent Task tool treats the
+    // stream-error cancel as terminal, so in-place recovery would be
+    // orphaned. The child IS aborted once: nothing will serve it, and the
+    // abort hands the parent Task wait a terminal cancellation now rather
+    // than after the host's retry loop gives up.
+    expect(client.callsTo("session.abort").length).toBe(1);
     expect(client.callsTo("session.revert").length).toBe(0);
     expect(client.callsTo("session.prompt").length).toBe(0);
     // Model still marked unhealthy — replacement spawn gets preemptive

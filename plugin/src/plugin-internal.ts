@@ -14,7 +14,10 @@ import {
   ExhaustionGuardRegistry,
   shouldSuppressReplay,
 } from "./availability/guard.ts";
-import { applyAvailabilityPreflight } from "./availability/preflight.ts";
+import {
+  applyAvailabilityPreflight,
+  claudeUnavailableVeto,
+} from "./availability/preflight.ts";
 import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
 import { loadFallbackChains } from "./config/loader.ts";
 import {
@@ -30,6 +33,7 @@ import {
   type OrchestratorClient,
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
+import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
@@ -383,7 +387,7 @@ export async function handleChatMessage(
   );
 
   applyPreemptiveSkip(
-    { sessionId, agentName, output },
+    { sessionId, agentName, output, snapshot },
     ctx.store,
     ctx.chains,
     ctx.config,
@@ -415,6 +419,28 @@ export async function handleChatMessage(
  * before the first await: confirmed mid-task Claude exhaustion suppresses
  * the replay with zero SDK calls (AC4/AC5).
  */
+// Hands a subagent session back to its parent by aborting it. Used when the
+// child cannot be re-served in place (subagent skip, exhausted chain, or a
+// suppressed replay whose current rung is dead): without the abort the child
+// can sit in the host's retry loop with nothing left to serve, and the parent
+// Task wait never regains control. Abort on an already-dead session errors
+// and is logged, never thrown.
+async function abortSubagentSession(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+  eventPrefix: string,
+): Promise<void> {
+  try {
+    await client.session.abort({ path: { id: sessionId } } as never);
+  } catch (err) {
+    ctx.logger.error(`${eventPrefix}.subagent_abort_failed`, {
+      sessionId,
+      err: errorSummary(err),
+    });
+  }
+}
+
 export async function handleTtftTimeout(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -440,19 +466,14 @@ export async function handleTtftTimeout(
       logger: ctx.logger,
       isSubagent,
       blocked,
+      unavailableVeto:
+        claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
     });
     if (isSubagent && result.success && result.subagentSkipped) {
       // Unlike session.error, a TTFT timeout has no provider error to
       // terminate the child. Abort only this stalled-child path so the parent
       // Task wait observes a terminal cancellation and regains control.
-      try {
-        await client.session.abort({ path: { id: sessionId } } as never);
-      } catch (err) {
-        ctx.logger.error("ttft.subagent_abort_failed", {
-          sessionId,
-          err: errorSummary(err),
-        });
-      }
+      await abortSubagentSession(ctx, client, sessionId, "ttft");
     }
   } catch (err) {
     ctx.logger.error("ttft.callback_failed", {
@@ -660,12 +681,62 @@ interface TypedFailureInput {
   failedModel?: ModelKey;
 }
 
+// Suppressed-entrance recovery: the guard fired because the session's
+// current rung is Anthropic and the availability snapshot says that provider
+// is dead. Returning here (the pre-fix behavior) pinned the session to the
+// dead rung forever — every later failure signal was suppressed before
+// attemptFallback could advance the chain, and subagents were never handed
+// back to their parents. Instead: advance the bookkeeping past the dead
+// rung (a pure state move — no replay, no SDK prompt path) and abort the
+// session when it is a subagent so the parent Task wait regains control.
+async function advancePastUnavailableRung(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+): Promise<void> {
+  const state = ctx.store.sessions.get(sessionId);
+  const agentName = state.agentName ?? null;
+  const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
+  const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
+  const next = resolveFallbackModel(
+    state.currentModel,
+    chain,
+    state.fallbackDepth,
+    ctx.store.health,
+    ctx.config.maxDepth,
+    blocked,
+    claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+  );
+  if (next) {
+    if (!state.originalModel && state.currentModel) {
+      state.originalModel = state.currentModel;
+    }
+    const from = state.currentModel;
+    state.currentModel = next;
+    state.fallbackDepth += 1;
+    state.lastFallbackAt = Date.now();
+    ctx.logger.info("availability.advanced_past_unavailable", {
+      sessionId,
+      from,
+      to: next,
+      agent: agentName,
+    });
+  }
+  const isSubagent = await detectSubagent(sessionId, client, ctx.store);
+  if (isSubagent) {
+    await abortSubagentSession(ctx, client, sessionId, "failure");
+  }
+}
+
 async function handleFailureSignal(
   ctx: PluginContext,
   client: OrchestratorClient,
   input: TypedFailureInput,
 ): Promise<void> {
-  if (shouldSuppressReplay(input.sessionId, ctx)) return;
+  if (shouldSuppressReplay(input.sessionId, ctx)) {
+    await advancePastUnavailableRung(ctx, client, input.sessionId);
+    return;
+  }
 
   // Family correlation intentionally uses session+category rather than the
   // mutable currentModel. attemptFallback advances currentModel before the
@@ -715,7 +786,19 @@ async function handleFailureSignal(
     isSubagent,
     failedModel: input.failedModel,
     blocked,
+    unavailableVeto:
+      claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
   });
+  // Subagent terminal handoff: the skip advanced the chain bookkeeping and
+  // cooled the failed model, but the child itself still sits in the host's
+  // retry loop with nothing serving it. Abort hands the parent Task wait a
+  // terminal cancellation immediately; the parent's replacement spawn starts
+  // on the redirected (healthy) rung via preemptive skip. The same applies
+  // when the chain is exhausted — nowhere left to roll means the child must
+  // fail fast rather than hang.
+  if (isSubagent && (result.subagentSkipped || result.error === "exhausted")) {
+    await abortSubagentSession(ctx, client, input.sessionId, "failure");
+  }
   // OpenCode may deliver an event before the Hooks.config callback has
   // populated chains. Preserve the existing lifecycle behavior: the same
   // signal may retry after config becomes available. Other failures remain

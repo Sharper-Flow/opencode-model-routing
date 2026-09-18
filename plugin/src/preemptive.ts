@@ -12,6 +12,8 @@ import type { Logger } from "./logging/logger.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
 import type { FallbackStore } from "./state/store.ts";
 import type { ModelKey, PluginConfig } from "./types.ts";
+import { claudeUnavailableVeto } from "./availability/preflight.ts";
+import type { AvailabilitySnapshotV1 } from "./availability/snapshot.ts";
 
 // What the chat.message hook gives us in `output.message.model`. OpenCode
 // uses { providerID, modelID } as the canonical shape.
@@ -24,6 +26,11 @@ export interface PreemptiveInput {
   sessionId: string;
   agentName: string | null;
   output: { message: { model?: OutputModel } };
+  // Availability snapshot for the current turn (the same descriptor-validated
+  // read the preflight consumed). An `unavailable` snapshot vetoes Anthropic
+  // candidates in the rotation scan below, so a cooldown-driven redirect
+  // cannot land the session on a provider the snapshot already knows is dead.
+  snapshot?: AvailabilitySnapshotV1 | null;
 }
 
 export function applyPreemptiveSkip(
@@ -74,6 +81,7 @@ export function applyPreemptiveSkip(
         store.health,
         config.maxDepth,
         blocklist,
+        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
       );
       if (!next) {
         // Every alternative is blocked or cooled (or no chain is configured).
@@ -148,6 +156,7 @@ export function applyPreemptiveSkip(
     store.health,
     config.maxDepth,
     input.agentName ? blocked?.get(input.agentName) : undefined,
+    claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
   );
   if (!next) {
     logger.debug("preemptive.no_healthy_alternative", {
