@@ -69,6 +69,16 @@ export interface AttemptFallbackArgs {
   // the cooldown falls back to the session's last-served model, then to
   // state.currentModel.
   failedModel?: ModelKey | null;
+  // Per-agent blocked-model set (agents.<name>.blocked_models). The
+  // rotation scan skips these entries so a blocked key inside the chain is
+  // never rotated onto. Undefined when the agent has no blocklist or its
+  // identity is unresolved — the blocklist is inactive in both cases.
+  blocked?: ReadonlySet<ModelKey>;
+  // Provider-level availability veto (Claude Max snapshot `unavailable`).
+  // The rotation scan skips vetoed entries too, so the subagent
+  // short-circuit and full recovery alike never advance a session onto a
+  // provider the snapshot already knows is dead.
+  unavailableVeto?: (key: ModelKey) => boolean;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -198,8 +208,30 @@ export async function attemptFallback(
     //      a model that never failed.
     //   3. currentModel remains the final fallback; on every path that did
     //      not skip serving it is the last-served model.
-    const cooldownTarget =
-      args.failedModel ?? state.lastServedModel ?? current;
+    const cooldownTarget = args.failedModel ?? state.lastServedModel ?? current;
+
+    // Category-aware cooldown: prefer per-category override when configured,
+    // otherwise fall through to the default cooldownMs. Applied uniformly to
+    // the subagent-skip, full-recovery, AND exhausted paths — a quota_exhausted
+    // marker must outlast the default 5-minute window to break the thrash
+    // cycle where cooldown expires, the model is retried, fails again
+    // immediately (quota hasn't actually recovered), and re-triggers
+    // fallback. The exhausted path needs it too: the failed model stays
+    // benched for every OTHER session sharing it (the cooldown store is
+    // cross-session), so sibling lanes do not each rediscover the death.
+    const cooldownMs =
+      config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
+    if (cooldownTarget) {
+      // KD8 (validator finding #3): await cooldown persist settle before
+      // dispatching the replacement spawn (or returning from any
+      // short-circuit below). Sibling processes that observe the same failure
+      // and race to spawn their own replacement must see the cooldown by the
+      // time their isInCooldown check runs. cooldown() returns
+      // Promise.resolve() when no cooldownStore is wired, so the await is a
+      // no-op in tests that don't exercise persistence. The promise never
+      // rejects (fail-open per C1), so this await cannot throw.
+      await store.health.cooldown(cooldownTarget, cooldownMs, reason);
+    }
 
     const next = resolveFallbackModel(
       current,
@@ -207,6 +239,8 @@ export async function attemptFallback(
       state.fallbackDepth,
       store.health,
       config.maxDepth,
+      args.blocked,
+      args.unavailableVeto,
     );
     if (!next) {
       // `agent` and `from` mirror preemptive.redirected so the whole failover
@@ -223,27 +257,6 @@ export async function attemptFallback(
         agent: state.agentName,
       });
       return { success: false, error: "exhausted" };
-    }
-
-    // Category-aware cooldown: prefer per-category override when configured,
-    // otherwise fall through to the default cooldownMs. Applied uniformly
-    // to both subagent-skip and full-recovery paths — a quota_exhausted
-    // marker must outlast the default 5-minute window to break the thrash
-    // cycle where cooldown expires, the model is retried, fails again
-    // immediately (quota hasn't actually recovered), and re-triggers
-    // fallback.
-    const cooldownMs =
-      config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
-    if (cooldownTarget) {
-      // KD8 (validator finding #3): await cooldown persist settle before
-      // dispatching the replacement spawn (or returning from the subagent
-      // short-circuit). Sibling processes that observe the same failure and
-      // race to spawn their own replacement must see the cooldown by the time
-      // their isInCooldown check runs. cooldown() returns Promise.resolve()
-      // when no cooldownStore is wired, so the await is a no-op in tests that
-      // don't exercise persistence. The promise never rejects (fail-open per
-      // C1), so this await cannot throw.
-      await store.health.cooldown(cooldownTarget, cooldownMs, reason);
     }
 
     // Subagent short-circuit: mark unhealthy and exit without recovering.

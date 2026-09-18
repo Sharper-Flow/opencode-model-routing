@@ -36,6 +36,7 @@ type Target struct {
 	Locked         bool     // true for built-in primary agents whose cycle order is fixed by OpenCode
 	Hidden         bool     // true when frontmatter sets hidden: true
 	FallbackModels []string // ordered fallback chain from OMR plugin options; legacy agent options are migration-only
+	BlockedModels  []string // blocked-model set from OMR plugin options; plugin-tuple-only, no legacy path
 }
 
 var unmappedMainAgents = map[string]bool{
@@ -213,6 +214,7 @@ func discoverTargets(configDir string, raw []byte) []Target {
 	for _, a := range builtinAgents {
 		a.Model = gjson.GetBytes(raw, "agent."+a.Name+".model").String()
 		a.FallbackModels = readFallbackChain(raw, a.Name)
+		a.BlockedModels = readBlockedModels(raw, a.Name)
 		targets = append(targets, a)
 		seen[a.Name] = true
 	}
@@ -243,6 +245,7 @@ func discoverTargets(configDir string, raw []byte) []Target {
 			Description:    val.Get("description").String(),
 			Hidden:         hidden,
 			FallbackModels: readFallbackChain(raw, n),
+			BlockedModels:  readBlockedModels(raw, n),
 		})
 		seen[n] = true
 		return true
@@ -261,6 +264,29 @@ func readFallbackChain(raw []byte, agentName string) []string {
 	if !res.Exists() {
 		res = gjson.GetBytes(raw, "agent."+agentName+"."+FallbackJSONPath)
 	}
+	if !res.Exists() || !res.IsArray() {
+		return nil
+	}
+	arr := res.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, r := range arr {
+		out = append(out, r.String())
+	}
+	return out
+}
+
+// readBlockedModels extracts the per-agent blocked-model set from the OMR
+// plugin tuple options. Plugin-tuple-only: blocked_models has no legacy or
+// frontmatter path.
+func readBlockedModels(raw []byte, agentName string) []string {
+	path, ok := pluginBlockedPath(raw, agentName)
+	if !ok {
+		return nil
+	}
+	res := gjson.GetBytes(raw, path)
 	if !res.Exists() || !res.IsArray() {
 		return nil
 	}
@@ -354,6 +380,7 @@ func discoverMarkdownAgents(dir string, raw []byte, seen map[string]bool, allowP
 			Description:    description,
 			Hidden:         hidden,
 			FallbackModels: fallback,
+			BlockedModels:  readBlockedModels(raw, name),
 		})
 		seen[name] = true
 	}

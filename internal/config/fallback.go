@@ -1,14 +1,15 @@
 // Package config — fallback.go
 //
-// Validation and constants for per-agent fallback chains. The canonical
+// Validation and constants for per-agent routing fields. The canonical
 // contract lives in schema/fallback-schema.json; this file mirrors the regex
-// and length cap on the Go writer side. Both this file and the TypeScript
-// plugin's loader reference the field name `fallback_models` verbatim — drift
-// is enforced by schema-contract-check.sh.
+// and length caps on the Go writer side. Both this file and the TypeScript
+// plugin's loader reference the field names `fallback_models` and
+// `blocked_models` verbatim — drift is enforced by schema-contract-check.sh.
 //
 // New writes target OMR plugin tuple options because OpenCode forwards
 // agent.options into provider/model requests. FallbackJSONPath remains only as
 // the legacy migration path under agent.<name>.options.fallback_models.
+// blocked_models has no legacy path — it is plugin-tuple-only.
 package config
 
 import (
@@ -20,8 +21,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// ModelKeyPattern is the regex that every fallback chain entry must match.
-// Mirrors `items.pattern` in schema/fallback-schema.json.
+// ModelKeyPattern is the regex that every fallback chain entry and every
+// blocked-models entry must match. Mirrors `items.pattern` in
+// schema/fallback-schema.json.
 const ModelKeyPattern = `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\.[A-Za-z0-9_:/-]+)*$`
 
 // FallbackJSONPath is the legacy JSON path under each agent for the fallback
@@ -93,14 +95,60 @@ func pluginFallbackPath(raw []byte, agentName string) (string, bool) {
 	return fmt.Sprintf("plugin.%d.1.agents.%s.fallback_models", idx, agentName), true
 }
 
+// pluginBlockedPath is the JSON path of the per-agent blocked-models set under
+// the OMR plugin tuple options. Plugin-tuple-only: blocked_models has no
+// legacy migration path.
+func pluginBlockedPath(raw []byte, agentName string) (string, bool) {
+	idx, ok := routingPluginIndex(raw)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("plugin.%d.1.agents.%s.blocked_models", idx, agentName), true
+}
+
 // MaxChainLength caps the number of entries in a single fallback chain.
-// Mirrors `maxItems` in schema/fallback-schema.json. The cap is conservative
-// — agents needing deeper chains are usually a sign that the primary model
-// choice is wrong, not that the chain needs to be longer.
+// Mirrors `maxItems` for fallback_models in schema/fallback-schema.json. The
+// cap is conservative — agents needing deeper chains are usually a sign that
+// the primary model choice is wrong, not that the chain needs to be longer.
 const MaxChainLength = 8
+
+// MaxBlocklistLength caps the number of entries in a per-agent blocked-models
+// set. Mirrors `maxItems` for blocked_models in schema/fallback-schema.json.
+// Larger than the chain cap because blocked keys may name models outside the
+// configured chain (e.g. user-selected primaries that must never serve this
+// agent).
+const MaxBlocklistLength = 16
 
 // modelKeyRE is the compiled-once regex used for chain entry validation.
 var modelKeyRE = regexp.MustCompile(ModelKeyPattern)
+
+// validateModelKeyList enforces the schema contract shared by
+// fallback_models and blocked_models on one list:
+//   - length ≤ maxItems
+//   - each entry matches ModelKeyPattern
+//   - no duplicate entries (uniqueItems constraint)
+//
+// An empty or nil list is valid (means "none configured").
+func validateModelKeyList(list []string, maxItems int, label string) error {
+	if len(list) > maxItems {
+		return fmt.Errorf("%s length %d exceeds max %d", label, len(list), maxItems)
+	}
+	seen := make(map[string]struct{}, len(list))
+	for i, entry := range list {
+		if !modelKeyRE.MatchString(entry) {
+			return fmt.Errorf("%s entry %d (%q) does not match pattern %s",
+				label, i, entry, ModelKeyPattern)
+		}
+		if strings.Contains(entry, "..") {
+			return fmt.Errorf("%s entry %d (%q) must not contain '..'", label, i, entry)
+		}
+		if _, dup := seen[entry]; dup {
+			return fmt.Errorf("%s has duplicate entry %q at position %d", label, entry, i)
+		}
+		seen[entry] = struct{}{}
+	}
+	return nil
+}
 
 // ValidateFallbackChain enforces the schema contract on a single chain:
 //   - length ≤ MaxChainLength
@@ -109,22 +157,16 @@ var modelKeyRE = regexp.MustCompile(ModelKeyPattern)
 //
 // An empty or nil chain is valid (means "no fallback for this target").
 func ValidateFallbackChain(chain []string) error {
-	if len(chain) > MaxChainLength {
-		return fmt.Errorf("fallback chain length %d exceeds max %d", len(chain), MaxChainLength)
-	}
-	seen := make(map[string]struct{}, len(chain))
-	for i, entry := range chain {
-		if !modelKeyRE.MatchString(entry) {
-			return fmt.Errorf("fallback chain entry %d (%q) does not match pattern %s",
-				i, entry, ModelKeyPattern)
-		}
-		if strings.Contains(entry, "..") {
-			return fmt.Errorf("fallback chain entry %d (%q) must not contain '..'", i, entry)
-		}
-		if _, dup := seen[entry]; dup {
-			return fmt.Errorf("fallback chain has duplicate entry %q at position %d", entry, i)
-		}
-		seen[entry] = struct{}{}
-	}
-	return nil
+	return validateModelKeyList(chain, MaxChainLength, "fallback chain")
+}
+
+// ValidateBlockedModels enforces the schema contract on a per-agent
+// blocked-models set:
+//   - length ≤ MaxBlocklistLength
+//   - each entry matches ModelKeyPattern
+//   - no duplicate entries (uniqueItems constraint)
+//
+// An empty or nil list is valid (means "nothing blocked for this target").
+func ValidateBlockedModels(blocked []string) error {
+	return validateModelKeyList(blocked, MaxBlocklistLength, "blocked models list")
 }

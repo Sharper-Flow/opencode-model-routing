@@ -37,6 +37,18 @@ function modelIdOf(key: ModelKey): string {
   return slash === -1 ? "" : key.slice(slash + 1);
 }
 
+// Builds the provider-level availability veto shared by every rotation scan.
+// Only a `unavailable` snapshot carries veto authority; every other state
+// (available, degraded, disabled, unconfigured, or no snapshot at all)
+// yields null and leaves chain resolution untouched. The veto rejects
+// exactly the ANTHROPIC_PROVIDER_ID namespace the snapshot governs.
+export function claudeUnavailableVeto(
+  snapshot: AvailabilitySnapshotV1 | null,
+): ((key: ModelKey) => boolean) | null {
+  if (!snapshot || snapshot.state !== "unavailable") return null;
+  return (key: ModelKey) => providerOf(key) === ANTHROPIC_PROVIDER_ID;
+}
+
 export function applyAvailabilityPreflight(
   input: AvailabilityPreflightInput,
   store: FallbackStore,

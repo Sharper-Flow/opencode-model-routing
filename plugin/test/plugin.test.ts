@@ -79,6 +79,11 @@ describe("plugin entry — context init", () => {
     expect(ctx.chains.size).toBe(0);
   });
 
+  test("ctx.blocked starts empty (populated later by Hooks.config)", () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    expect(ctx.blocked.size).toBe(0);
+  });
+
   test("default plugin config values applied", () => {
     const ctx = createPluginContext({ logger: silentLogger });
     expect(ctx.config.ttftMs).toBe(60_000);
@@ -172,6 +177,38 @@ describe("handleChatMessage", () => {
     expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
     expect(ctx.ttft.has("s1")).toBe(true);
     ctx.ttft.clear("s1"); // cleanup
+  });
+
+  test("blocked current model is redirected before dispatch", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.blocked.set("scout", new Set<ModelKey>(["x/cur"]));
+    const client = new MockClient({ messages: [userMsg()] });
+    const output = { message: { model: { providerID: "x", modelID: "cur" } } };
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+    // No cooldown anywhere: the blocklist alone forces the redirect.
+    expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(ctx.store.sessions.get("s1").currentModel).toBe("a/one");
+    ctx.ttft.clear("s1");
+  });
+
+  test("lastServedModel records the post-redirect model, not the blocked one", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.blocked.set("scout", new Set<ModelKey>(["x/cur"]));
+    const client = new MockClient({ messages: [userMsg()] });
+    const output = { message: { model: { providerID: "x", modelID: "cur" } } };
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+    expect(ctx.store.sessions.get("s1").lastServedModel).toBe("a/one");
+    ctx.ttft.clear("s1");
   });
 
   test("no sessionId → no-op", async () => {
@@ -302,9 +339,12 @@ describe("handleEvent — session.error", () => {
 
     // session.get called once for subagent detection (cached thereafter).
     expect(client.callsTo("session.get").length).toBe(1);
-    // CRITICAL: no abort/revert/prompt — parent Task tool already saw
-    // the stream-error cancel as terminal; recovery would be orphaned.
-    expect(client.callsTo("session.abort").length).toBe(0);
+    // CRITICAL: no revert/prompt — the parent Task tool treats the
+    // stream-error cancel as terminal, so in-place recovery would be
+    // orphaned. The child IS aborted once: nothing will serve it, and the
+    // abort hands the parent Task wait a terminal cancellation now rather
+    // than after the host's retry loop gives up.
+    expect(client.callsTo("session.abort").length).toBe(1);
     expect(client.callsTo("session.revert").length).toBe(0);
     expect(client.callsTo("session.prompt").length).toBe(0);
     // Model still marked unhealthy — replacement spawn gets preemptive
@@ -1028,6 +1068,61 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     expect(promptCalls[0].args).toMatchObject({
       body: { model: { providerID: "plugin", modelID: "primary" } },
     });
+  });
+
+  test("plugin tuple blocked_models make the rotation skip blocked entries", async () => {
+    const client = new MockClient({ messages: [userMsg("msg-1", "adv")] });
+    const hooks = await makeHooks(client, {
+      agents: {
+        adv: {
+          fallback_models: ["a/one", "b/two", "c/three"],
+          blocked_models: ["b/two"],
+        },
+      },
+    });
+    await callConfig(hooks, {});
+
+    // Establish a/one as the serving model for the session first.
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s1" },
+      {
+        message: { model: { providerID: "a", modelID: "one" } },
+      },
+    );
+
+    // a/one fails → rotation must skip blocked b/two and land on c/three.
+    await callRuntimeEvent(hooks, { event: usageRetryEvent("s1") });
+
+    const promptCalls = client.callsTo("session.prompt");
+    expect(promptCalls.length).toBe(1);
+    expect(promptCalls[0].args).toMatchObject({
+      body: { model: { providerID: "c", modelID: "three" } },
+    });
+  });
+
+  test("blocked set survives config re-delivery (plugin tuple options are captured at init)", async () => {
+    const client = new MockClient({ messages: [userMsg("msg-1", "adv")] });
+    const hooks = await makeHooks(client, {
+      agents: { adv: { blocked_models: ["a/one"] } },
+    });
+    await callConfig(hooks, {});
+    // Re-deliver config with a legacy chain for the same agent: the config
+    // hook rebuilds the blocked map from the (init-captured) tuple options,
+    // so the blocklist must remain active, not vanish on re-delivery.
+    await callConfig(hooks, {
+      agent: {
+        adv: { options: { fallback_models: ["a/one", "b/two"] } },
+      },
+    });
+
+    const output = { message: { model: { providerID: "a", modelID: "one" } } };
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s2", agent: "adv" },
+      output,
+    );
+    expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
   });
 
   test("ordering violation: event before config → no crash, no fallback; recovers after config", async () => {

@@ -174,6 +174,45 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		}
 	}
 
+	// Blocked-model sets: plugin-tuple-only (no legacy path to clean up).
+	// Empty list deletes the field; non-empty list validates against the
+	// schema contract and writes plugin.<idx>.1.agents.<name>.blocked_models.
+	for _, t := range targets {
+		if !t.IsModelMappable() {
+			continue
+		}
+		blocked := pc.TargetBlocked[t.Name]
+		blockedPath, pathExists := pluginBlockedPath(updated, t.Name)
+		valueExists := pathExists && gjson.GetBytes(updated, blockedPath).Exists()
+
+		if len(blocked) == 0 {
+			if !valueExists {
+				continue
+			}
+			updated, mutations, err = plannedDelete(updated, mutations, blockedPath)
+			if err != nil {
+				return ApplyPlan{}, err
+			}
+			continue
+		}
+
+		if err := ValidateBlockedModels(blocked); err != nil {
+			return ApplyPlan{}, fmt.Errorf("invalid blocked models for %s: %w", t.Name, err)
+		}
+		updated, _, err = ensureRoutingPluginOptions(updated)
+		if err != nil {
+			return ApplyPlan{}, err
+		}
+		blockedPath, ok := pluginBlockedPath(updated, t.Name)
+		if !ok {
+			return ApplyPlan{}, fmt.Errorf("routing plugin options path unavailable")
+		}
+		updated, mutations, err = plannedSet(updated, mutations, blockedPath, blocked)
+		if err != nil {
+			return ApplyPlan{}, err
+		}
+	}
+
 	return ApplyPlan{ConfigPath: configPath, Mutations: mutations, Updated: updated}, nil
 }
 
