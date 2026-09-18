@@ -69,6 +69,11 @@ export interface AttemptFallbackArgs {
   // the cooldown falls back to the session's last-served model, then to
   // state.currentModel.
   failedModel?: ModelKey | null;
+  // Per-agent blocked-model set (agents.<name>.blocked_models). The
+  // rotation scan skips these entries so a blocked key inside the chain is
+  // never rotated onto. Undefined when the agent has no blocklist or its
+  // identity is unresolved — the blocklist is inactive in both cases.
+  blocked?: ReadonlySet<ModelKey>;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -198,8 +203,7 @@ export async function attemptFallback(
     //      a model that never failed.
     //   3. currentModel remains the final fallback; on every path that did
     //      not skip serving it is the last-served model.
-    const cooldownTarget =
-      args.failedModel ?? state.lastServedModel ?? current;
+    const cooldownTarget = args.failedModel ?? state.lastServedModel ?? current;
 
     const next = resolveFallbackModel(
       current,
@@ -207,6 +211,7 @@ export async function attemptFallback(
       state.fallbackDepth,
       store.health,
       config.maxDepth,
+      args.blocked,
     );
     if (!next) {
       // `agent` and `from` mirror preemptive.redirected so the whole failover

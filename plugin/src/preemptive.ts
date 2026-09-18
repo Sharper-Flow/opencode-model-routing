@@ -1,9 +1,12 @@
 // preemptive.ts — chat.message hook helper.
 //
 // Before each user round starts, check whether the model OpenCode is about to
-// use is currently in cooldown. If so, mutate `output.message.model` to the
-// next healthy entry in the agent's chain. No abort/revert needed — the user's
-// first attempt simply starts on the healthy model.
+// use is currently in cooldown or blocked for this agent. If cooled, mutate
+// `output.message.model` to the next healthy entry in the agent's chain. If
+// blocked (agents.<name>.blocked_models), redirect to the first chain entry
+// that is healthy and not blocked, regardless of the current model's cooldown
+// state. No abort/revert needed — the user's first attempt simply starts on
+// the allowed model.
 
 import type { Logger } from "./logging/logger.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
@@ -29,13 +32,63 @@ export function applyPreemptiveSkip(
   chains: Map<string, ModelKey[]>,
   config: PluginConfig,
   logger: Logger,
+  blocked?: ReadonlyMap<string, ReadonlySet<ModelKey>>,
 ): void {
   const current = input.output.message.model;
   if (!current) return;
   const key = `${current.providerID}/${current.modelID}` as ModelKey;
 
+  // Mutate output.message.model to the allowed target and record it as the
+  // session-current model. Shared by the blocklist redirect and the cooldown
+  // redirect so both leave identical bookkeeping.
+  const redirect = (next: ModelKey, reason: "blocked" | "cooldown"): void => {
+    const parsed = next.split("/");
+    if (parsed.length < 2) return;
+    input.output.message.model = {
+      providerID: parsed[0]!,
+      modelID: parsed.slice(1).join("/"),
+    };
+    const state = store.sessions.get(input.sessionId);
+    state.currentModel = next;
+    logger.info("preemptive.redirected", {
+      sessionId: input.sessionId,
+      from: key,
+      to: next,
+      agent: input.agentName,
+      reason,
+    });
+  };
+
   let chain: ModelKey[] | undefined;
   if (input.agentName) {
+    const blocklist = blocked?.get(input.agentName);
+    if (blocklist?.has(key)) {
+      // Blocked current model: redirect regardless of the current model's
+      // cooldown state. Scan the whole chain from the top for the first
+      // entry that is healthy AND not blocked (currentModel=null starts the
+      // shared resolver at index 0).
+      const next = resolveFallbackModel(
+        null,
+        chains.get(input.agentName) ?? [],
+        0,
+        store.health,
+        config.maxDepth,
+        blocklist,
+      );
+      if (!next) {
+        // Every alternative is blocked or cooled (or no chain is configured).
+        // Fail open: keep the user's selection and log the misconfiguration —
+        // a hard failure would kill the session for want of a model.
+        logger.warn("preemptive.no_allowed_model", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          current: key,
+        });
+        return;
+      }
+      redirect(next, "blocked");
+      return;
+    }
     chain = chains.get(input.agentName);
     if (!chain || chain.length === 0) return;
   } else {
@@ -43,6 +96,9 @@ export function applyPreemptiveSkip(
     // child sessions. If every source is temporarily unavailable, only use a
     // chain when the cooled model belongs to exactly one configured chain.
     // Selecting among multiple matching agents would be heuristic routing.
+    // The blocklist stays inactive here with the agent identity: applying a
+    // guessed agent's blocklist would be the same heuristic this guard
+    // refuses.
     if (!store.health.isInCooldown(key)) return;
     const matches = [...chains.values()].filter((candidate) =>
       candidate.includes(key),
@@ -83,13 +139,15 @@ export function applyPreemptiveSkip(
     return;
   }
 
-  // Pick next healthy entry in the chain.
+  // Pick next healthy entry in the chain. The blocklist still applies to the
+  // scan: a blocked entry inside the chain is never rotated onto.
   const next = resolveFallbackModel(
     key,
     chain,
     0,
     store.health,
     config.maxDepth,
+    input.agentName ? blocked?.get(input.agentName) : undefined,
   );
   if (!next) {
     logger.debug("preemptive.no_healthy_alternative", {
@@ -100,18 +158,5 @@ export function applyPreemptiveSkip(
     return;
   }
 
-  const parsed = next.split("/");
-  if (parsed.length < 2) return;
-  input.output.message.model = {
-    providerID: parsed[0]!,
-    modelID: parsed.slice(1).join("/"),
-  };
-  const state = store.sessions.get(input.sessionId);
-  state.currentModel = next;
-  logger.info("preemptive.redirected", {
-    sessionId: input.sessionId,
-    from: key,
-    to: next,
-    agent: input.agentName,
-  });
+  redirect(next, "cooldown");
 }
