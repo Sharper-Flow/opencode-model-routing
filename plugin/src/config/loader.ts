@@ -7,6 +7,8 @@
 // schema/fallback-schema.json. Legacy agent.<name>.options.fallback_models
 // is migration-only because OpenCode forwards agent.options to provider
 // requests. blocked_models has no legacy path — it is plugin-tuple-only.
+// The global model_families map and the per-agent
+// family_disjoint_from_parent toggle are plugin-tuple-only as well.
 //
 // Transitional path: `agent.<name>.fallback_models` (top-level sibling) is
 // also read as a fallback — a user who hand-edits sibling keys into their
@@ -14,6 +16,7 @@
 // deprecation log line per agent name.
 
 import type { Logger } from "../logging/logger.ts";
+import { isRecord } from "../utils/type-guards.ts";
 import type { ModelKey } from "../types.ts";
 
 // Mirrors `items.pattern` in schema/fallback-schema.json. Validation is
@@ -30,6 +33,12 @@ export const maxChainLength = 8;
 // name models outside the configured chain (e.g. user-selected primaries
 // that must never serve this agent).
 export const maxBlocklistLength = 16;
+
+// Bound for the global `model_families` map. The map only needs to cover the
+// opted-in agents' chains plus the models that can serve their requesters;
+// a larger map than this signals a misconfigured key set rather than a real
+// fleet.
+export const maxFamilyMapEntries = 64;
 
 export interface AgentConfigShape {
   // What OpenCode's parsed AgentConfig actually looks like at runtime is
@@ -49,8 +58,13 @@ export interface PluginOptionsShape {
     {
       fallback_models?: unknown;
       blocked_models?: unknown;
+      family_disjoint_from_parent?: unknown;
     }
   >;
+  // Global model-key → family map (model_families). Flat and closed, the
+  // same shape class as cooldownMsByCategory: one typed map, not a rule
+  // language.
+  model_families?: unknown;
 }
 
 export interface LoaderResult {
@@ -59,6 +73,14 @@ export interface LoaderResult {
   // plugin tuple options (no legacy path). Absent agent == empty set ==
   // blocklist inactive for that agent.
   blocked: Map<string, Set<ModelKey>>;
+  // Model-key → family, from plugin tuple `model_families`. Keys are
+  // validated with the same pattern as chain entries; values are non-empty
+  // trimmed strings. Invalid entries are dropped with a warning.
+  families: Map<ModelKey, string>;
+  // Agent names with `family_disjoint_from_parent: true`. Only agents in
+  // this set get the family constraint; routing for every other agent is
+  // untouched.
+  familyDisjoint: Set<string>;
   warnings: string[];
 }
 
@@ -107,6 +129,8 @@ export function loadFallbackChains(
 ): LoaderResult {
   const chains = new Map<string, ModelKey[]>();
   const blocked = new Map<string, Set<ModelKey>>();
+  const families = new Map<ModelKey, string>();
+  const familyDisjoint = new Set<string>();
   const warnings: string[] = [];
 
   const pluginAgents =
@@ -154,13 +178,66 @@ export function loadFallbackChains(
         }
         if (validated.length > 0) blocked.set(name, new Set(validated));
       }
+
+      // Strict boolean true — the constraint is a closed toggle, and any
+      // other value (including "true" strings or 1) is ignored rather than
+      // coerced.
+      if (agent.family_disjoint_from_parent === true) {
+        familyDisjoint.add(name);
+      }
+    }
+  }
+
+  // model_families is a sibling of `agents` at the plugin tuple level, so
+  // it parses even when no agents block is present.
+  if (
+    pluginOptions &&
+    typeof pluginOptions === "object" &&
+    !Array.isArray(pluginOptions)
+  ) {
+    const rawFamilies = (pluginOptions as PluginOptionsShape).model_families;
+    if (rawFamilies !== undefined) {
+      if (!isRecord(rawFamilies)) {
+        const msg =
+          "plugin option model_families must be an object of model-key → family; ignored";
+        warnings.push(msg);
+        logger?.warn("loader.invalid_family_map", {
+          shape: typeof rawFamilies,
+        });
+      } else {
+        let dropped = 0;
+        for (const [key, value] of Object.entries(rawFamilies)) {
+          if (
+            !modelKeyPattern.test(key) ||
+            key.includes("..") ||
+            typeof value !== "string" ||
+            value.trim().length === 0
+          ) {
+            dropped += 1;
+            continue;
+          }
+          if (families.size >= maxFamilyMapEntries) {
+            dropped += 1;
+            continue;
+          }
+          families.set(key as ModelKey, value.trim());
+        }
+        if (dropped > 0) {
+          const msg = `plugin option model_families has ${dropped} invalid entr${dropped === 1 ? "y" : "ies"}; skipped`;
+          warnings.push(msg);
+          logger?.warn("loader.invalid_plugin_option_entries", {
+            count: dropped,
+            field: "model_families",
+          });
+        }
+      }
     }
   }
 
   const root = (cfg ?? {}) as ConfigShape;
   const agents = root.agent ?? {};
   if (typeof agents !== "object" || agents === null) {
-    return { chains, blocked, warnings };
+    return { chains, blocked, families, familyDisjoint, warnings };
   }
 
   for (const [name, agent] of Object.entries(agents)) {
@@ -215,5 +292,5 @@ export function loadFallbackChains(
     }
   }
 
-  return { chains, blocked, warnings };
+  return { chains, blocked, families, familyDisjoint, warnings };
 }

@@ -23,6 +23,10 @@ import type { ModelKey } from "../types.ts";
  *     Max snapshot reporting `unavailable`). A model the veto rejects is
  *     skipped exactly like a cooldown-cooled one, at every rotation scan, so
  *     no redirect lands on a provider another component already knows is dead.
+ *   - familyVeto: optional family-disjointness veto for agents opted into
+ *     family_disjoint_from_parent. Rejects a candidate that shares the
+ *     requesting parent's model family or has no family-map entry. Undefined
+ *     for every non-opted-in agent, leaving the scan byte-identical to before.
  *
  * Algorithm:
  *   - If depth >= maxDepth → null (exhausted).
@@ -42,6 +46,7 @@ export function resolveFallbackModel(
   maxDepth: number,
   blocked?: ReadonlySet<ModelKey>,
   unavailable?: (key: ModelKey) => boolean,
+  familyVeto?: (key: ModelKey) => boolean,
 ): ModelKey | null {
   if (depth >= maxDepth) return null;
   if (chain.length === 0) return null;
@@ -56,6 +61,7 @@ export function resolveFallbackModel(
     if (blocked?.has(m)) continue;
     if (health.isInCooldown(m)) continue;
     if (unavailable?.(m)) continue;
+    if (familyVeto?.(m)) continue;
     return m;
   }
   return null;

@@ -34,6 +34,7 @@ import {
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
+import { familyVetoFor } from "./resolution/family.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
@@ -43,7 +44,7 @@ import {
   type ModelKey,
   type PluginConfig,
 } from "./types.ts";
-import { isRecord, unwrapSdkData } from "./utils/type-guards.ts";
+import { isRecord, messageInfo, unwrapSdkData } from "./utils/type-guards.ts";
 
 // Real OpenCode PluginInput shape per @opencode-ai/plugin@1.15.5 PluginInput
 // + packages/opencode/src/plugin/index.ts:134-150 source. NO `config` field —
@@ -83,6 +84,12 @@ export interface PluginContext {
   // (agents.<name>.blocked_models). Same lifecycle as `chains`: populated
   // by the Hooks.config callback, mutated in-place on re-delivery.
   blocked: Map<string, Set<ModelKey>>;
+  // Model-key → family map from the plugin tuple `model_families`. Same
+  // in-place-reload lifecycle as `blocked`.
+  families: Map<ModelKey, string>;
+  // Agent names opted into family_disjoint_from_parent. Only these agents
+  // get the family constraint; routing for every other agent is untouched.
+  familyDisjoint: Set<string>;
   config: PluginConfig;
   logger: Logger;
   pluginOptions?: unknown;
@@ -207,6 +214,8 @@ export function createPluginContext(
     guard: new ExhaustionGuardRegistry(),
     chains: new Map(),
     blocked: new Map(),
+    families: new Map(),
+    familyDisjoint: new Set(),
     config: merged,
     logger,
     pluginOptions: opts.pluginOptions,
@@ -306,7 +315,9 @@ async function readSessionIdentity(
     } as never);
     const data = unwrapSdkData(response);
     const parentID = isRecord(data) ? (data.parentID as unknown) : undefined;
-    state.isSubagent = typeof parentID === "string" && parentID.length > 0;
+    const hasParent = typeof parentID === "string" && parentID.length > 0;
+    state.isSubagent = hasParent;
+    state.parentSessionId = hasParent ? parentID : null;
     const agent = isRecord(data) ? data.agent : undefined;
     if (typeof agent === "string" && agent.trim().length > 0) {
       state.agentName = agent;
@@ -325,6 +336,111 @@ export async function detectSubagent(
   const state = store.sessions.get(sessionId);
   await readSessionIdentity(sessionId, client, store);
   return state.isSubagent ?? false;
+}
+
+/**
+ * Resolve the model serving this session's requesting parent, for agents
+ * opted into family_disjoint_from_parent.
+ *
+ * Returns undefined when the constraint does not apply (primary session, or
+ * identity unreadable — same degrade-to-primary contract as detectSubagent).
+ * Returns the parent's ModelKey when resolved, or null when the session is a
+ * confirmed subagent but no model could be determined. A resolved key is
+ * cached on the child's SessionState; null is never cached, because a
+ * modelless parent is usually transient (user message committed, assistant
+ * still streaming on the parent's first turn) and freezing it would disable
+ * the constraint for the process lifetime.
+ *
+ * Resolution order: (1) the in-memory FallbackStore state for the parent
+ * (lastServedModel, then currentModel) — free when the parent passed through
+ * OMR in this process; (2) the parent's message history, taking the newest
+ * assistant message's providerID/modelID — survives a plugin reload, because
+ * a parent always has at least one assistant message by the time it spawns a
+ * child (the spawn is a tool call inside one).
+ */
+async function resolveParentModel(
+  sessionId: string,
+  client: OrchestratorClient,
+  store: FallbackStore,
+): Promise<ModelKey | null | undefined> {
+  const state = store.sessions.get(sessionId);
+  if (state.parentSessionId === undefined) {
+    await readSessionIdentity(sessionId, client, store);
+  }
+  const parent = state.parentSessionId;
+  if (!parent) return undefined;
+  if (state.parentModelKey !== undefined) return state.parentModelKey;
+
+  const parentState = store.sessions.get(parent);
+  const inMemory =
+    parentState.lastServedModel ?? parentState.currentModel ?? null;
+  if (inMemory) {
+    state.parentModelKey = inMemory;
+    return inMemory;
+  }
+
+  try {
+    const response = await client.session.messages({
+      path: { id: parent },
+    } as never);
+    const data = unwrapSdkData(response);
+    const messages = Array.isArray(data) ? data : [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const info = messageInfo(messages[i]);
+      if (!info || info.role !== "assistant") continue;
+      const providerID = info.providerID;
+      const modelID = info.modelID;
+      if (
+        typeof providerID === "string" &&
+        providerID.length > 0 &&
+        typeof modelID === "string" &&
+        modelID.length > 0
+      ) {
+        const resolved = `${providerID}/${modelID}` as ModelKey;
+        state.parentModelKey = resolved;
+        return resolved;
+      }
+    }
+  } catch {
+    // Fetch failed: fall through to unknown; a later scan retries.
+  }
+  return null;
+}
+
+/**
+ * Build the family-disjointness veto for one selection, or undefined when
+ * the constraint is inactive for this session. Undefined (no veto, routing
+ * unchanged) when: the agent did not opt in, the session is primary, the
+ * parent's model is unknown, or the parent's model has no family-map entry.
+ * The last two cases warn with distinct events so a configuration gap stays
+ * separable from an unreadable parent in the logs.
+ */
+async function buildFamilyVeto(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+  agentName: string | null,
+): Promise<((key: ModelKey) => boolean) | undefined> {
+  if (!agentName || !ctx.familyDisjoint.has(agentName)) return undefined;
+  const parentModel = await resolveParentModel(sessionId, client, ctx.store);
+  if (parentModel === undefined) return undefined;
+  if (parentModel === null) {
+    ctx.logger.warn("family.parent_model_unknown", {
+      sessionId,
+      agent: agentName,
+    });
+    return undefined;
+  }
+  const veto = familyVetoFor(parentModel, ctx.families);
+  if (veto === undefined) {
+    ctx.logger.warn("family.parent_model_unmapped", {
+      sessionId,
+      agent: agentName,
+      parentModel,
+    });
+    return undefined;
+  }
+  return veto;
 }
 
 export async function handleChatMessage(
@@ -372,6 +488,12 @@ export async function handleChatMessage(
   const agentName =
     state.agentName ?? (await resolveAgentName(sessionId, client, ctx.store));
 
+  // Family disjointness: resolve the veto once per turn, after agent
+  // identity and before any selection. Undefined for every non-opted-in
+  // agent, an unreadable parent, or an unmapped requester — each of which
+  // leaves routing unchanged (with a warn event for the latter two).
+  const familyVeto = await buildFamilyVeto(ctx, client, sessionId, agentName);
+
   // Availability preflight: consume one descriptor-validated snapshot per
   // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
   // Anthropic/Claude selection to the first healthy configured non-Anthropic
@@ -384,6 +506,7 @@ export async function handleChatMessage(
     ctx.store,
     ctx.chains,
     ctx.logger,
+    familyVeto,
   );
 
   applyPreemptiveSkip(
@@ -393,6 +516,7 @@ export async function handleChatMessage(
     ctx.config,
     ctx.logger,
     ctx.blocked,
+    familyVeto,
   );
 
   // Record the model actually about to serve this dispatch — captured AFTER
@@ -455,6 +579,7 @@ export async function handleTtftTimeout(
   // in handleEvent's session.error/session.status paths. detectSubagent
   // already try/catch-defaults to false on session.get failure (EC5).
   const isSubagent = await detectSubagent(sessionId, client, ctx.store);
+  const familyVeto = await buildFamilyVeto(ctx, client, sessionId, agentName);
   try {
     const result = await attemptFallback({
       sessionId,
@@ -468,6 +593,7 @@ export async function handleTtftTimeout(
       blocked,
       unavailableVeto:
         claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+      familyVeto,
     });
     if (isSubagent && result.success && result.subagentSkipped) {
       // Unlike session.error, a TTFT timeout has no provider error to
@@ -698,6 +824,7 @@ async function advancePastUnavailableRung(
   const agentName = state.agentName ?? null;
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
   const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
+  const familyVeto = await buildFamilyVeto(ctx, client, sessionId, agentName);
   const next = resolveFallbackModel(
     state.currentModel,
     chain,
@@ -706,6 +833,7 @@ async function advancePastUnavailableRung(
     ctx.config.maxDepth,
     blocked,
     claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+    familyVeto,
   );
   if (next) {
     if (!state.originalModel && state.currentModel) {
@@ -775,6 +903,12 @@ async function handleFailureSignal(
   // Blocklist follows agent identity: unresolved identity leaves it inactive.
   const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
   const isSubagent = await detectSubagent(input.sessionId, client, ctx.store);
+  const familyVeto = await buildFamilyVeto(
+    ctx,
+    client,
+    input.sessionId,
+    agentName,
+  );
   const result = await attemptFallback({
     sessionId: input.sessionId,
     reason: input.category,
@@ -788,6 +922,7 @@ async function handleFailureSignal(
     blocked,
     unavailableVeto:
       claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+    familyVeto,
   });
   // Subagent terminal handoff: the skip advanced the chain bookkeeping and
   // cooled the failed model, but the child itself still sits in the host's
@@ -981,12 +1116,18 @@ export async function createPluginHooks(
       const {
         chains: loaded,
         blocked: loadedBlocked,
+        families: loadedFamilies,
+        familyDisjoint: loadedFamilyDisjoint,
         warnings,
       } = loadFallbackChains(input, ctx.logger, ctx.pluginOptions);
       ctx.chains.clear();
       for (const [name, chain] of loaded) ctx.chains.set(name, chain);
       ctx.blocked.clear();
       for (const [name, set] of loadedBlocked) ctx.blocked.set(name, set);
+      ctx.families.clear();
+      for (const [key, family] of loadedFamilies) ctx.families.set(key, family);
+      ctx.familyDisjoint.clear();
+      for (const name of loadedFamilyDisjoint) ctx.familyDisjoint.add(name);
       for (const w of warnings)
         ctx.logger.warn("loader.warning", { message: w });
       ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });

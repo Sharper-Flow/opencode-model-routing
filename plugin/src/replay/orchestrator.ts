@@ -79,6 +79,11 @@ export interface AttemptFallbackArgs {
   // short-circuit and full recovery alike never advance a session onto a
   // provider the snapshot already knows is dead.
   unavailableVeto?: (key: ModelKey) => boolean;
+  // Family-disjointness veto for agents opted into
+  // family_disjoint_from_parent. The rotation scan skips candidates that
+  // share the requesting parent's model family or have no family-map entry.
+  // Undefined for non-opted-in agents — the scan is unchanged.
+  familyVeto?: (key: ModelKey) => boolean;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -241,6 +246,7 @@ export async function attemptFallback(
       config.maxDepth,
       args.blocked,
       args.unavailableVeto,
+      args.familyVeto,
     );
     if (!next) {
       // `agent` and `from` mirror preemptive.redirected so the whole failover

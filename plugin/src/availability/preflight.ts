@@ -54,6 +54,7 @@ export function applyAvailabilityPreflight(
   store: FallbackStore,
   chains: Map<string, ModelKey[]>,
   logger: Logger,
+  familyVeto?: (key: ModelKey) => boolean,
 ): void {
   const snapshot = input.snapshot;
   if (!snapshot || snapshot.state !== "unavailable") return;
@@ -67,7 +68,8 @@ export function applyAvailabilityPreflight(
   const target = chain.find(
     (key) =>
       providerOf(key) !== ANTHROPIC_PROVIDER_ID &&
-      !store.health.isInCooldown(key),
+      !store.health.isInCooldown(key) &&
+      !familyVeto?.(key),
   );
   if (!target) {
     logger.debug("availability.preflight_no_fallback", {

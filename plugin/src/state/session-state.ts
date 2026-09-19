@@ -39,6 +39,17 @@ export interface SessionState {
   // sessions where the parent Task tool observes cancel events as
   // terminal — see detectSubagent() in plugin-internal.ts.
   isSubagent?: boolean;
+  // Parent session id captured by the same session.get that resolves
+  // isSubagent. `null` once confirmed primary. Used by the family
+  // disjointness constraint to find the requesting session's model.
+  parentSessionId?: string | null;
+  // Serving model of the parent session, for agents opted into
+  // family_disjoint_from_parent. `undefined` = not yet resolved; a resolved
+  // ModelKey is cached so repeated selection scans in one process do not
+  // re-fetch. Unknown outcomes are never cached — a modelless parent is
+  // usually transient (assistant turn still streaming), so each scan
+  // re-attempts resolution.
+  parentModelKey?: ModelKey;
 }
 
 export function newSessionState(): SessionState {

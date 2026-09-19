@@ -37,6 +37,27 @@
         ["anthropic/claude-sonnet-4-5"],
         ["anthropic/claude-sonnet-4-5", "minimax/token-plan-model"]
       ]
+    },
+    "family_disjoint_from_parent": {
+      "type": "boolean",
+      "description": "Per-agent opt-in for the model-family disjointness constraint. When true, a model selected for this agent must not share a model family with the model serving the requesting parent session. Intended for second-opinion sub-agents (e.g. `concord-advisor`): same-family verification carries systematic bias that is hard to detect downstream. Family comes from the global `model_families` map — never from the provider ID, which is not a family (`opencode-go/glm-5.3-flash` and `zai-coding-plan/glm-5.3` are two providers and one GLM family). A candidate with no `model_families` entry is skipped (disjointness must be proven, not assumed). When no chain rung satisfies the constraint, or the parent's model is unknown or unmapped, routing is unchanged and a warn event is emitted — the constraint never hard-fails a consult. Applies at every selection path: preemptive redirect, fallback rotation, availability preflight target selection, and suppressed-replay rung advance.",
+      "default": false,
+      "examples": [false, true]
+    },
+    "model_families": {
+      "type": "object",
+      "description": "Global map of `provider/model` key → model family (e.g. `\"zai-coding-plan/glm-5.3\": \"glm\"`), read by the family_disjoint_from_parent constraint. Lives at the plugin tuple level beside `agents`, not per-agent. Entries whose key fails the model-key pattern or whose value is empty are dropped with a warning. This field is plugin-reader-owned: it has no Go writer and is deliberately absent from schema-contract-check.sh's FIELDS list.",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\\.[A-Za-z0-9_:/-]+)*$" },
+      "maxProperties": 64,
+      "examples": [
+        {
+          "anthropic/claude-opus-5": "claude",
+          "zai-coding-plan/glm-5.3": "glm",
+          "opencode-go/glm-5.3-flash": "glm",
+          "openai/gpt-5.6-sol": "openai"
+        }
+      ]
     }
   },
 
@@ -50,8 +71,12 @@
     {
       "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"],
       "blocked_models": ["anthropic/claude-sonnet-4-5"]
+    },
+    {
+      "fallback_models": ["openai/gpt-5.6-sol", "opencode-go/glm-5.3-flash"],
+      "family_disjoint_from_parent": true
     }
   ],
 
-  "$comment": "Cross-stack consumers MUST reference the field names `fallback_models` and `blocked_models` verbatim. Drift between Go writer (internal/config/) and TS reader (plugin/src/) is enforced via schema-contract-check.sh in `make lint`."
+  "$comment": "Cross-stack consumers MUST reference the field names `fallback_models` and `blocked_models` verbatim. Drift between Go writer (internal/config/) and TS reader (plugin/src/) is enforced via schema-contract-check.sh in `make lint`. The `family_disjoint_from_parent` and `model_families` fields are TS-reader-owned (the Go writer neither reads nor writes them) and are intentionally not part of that cross-stack check."
 }

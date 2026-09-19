@@ -10,6 +10,10 @@ export interface RecordedCall {
 
 export interface MockClientOptions {
   messages?: unknown[];
+  // Per-session message responses keyed by session id (args.path.id).
+  // Takes precedence over `messages` for matching sessions; unmatched
+  // sessions fall back to `messages`.
+  messagesBySession?: Record<string, unknown[]>;
   abortError?: Error;
   revertError?: Error;
   promptError?: Error;
@@ -33,6 +37,11 @@ export class MockClient {
     this.opts.messages = messages;
   }
 
+  setMessagesForSession(sessionId: string, messages: unknown[]) {
+    if (!this.opts.messagesBySession) this.opts.messagesBySession = {};
+    this.opts.messagesBySession[sessionId] = messages;
+  }
+
   setSessionInfo(sessionInfo: Record<string, unknown>) {
     this.opts.sessionInfo = sessionInfo;
   }
@@ -43,6 +52,10 @@ export class MockClient {
     messages: async (args: unknown) => {
       this.calls.push({ method: "session.messages", args });
       if (this.opts.messagesError) throw this.opts.messagesError;
+      const id = (args as { path?: { id?: string } })?.path?.id;
+      if (id && this.opts.messagesBySession?.[id] !== undefined) {
+        return this.opts.messagesBySession[id];
+      }
       return this.opts.messages ?? [];
     },
     abort: async (args: unknown) => {

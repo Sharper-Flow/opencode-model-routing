@@ -5,8 +5,10 @@
 // `output.message.model` to the next healthy entry in the agent's chain. If
 // blocked (agents.<name>.blocked_models), redirect to the first chain entry
 // that is healthy and not blocked, regardless of the current model's cooldown
-// state. No abort/revert needed — the user's first attempt simply starts on
-// the allowed model.
+// state. If the agent opted into family_disjoint_from_parent and the current
+// model shares a family with the requesting parent's model, redirect to the
+// first chain entry that is provably family-disjoint. No abort/revert needed
+// — the user's first attempt simply starts on the allowed model.
 
 import type { Logger } from "./logging/logger.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
@@ -40,15 +42,20 @@ export function applyPreemptiveSkip(
   config: PluginConfig,
   logger: Logger,
   blocked?: ReadonlyMap<string, ReadonlySet<ModelKey>>,
+  familyVeto?: (key: ModelKey) => boolean,
 ): void {
   const current = input.output.message.model;
   if (!current) return;
   const key = `${current.providerID}/${current.modelID}` as ModelKey;
 
   // Mutate output.message.model to the allowed target and record it as the
-  // session-current model. Shared by the blocklist redirect and the cooldown
-  // redirect so both leave identical bookkeeping.
-  const redirect = (next: ModelKey, reason: "blocked" | "cooldown"): void => {
+  // session-current model. Shared by the blocklist redirect, the family
+  // redirect, and the cooldown redirect so all three leave identical
+  // bookkeeping.
+  const redirect = (
+    next: ModelKey,
+    reason: "blocked" | "cooldown" | "family",
+  ): void => {
     const parsed = next.split("/");
     if (parsed.length < 2) return;
     input.output.message.model = {
@@ -82,6 +89,7 @@ export function applyPreemptiveSkip(
         config.maxDepth,
         blocklist,
         claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        familyVeto,
       );
       if (!next) {
         // Every alternative is blocked or cooled (or no chain is configured).
@@ -95,6 +103,39 @@ export function applyPreemptiveSkip(
         return;
       }
       redirect(next, "blocked");
+      return;
+    }
+    if (familyVeto?.(key)) {
+      // Same family as the requesting parent (or no family entry): the
+      // healthy same-family primary is the normal case this constraint
+      // exists to redirect, so this fires before the healthy-path early
+      // return below. Same scan shape as the blocklist redirect — from the
+      // top of the chain, honoring cooldown, blocklist, availability veto,
+      // and the family veto itself.
+      const next = resolveFallbackModel(
+        null,
+        chains.get(input.agentName) ?? [],
+        0,
+        store.health,
+        config.maxDepth,
+        blocklist,
+        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        familyVeto,
+      );
+      if (!next) {
+        // Unsatisfiable: no rung is provably family-disjoint from the
+        // requester. Serve the selection and signal — a consult that is
+        // same-family is worse than ideal, but refusing it is a hard failure
+        // OMR has nowhere else, and the advisor self-reports its model so a
+        // contaminated consult can be discounted downstream.
+        logger.warn("family.no_disjoint_model", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          current: key,
+        });
+        return;
+      }
+      redirect(next, "family");
       return;
     }
     chain = chains.get(input.agentName);
@@ -157,6 +198,7 @@ export function applyPreemptiveSkip(
     config.maxDepth,
     input.agentName ? blocked?.get(input.agentName) : undefined,
     claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+    familyVeto,
   );
   if (!next) {
     logger.debug("preemptive.no_healthy_alternative", {
