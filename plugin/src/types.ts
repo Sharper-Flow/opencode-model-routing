@@ -90,12 +90,15 @@ export const defaultConfig: PluginConfig = {
   abortWaitMs: 150,
   preserveContext: true,
   // Category-aware defaults: persistent or hour-scale failure modes get
-  // longer cooldowns than the 5-minute default. Quota exhaustion lasts
-  // until the plan's reset boundary, which no provider reports here, so the
-  // window is a probe interval: on expiry the next send tries the model
-  // once and re-cools on failure. A probe against an exhausted plan is a
-  // fast 4xx that burns no tokens, and the shared cooldown file means one
-  // failed probe re-cools every process. Ten minutes bounds the time a
+  // longer cooldowns than the 5-minute default. For quota_exhausted and
+  // rate_limit these constants are the fallback: when a fresh provider-
+  // reported reset boundary is available (availability/quota-state.ts,
+  // refreshed once per classified failure), the cooldown runs until that
+  // boundary instead. The constants still govern stale or missing state
+  // and act as the probe interval there: on expiry the next send tries the
+  // model once and re-cools on failure. A probe against an exhausted plan
+  // is a fast 4xx that burns no tokens, and the shared cooldown file means
+  // one failed probe re-cools every process. Ten minutes bounds the time a
   // reset goes unseen to ten minutes at a cost of six probes per hour.
   // Auth errors rarely self-heal in 5 minutes; 30 minutes gives a reasonable
   // window for credential rotation. Rate-limit windows vary by provider:

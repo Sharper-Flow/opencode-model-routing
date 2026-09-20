@@ -19,6 +19,10 @@ import {
   claudeUnavailableVeto,
 } from "./availability/preflight.ts";
 import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
+import {
+  resolveProviderReportedBoundary,
+  type QuotaBoundaryResolver,
+} from "./availability/quota-state.ts";
 import { loadFallbackChains } from "./config/loader.ts";
 import {
   classifyRetryStatusText,
@@ -93,6 +97,12 @@ export interface PluginContext {
   config: PluginConfig;
   logger: Logger;
   pluginOptions?: unknown;
+  // Provider-reported quota boundary resolver. Undefined by default so
+  // nothing spawns on the test path; createPluginHooks (the production
+  // composition root) wires the real consumer, and handleFailureSignal
+  // carries it into attemptFallback for quota_exhausted / rate_limit
+  // failures only.
+  quotaBoundary?: QuotaBoundaryResolver;
 }
 
 // Compile-time-exhaustive category set: adding/removing an ErrorCategory
@@ -188,6 +198,7 @@ export function createPluginContext(
     cooldownOverrides?: Partial<Record<ErrorCategory, number>>;
     logger?: Logger;
     pluginOptions?: unknown;
+    quotaBoundary?: QuotaBoundaryResolver;
   } = {},
 ): PluginContext {
   const logger = opts.logger ?? createLogger();
@@ -219,6 +230,7 @@ export function createPluginContext(
     config: merged,
     logger,
     pluginOptions: opts.pluginOptions,
+    quotaBoundary: opts.quotaBoundary,
   };
 }
 
@@ -923,6 +935,10 @@ async function handleFailureSignal(
     unavailableVeto:
       claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
     familyVeto,
+    // Classified-failure dispatch is the only entrance that carries the
+    // provider-reported boundary consumer: once per dedup-collapsed
+    // quota_exhausted / rate_limit failure, never on a routing decision.
+    quotaBoundary: ctx.quotaBoundary,
   });
   // Subagent terminal handoff: the skip advanced the chain bookkeeping and
   // cooled the failed model, but the child itself still sits in the host's
@@ -1068,6 +1084,18 @@ export async function handleEvent(
   }
 }
 
+// Production quota-boundary consumer, named as an export so the wiring is
+// assertable: createPluginHooks installs it unless a deps override supplies
+// a resolver (test seam).
+export const PRODUCTION_QUOTA_BOUNDARY: QuotaBoundaryResolver =
+  resolveProviderReportedBoundary;
+
+export interface PluginHookDeps {
+  // Test seam for the quota-boundary consumer. Production omits it and
+  // gets PRODUCTION_QUOTA_BOUNDARY.
+  quotaBoundary?: QuotaBoundaryResolver;
+}
+
 /**
  * createPluginHooks wires the closure-held context into the OpenCode hook
  * signatures. The runtime entry point wraps this in a V1 PluginModule object,
@@ -1083,10 +1111,16 @@ export async function handleEvent(
 export async function createPluginHooks(
   opts: PluginInput,
   pluginOptions?: unknown,
+  deps: PluginHookDeps = {},
 ): Promise<PluginHooks> {
   const logger = createLogger();
   const cooldownOverrides = extractCooldownOverrides(pluginOptions, logger);
-  const ctx = createPluginContext({ pluginOptions, cooldownOverrides, logger });
+  const ctx = createPluginContext({
+    pluginOptions,
+    cooldownOverrides,
+    logger,
+    quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
+  });
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {

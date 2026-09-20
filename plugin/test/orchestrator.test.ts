@@ -1123,3 +1123,163 @@ describe("attemptFallback — blocked_models", () => {
     expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
 });
+
+describe("attemptFallback — provider-reported quota boundary", () => {
+  const HOUR = 3_600_000;
+
+  test("quota_exhausted cools until a fresh provider-reported boundary (not the 10-min constant)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+    const boundary = before + 40 * HOUR;
+    const consulted: ModelKey[] = [];
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      quotaBoundary: async (key) => {
+        consulted.push(key);
+        return boundary;
+      },
+    });
+
+    expect(result.success).toBe(true);
+    // Consulted exactly once, for the model the failure attributes to.
+    expect(consulted).toEqual(["a/one"]);
+    // The cooldown expiry is the provider boundary (clock-drift bounded),
+    // and materially longer than the 10-minute category constant.
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(boundary);
+    expect(until).toBeLessThanOrEqual(boundary + 1_000);
+    expect(until - before).toBeGreaterThan(30 * 60_000);
+  });
+
+  test("rate_limit cools until the boundary even when the constant is longer", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const boundary = Date.now() + 90_000;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      quotaBoundary: async () => boundary,
+    });
+
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(boundary);
+    expect(until).toBeLessThanOrEqual(boundary + 1_000);
+    // Shorter than the 30-minute rate_limit constant — the boundary wins.
+    expect(until - Date.now()).toBeLessThan(30 * 60_000);
+  });
+
+  test("null boundary (stale/absent cache) falls back to the category constant", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      quotaBoundary: async () => null,
+    });
+
+    const until = store.health.get("a/one").cooldownUntil;
+    const applied = until - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("boundary in the past falls back to the category constant", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      quotaBoundary: async () => before - 1_000,
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("non-quota categories never consult the resolver", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "server_error",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      quotaBoundary: async () => {
+        throw new Error("resolver must not be consulted for server_error");
+      },
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(4 * 60_000);
+    expect(applied).toBeLessThanOrEqual(5.5 * 60_000);
+  });
+
+  test("the resolver is consulted for the failed model, not the session state model", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "c/three";
+    const client = new MockClient({ messages: [userMsg()] });
+    const consulted: ModelKey[] = [];
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      failedModel: "a/one",
+      quotaBoundary: async (key) => {
+        consulted.push(key);
+        return Date.now() + 40 * HOUR;
+      },
+    });
+
+    expect(consulted).toEqual(["a/one"]);
+  });
+});

@@ -5,6 +5,7 @@
 // mark previous unhealthy → abort → sleep abortWaitMs → revert →
 // prompt(next). Always releases the lock in `finally`.
 
+import type { QuotaBoundaryResolver } from "../availability/quota-state.ts";
 import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { FallbackStore } from "../state/store.ts";
@@ -84,6 +85,14 @@ export interface AttemptFallbackArgs {
   // share the requesting parent's model family or have no family-map entry.
   // Undefined for non-opted-in agents — the scan is unchanged.
   familyVeto?: (key: ModelKey) => boolean;
+  // Provider-reported quota boundary resolver. When wired, a quota_exhausted or
+  // rate_limit failure consults it exactly once per invocation — one
+  // refresh of the quota state cache plus one read — and a fresh boundary
+  // replaces the category constant as the cooldown expiry. Null (stale,
+  // malformed, absent, or refresh failure) keeps the constant. Undefined
+  // on every path that is not the classified-failure dispatcher, so the
+  // refresh subprocess can never enter routing decisions or TTFT handling.
+  quotaBoundary?: QuotaBoundaryResolver;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -224,8 +233,26 @@ export async function attemptFallback(
     // fallback. The exhausted path needs it too: the failed model stays
     // benched for every OTHER session sharing it (the cooldown store is
     // cross-session), so sibling lanes do not each rediscover the death.
-    const cooldownMs =
-      config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
+    let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
+    // Provider-reported boundary: for the quota/rate-limit classes the
+    // provider itself reports the exact reset boundary. When the resolver
+    // is wired (classified-failure dispatch only) and returns a fresh
+    // boundary strictly in the future, the cooldown runs until that
+    // boundary instead of the category constant. Null, a past boundary, or
+    // an unwired resolver each keep the constant — the constant remains the
+    // probe interval that re-discovers the death when no boundary is
+    // available.
+    if (
+      cooldownTarget &&
+      args.quotaBoundary &&
+      (reason === "quota_exhausted" || reason === "rate_limit")
+    ) {
+      const boundary = await args.quotaBoundary(cooldownTarget);
+      const now = Date.now();
+      if (boundary !== null && boundary > now) {
+        cooldownMs = boundary - now;
+      }
+    }
     if (cooldownTarget) {
       // KD8 (validator finding #3): await cooldown persist settle before
       // dispatching the replacement spawn (or returning from any

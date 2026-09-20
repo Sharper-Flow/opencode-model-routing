@@ -73,6 +73,71 @@ async function callRuntimeEvent(
   await hook?.(input);
 }
 
+describe("quota boundary wiring", () => {
+  test("default context leaves the quota boundary unwired (no refresh on any path)", () => {
+    const ctx = createPluginContext({ logger: silentLogger });
+    expect(ctx.quotaBoundary).toBeUndefined();
+  });
+
+  test("handleEvent consults the wired resolver once per classified quota failure", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    ctx.store.sessions.get("s1").currentModel = "a/one";
+    const consulted: ModelKey[] = [];
+    ctx.quotaBoundary = async (key) => {
+      consulted.push(key);
+      return Date.now() + 40 * 3_600_000;
+    };
+    const client = new MockClient({ messages: [userMsg()] });
+
+    await handleEvent(ctx, client, {
+      type: "session.status",
+      properties: {
+        sessionID: "s1",
+        status: {
+          type: "retry",
+          message: "any",
+          action: {
+            reason: "free_tier_limit",
+            provider: "x",
+            title: "t",
+            message: "m",
+            label: "l",
+          },
+        },
+      },
+    });
+
+    expect(consulted).toEqual(["a/one"]);
+    // The boundary was applied through the cooldown store path: the model
+    // is cooling well past the 10-minute constant.
+    const until = ctx.store.health.get("a/one").cooldownUntil;
+    expect(until - Date.now()).toBeGreaterThan(30 * 60_000);
+    expect(client.callsTo("session.prompt").length).toBe(1);
+  });
+
+  test("chat.message routing never consults the resolver", async () => {
+    const ctx = ctxWithChain(["a/one", "b/two"]);
+    const consulted: ModelKey[] = [];
+    ctx.quotaBoundary = async (key) => {
+      consulted.push(key);
+      return Date.now() + 40 * 3_600_000;
+    };
+    const output = {
+      message: { model: { providerID: "a", modelID: "one" } },
+    };
+
+    await handleChatMessage(
+      ctx,
+      new MockClient({ messages: [userMsg()] }),
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+
+    expect(consulted).toEqual([]);
+    expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
+  });
+});
+
 describe("plugin entry — context init", () => {
   test("ctx.chains starts empty (populated later by Hooks.config)", () => {
     const ctx = createPluginContext({ logger: silentLogger });
