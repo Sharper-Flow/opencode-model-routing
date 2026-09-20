@@ -10,5 +10,8 @@
 # Build output (generated, not source)
 dist/
 
-# Lockfile (machine-generated)
+# Lockfiles (machine-generated). pnpm v11+ writes the pnpm pair locally even
+# though bun is the declared package manager; .gitignore excludes both.
 bun.lock
+pnpm-lock.yaml
+pnpm-workspace.yaml
