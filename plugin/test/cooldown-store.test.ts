@@ -778,3 +778,58 @@ describe("constants", () => {
     expect(COOLDOWN_CACHE_TTL_MS).toBe(2000);
   });
 });
+
+describe("CooldownStore — provider-reported boundary application", () => {
+  test("persists a provider-reported boundary verbatim as expiresAt", async () => {
+    const store = new CooldownStore(cooldownPath);
+    const boundary = baseNow + 40 * 3_600_000;
+    await store.persistCooldown(
+      "openai/gpt-5",
+      boundary,
+      "quota_exhausted",
+      baseNow,
+    );
+    const entry = store.readCooldowns().get("openai/gpt-5");
+    expect(entry?.expiresAt).toBe(boundary);
+    expect(entry?.reason).toBe("quota_exhausted");
+  });
+
+  test("a shorter category-constant re-proposal never shortens an applied boundary", async () => {
+    const store = new CooldownStore(cooldownPath);
+    const boundary = baseNow + 40 * 3_600_000;
+    await store.persistCooldown(
+      "openai/gpt-5",
+      boundary,
+      "quota_exhausted",
+      baseNow,
+    );
+    // A sibling process that has not yet seen the boundary re-proposes the
+    // 10-minute category constant; max-merge must keep the boundary.
+    await store.persistCooldown(
+      "openai/gpt-5",
+      baseNow + 10 * 60_000,
+      "quota_exhausted",
+      baseNow + 60_000,
+    );
+    expect(store.readCooldowns().get("openai/gpt-5")?.expiresAt).toBe(boundary);
+  });
+
+  test("a later longer boundary still extends the cooldown", async () => {
+    const store = new CooldownStore(cooldownPath);
+    const boundary = baseNow + 40 * 3_600_000;
+    await store.persistCooldown(
+      "openai/gpt-5",
+      boundary,
+      "quota_exhausted",
+      baseNow,
+    );
+    const longer = baseNow + 50 * 3_600_000;
+    await store.persistCooldown(
+      "openai/gpt-5",
+      longer,
+      "quota_exhausted",
+      baseNow + 3_600_000,
+    );
+    expect(store.readCooldowns().get("openai/gpt-5")?.expiresAt).toBe(longer);
+  });
+});

@@ -33,10 +33,14 @@ Recovery details:
 - **Context preservation** (default on): work the failing model already
   completed mid-turn is summarised and prepended to the re-prompt, so the next
   model continues instead of restarting from the bare user message.
-- **Category-aware cooldowns**: quota exhaustion cools a model for 10 minutes,
-  auth and rate-limit failures for 30 minutes, everything else for the 5-minute
-  default. Cooldowns are shared across processes through a cooldown file, so a
-  fresh OpenCode session does not immediately re-probe a dead model.
+- **Provider-reported cooldowns**: for quota-exhaustion and rate-limit
+  failures the plugin cools the model until the provider's reported reset
+  boundary when a fresh one is available (`~/.cache/opencode/quota-provider-state`,
+  refreshed once per classified failure — never on routing). The per-category
+  constants (10 min quota, 30 min auth/rate-limit, 5 min default) remain the
+  fallback whenever no fresh boundary exists. Cooldowns are shared across
+  processes through a cooldown file, so a fresh OpenCode session does not
+  immediately re-probe a dead model.
 - **Sub-agent aware**: a failing sub-agent is marked unhealthy and the parent's
   replacement hits the preemptive redirect path instead of a mid-turn replay.
 - **Fail-soft**: when every alternative is blocked or cooling, the plugin logs
@@ -267,7 +271,7 @@ are deliberately conservative (`plugin/src/types.ts`):
 |---|---|---|
 | `ttftMs` | `60000` | Time-to-first-token window in ms; on expiry the request is aborted and rotated. |
 | `cooldownMs` | `300000` | Default cooldown window in ms after a failure. |
-| `cooldownMsByCategory` | see below | Per-category overrides; `rate_limit` and `auth_error` get 30 min, `quota_exhausted` 10 min. |
+| `cooldownMsByCategory` | see below | Per-category overrides; `rate_limit` and `auth_error` get 30 min, `quota_exhausted` 10 min. For `quota_exhausted` and `rate_limit` these are the fallback windows — a fresh provider-reported reset boundary takes precedence. |
 | `maxDepth` | `3` | Max fallback depth per session (prevents infinite cascades). |
 | `dedupWindowMs` | `3000` | Collapses fallback triggers within this window for the same session. |
 | `abortWaitMs` | `150` | Pause between `abort()` and `revert()` in ms. |

@@ -16,9 +16,24 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createPluginContext } from "../src/plugin-internal.ts";
+import {
+  createPluginContext,
+  createPluginHooks,
+  PRODUCTION_QUOTA_BOUNDARY,
+} from "../src/plugin-internal.ts";
+import { resolveProviderReportedBoundary } from "../src/availability/quota-state.ts";
 import { createLogger } from "../src/logging/logger.ts";
 import type { ModelKey } from "../src/types.ts";
+import { MockClient } from "./helpers/mock-client.ts";
+
+// Mirrors the optional Hooks.config shape from @opencode-ai/plugin SDK.
+type HooksWithConfig = {
+  config?: (input: unknown) => unknown | Promise<unknown>;
+};
+
+function userMsg(id = "msg-1", agent = "scout") {
+  return { info: { id, role: "user", agent }, parts: [] };
+}
 
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
 
@@ -93,5 +108,52 @@ describe("Production init path wires CooldownStore (AC2)", () => {
     const ctx = createPluginContext({ logger: silentLogger });
     // Construction succeeded — no throw. In-memory cooldown still works.
     expect(ctx.store.health.isInCooldown("any/model" as ModelKey)).toBe(false);
+  });
+});
+
+describe("Production init path wires the provider-reported quota boundary", () => {
+  test("PRODUCTION_QUOTA_BOUNDARY is the provider-state consumer", () => {
+    expect(PRODUCTION_QUOTA_BOUNDARY).toBe(resolveProviderReportedBoundary);
+  });
+
+  test("createPluginHooks carries the resolver into the classified-failure path", async () => {
+    // Drive the REAL production hook composition with a test resolver; the
+    // refresh must fire exactly once per classified quota failure and never
+    // on any other event class.
+    const consulted: ModelKey[] = [];
+    const hooks = await createPluginHooks(
+      { client: new MockClient({ messages: [userMsg()] }) } as never,
+      // plugin tuple options: chain for the agent the message carries.
+      { agents: { scout: { fallback_models: ["a/one", "b/two"] } } },
+      {
+        quotaBoundary: async (key) => {
+          consulted.push(key);
+          return Date.now() + 40 * 3_600_000;
+        },
+      },
+    );
+    const configHook = (hooks as HooksWithConfig).config;
+    if (configHook) await configHook({});
+
+    // Production ordering: a chat.message dispatch records the session's
+    // current model, then a classified failure consults the boundary for it.
+    await hooks["chat.message"]?.(
+      { sessionID: "s1", agent: "scout" },
+      { message: { model: { providerID: "a", modelID: "one" } } },
+    );
+    await hooks.event?.({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID: "s1",
+          status: {
+            type: "retry",
+            action: { reason: "free_tier_limit" },
+          },
+        },
+      },
+    });
+
+    expect(consulted.length).toBe(1);
   });
 });
