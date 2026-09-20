@@ -3,6 +3,7 @@ import {
   classifyRetryStatusText,
   classifySessionError,
 } from "../src/detection/classifier.ts";
+import { parseMessageResetBoundary } from "../src/detection/reset-boundary.ts";
 
 describe("classifySessionError", () => {
   // Fixtures use the real {name, data:{...}} shape OpenCode emits — per
@@ -397,6 +398,136 @@ describe("classifyRetryStatusText", () => {
         "quota_exhausted",
       );
     });
+  });
+});
+
+describe("weekly Command Code quota 429 — message-only TransportFailureError", () => {
+  // Real incident: a weekly plan-window 429 reaches the plugin as a
+  // message-only TransportFailureError carrying statusCode 0, so the quota
+  // branch at classifier.ts (code === 429) never runs. The message template
+  // is the zai-coding-plan wording observed verbatim in the host log
+  // (~/.local/share/opencode/log/opencode.log:5332: "AI_APICallError:
+  // Usage limit reached for 5 hour. Your limit will reset at
+  // 2026-09-09 15:26:55"); the weekly Command Code variant follows the same
+  // template with the transport status prefix. Before the fix the bare-429
+  // rate-limit entry in patterns.ts matched first and the window cooled for
+  // the 30-minute rate_limit constant instead of its own reset boundary.
+  test("message-only 429 + usage-limit wording → quota_exhausted (not rate_limit)", () => {
+    expect(
+      classifySessionError({
+        name: "TransportFailureError",
+        data: {
+          statusCode: 0,
+          message:
+            "429: You've reached your weekly usage limit for your plan. Your limit will reset at 2026-09-26 09:14:33",
+        },
+      }),
+    ).toBe("quota_exhausted");
+  });
+  test("message-only usage-limit reset boundary without status prefix → quota_exhausted", () => {
+    expect(
+      classifySessionError({
+        name: "TransportFailureError",
+        data: {
+          message:
+            "Usage limit reached for week. Your limit will reset at 2026-09-26 09:14:33",
+        },
+      }),
+    ).toBe("quota_exhausted");
+  });
+  test("classifyRetryStatusText: quota wording beats the bare-429 entry (precedence)", () => {
+    expect(
+      classifyRetryStatusText(
+        "429 You've reached your weekly usage limit for your plan",
+      ),
+    ).toBe("quota_exhausted");
+    expect(
+      classifyRetryStatusText("429 monthly quota exhausted for this account"),
+    ).toBe("quota_exhausted");
+  });
+  test("bare 429 without quota wording stays rate_limit (default preserved)", () => {
+    expect(classifyRetryStatusText("HTTP 429")).toBe("rate_limit");
+    expect(classifyRetryStatusText("Too Many Requests")).toBe("rate_limit");
+    expect(
+      classifyRetryStatusText(
+        "Rate limit reached for gpt-5.6-luna on tokens per min (TPM)",
+      ),
+    ).toBe("rate_limit");
+  });
+});
+
+describe("parseMessageResetBoundary", () => {
+  const NOW = Date.parse("2026-09-20T12:00:00Z");
+  const HOUR = 3_600_000;
+
+  // Mirrors the provider's naive local-time stamp format; the parser reads
+  // stamps without a timezone as host-local, so tests must build stamps in
+  // host-local terms too (toISOString would hand back UTC-shifted text).
+  function localStamp(ms: number): string {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  test("observed provider template 'reset at YYYY-MM-DD HH:mm:ss' parses", () => {
+    // Verbatim template from the host log (2026-09-09 15:26:55 form), with a
+    // timestamp kept inside the sanity window.
+    const boundary = parseMessageResetBoundary(
+      "Usage limit reached for week. Your limit will reset at 2026-09-22 15:26:55",
+      NOW,
+    );
+    expect(boundary).toBe(Date.parse("2026-09-22T15:26:55"));
+  });
+  test("ISO with Z suffix parses as UTC", () => {
+    expect(
+      parseMessageResetBoundary("reset at 2026-09-22T15:26:55Z", NOW),
+    ).toBe(Date.parse("2026-09-22T15:26:55Z"));
+  });
+  test("ISO with numeric offset parses", () => {
+    expect(
+      parseMessageResetBoundary("Resets at 2026-09-22T23:26:55+08:00", NOW),
+    ).toBe(Date.parse("2026-09-22T23:26:55+08:00"));
+  });
+  test("seconds are optional", () => {
+    expect(parseMessageResetBoundary("reset at 2026-09-22 15:26", NOW)).toBe(
+      Date.parse("2026-09-22T15:26:00"),
+    );
+  });
+  test("past reset → null (constant stays the probe interval)", () => {
+    expect(
+      parseMessageResetBoundary(
+        "Usage limit reached for week. Your limit will reset at 2026-09-19 15:26:55",
+        NOW,
+      ),
+    ).toBeNull();
+  });
+  test("reset beyond the 7-day sanity ceiling → null", () => {
+    expect(
+      parseMessageResetBoundary(
+        `Usage limit reached. Your limit will reset at ${localStamp(NOW + 8 * 24 * HOUR)}`,
+        NOW,
+      ),
+    ).toBeNull();
+  });
+  test("human-only clock time ('3:00 PM') → null", () => {
+    expect(
+      parseMessageResetBoundary(
+        "You've reached your 5-hour usage limit for your plan. Your limit resets at 3:00 PM.",
+        NOW,
+      ),
+    ).toBeNull();
+  });
+  test("null/empty/unrelated text → null", () => {
+    expect(parseMessageResetBoundary(null, NOW)).toBeNull();
+    expect(parseMessageResetBoundary(undefined, NOW)).toBeNull();
+    expect(parseMessageResetBoundary("", NOW)).toBeNull();
+    expect(parseMessageResetBoundary("Request failed", NOW)).toBeNull();
+  });
+  test("boundary exactly at the ceiling edge (7 days out) parses", () => {
+    const edge = NOW + 7 * 24 * HOUR;
+    expect(parseMessageResetBoundary(`reset at ${localStamp(edge)}`, NOW)).toBe(
+      edge,
+    );
   });
 });
 

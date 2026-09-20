@@ -1283,3 +1283,237 @@ describe("attemptFallback — provider-reported quota boundary", () => {
     expect(consulted).toEqual(["a/one"]);
   });
 });
+
+describe("attemptFallback — message-parsed reset boundary", () => {
+  const HOUR = 3_600_000;
+
+  // Builds the provider's naive local-time reset stamp — the verbatim
+  // template observed in the host log
+  // (~/.local/share/opencode/log/opencode.log:5332:
+  //   "AI_APICallError: Usage limit reached for 5 hour. Your limit will
+  //    reset at 2026-09-09 15:26:55").
+  // The parser reads stamps without a timezone as host-local, so tests build
+  // stamps in host-local terms (toISOString would hand back UTC text).
+  function localStamp(ms: number): string {
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  function resetText(ms: number): string {
+    return `AI_APICallError: Usage limit reached for week. Your limit will reset at ${localStamp(ms)}`;
+  }
+
+  test("quota_exhausted cools until the reset parsed from the error text (not the 10-min constant)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const boundary = Date.now() + 6 * 24 * HOUR;
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(boundary),
+    });
+
+    expect(result.success).toBe(true);
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(boundary - 1_000);
+    expect(until).toBeLessThanOrEqual(boundary + 1_000);
+    expect(until - Date.now()).toBeGreaterThan(30 * 60_000);
+  });
+
+  test("rate_limit cools until the message-parsed boundary (constant ignored)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const boundary = Date.now() + 90_000;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(boundary),
+    });
+
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(boundary - 1_000);
+    expect(until).toBeLessThanOrEqual(boundary + 1_000);
+    expect(until - Date.now()).toBeLessThan(30 * 60_000);
+  });
+
+  test("fresh provider-cache boundary wins over the message-parsed one (predecessor path preserved)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const cacheBoundary = Date.now() + 40 * HOUR;
+    const messageBoundary = Date.now() + 6 * 24 * HOUR;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(messageBoundary),
+      quotaBoundary: async () => cacheBoundary,
+    });
+
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(cacheBoundary);
+    expect(until).toBeLessThanOrEqual(cacheBoundary + 1_000);
+  });
+
+  test("null cache boundary falls back to the message-parsed boundary", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const messageBoundary = Date.now() + 6 * 24 * HOUR;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(messageBoundary),
+      quotaBoundary: async () => null,
+    });
+
+    const until = store.health.get("a/one").cooldownUntil;
+    expect(until).toBeGreaterThanOrEqual(messageBoundary - 1_000);
+    expect(until).toBeLessThanOrEqual(messageBoundary + 1_000);
+  });
+
+  test("past reset in the error text keeps the category constant", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(before - HOUR),
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("reset beyond the 7-day ceiling keeps the category constant", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(before + 8 * 24 * HOUR),
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("malformed reset in the error text keeps the category constant", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText:
+        "You've reached your 5-hour usage limit for your plan. Your limit resets at 3:00 PM.",
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("no errorText → constant (behavior unchanged when the signal carries no text)", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(9 * 60_000);
+    expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("non-quota categories never parse the error text", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "server_error",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(before + 6 * 24 * HOUR),
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(4 * 60_000);
+    expect(applied).toBeLessThanOrEqual(5.5 * 60_000);
+  });
+});

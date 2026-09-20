@@ -7,6 +7,13 @@
 //
 // Patterns are case-insensitive substring or regex matches; classifier.ts
 // folds them into ErrorCategory values.
+//
+// Order is precedence: classifyRetryStatusText is first-match. The quota
+// exhaustion block sits above the rate-limit family so a text carrying both
+// quota wording and a transport status ("429: usage limit reached…")
+// classifies as quota_exhausted — plan exhaustion — instead of losing to the
+// bare-429 rate-limit entry. Texts without quota wording still resolve
+// through the rate-limit and later blocks unchanged.
 
 import type { ErrorCategory } from "../types.ts";
 
@@ -17,11 +24,6 @@ interface Pattern {
 }
 
 export const retryPatterns: Pattern[] = [
-  // Rate-limit family
-  { re: /\brate[ -]?limit/, category: "rate_limit" },
-  { re: /\btoo many requests\b/, category: "rate_limit" },
-  { re: /\b429\b/, category: "rate_limit" },
-
   // Quota exhaustion
   { re: /\bquota.*(exhaust|exceed)/, category: "quota_exhausted" },
   { re: /\binsufficient.+(credit|quota)/, category: "quota_exhausted" },
@@ -67,6 +69,12 @@ export const retryPatterns: Pattern[] = [
   // "CLAUDE_MAX_UNAVAILABLE: All configured Claude Max accounts are
   // temporarily unavailable" (no HTTP status code). Producer-owned marker.
   { re: /\bclaude[_-]?max[_-]?unavailable\b/, category: "quota_exhausted" },
+
+  // Rate-limit family — below the quota block so quota wording in the same
+  // text wins first-match (see the precedence note in the header).
+  { re: /\brate[ -]?limit/, category: "rate_limit" },
+  { re: /\btoo many requests\b/, category: "rate_limit" },
+  { re: /\b429\b/, category: "rate_limit" },
 
   // Model not found / unknown
   { re: /\bmodel[ _-]?not[ _-]?found/, category: "unknown_model" },

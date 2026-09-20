@@ -41,7 +41,8 @@ export interface SessionErrorLike {
 /**
  * Map a typed session.error payload to an ErrorCategory.
  * Precedence: non-retryable user abort → name → data.statusCode →
- * data.message → data.responseBody scan → unknown.
+ * quota signals in data.message/responseBody → data.message →
+ * data.responseBody scan → unknown.
  *
  * Status codes 403 and 429 are the ambiguous ones:
  *   - 403: Kimi returns it for billing-cycle quota exhaustion ("You've
@@ -54,6 +55,11 @@ export interface SessionErrorLike {
  *     quota signals first; if none match, fall through to rate_limit.
  * On both codes only quota_exhausted short-circuits; everything else keeps
  * the status code's direct mapping.
+ *
+ * Payloads without a usable status code (message-only TransportFailureError
+ * carries statusCode 0, so neither ambiguous-code branch runs) get the same
+ * quota-signal scan on the message path below, with the same precedence:
+ * quota wording beats the transport's bare-429/rate-limit phrasing.
  */
 // Quota wordings that mark plan exhaustion rather than a transient rate
 // limit or an auth failure. Shared by the 403 and 429 branches: both status
@@ -135,15 +141,27 @@ export function classifySessionError(
   if (code === 404 && name.includes("model")) return "unknown_model";
 
   const msg = (data.message ?? "").toLowerCase();
+  // Quota signals win over rate-limit-flavored message text. A weekly plan
+  // window can arrive without a typed status code — the message-only
+  // TransportFailureError carries statusCode 0, so the 429 and 403 branches
+  // above never run — and its usage-limit wording must not lose to the
+  // transport's bare-429 or rate-limit phrasing. Message first, then
+  // responseBody: the same scan order the 429 and 403 branches use.
+  if (hasQuotaSignal(msg)) return "quota_exhausted";
+  const bodyQuota = data.responseBody;
+  if (
+    typeof bodyQuota === "string" &&
+    bodyQuota.length > 0 &&
+    classifyRetryStatusText(bodyQuota) === "quota_exhausted"
+  ) {
+    return "quota_exhausted";
+  }
   if (
     msg.includes("rate limit") ||
     msg.includes("rate-limit") ||
     msg.includes("too many requests")
   ) {
     return "rate_limit";
-  }
-  if (msg.includes("quota")) {
-    return "quota_exhausted";
   }
 
   // Scan the message through retryPatterns — catches "usage limit reached",

@@ -875,6 +875,19 @@ export function failureFingerprint(error: SessionErrorLike): string {
   });
 }
 
+// Bounded error text for the message-parsed reset boundary: provider message
+// first, then responseBody — the same scan order the classifier uses. Both
+// segments are bounded so a large body cannot bloat the signal payload.
+function buildErrorText(error: SessionErrorLike): string | undefined {
+  const data = error.data ?? {};
+  const message = bounded(data.message, 1024);
+  const body = bounded(data.responseBody, 2048);
+  const text = [message, body]
+    .filter((segment): segment is string => !!segment)
+    .join("\n");
+  return text.length > 0 ? text : undefined;
+}
+
 interface TypedFailureInput {
   source: TypedFailureSource;
   sessionId: string;
@@ -893,6 +906,8 @@ interface TypedFailureInput {
   // differs from the session's tracked agent, the failure is isolated: the
   // failing model is cooled but the parent session is not rotated.
   attributedAgent?: string | null;
+  // Bounded failure text supplies a reset boundary without changing attribution.
+  errorText?: string;
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -1055,6 +1070,7 @@ async function handleFailureSignal(
       failedModel,
       cooldownOnly: true,
       quotaBoundary: ctx.quotaBoundary,
+      errorText: input.errorText,
     });
   }
 
@@ -1082,6 +1098,7 @@ async function handleFailureSignal(
     logger: ctx.logger,
     isSubagent,
     failedModel,
+    errorText: input.errorText,
     blocked,
     unavailableVeto:
       claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
@@ -1168,6 +1185,7 @@ export async function handleEvent(
         // status.action.provider: a provider token to match against open
         // call records, never a ModelKey source on its own.
         providerHint: nonEmptyString(props.error.data?.providerID),
+        errorText: buildErrorText(props.error),
       });
       return;
     }
@@ -1201,6 +1219,7 @@ export async function handleEvent(
         // signal to the unique open call on that provider — never a ModelKey
         // source on its own.
         providerHint: nonEmptyString(status?.action?.provider),
+        errorText: bounded(status?.message, 1024) ?? undefined,
       });
       return;
     }
@@ -1265,6 +1284,7 @@ export async function handleEvent(
         fingerprint: failureFingerprint(info.error),
         failedModel,
         attributedAgent: nonEmptyString(info.agent) ?? null,
+        errorText: buildErrorText(info.error),
       });
       return;
     }
