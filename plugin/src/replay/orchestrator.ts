@@ -148,7 +148,8 @@ function defaultSleep(ms: number): Promise<void> {
  * Cooldown duration for one failure: the per-category override when
  * configured, otherwise the default cooldownMs — and, for the
  * quota/rate-limit classes, a strictly-future provider-reported boundary
- * replaces the constant when the resolver is wired and returns one.
+ * replaces the constant. Message-derived boundaries respect explicit user
+ * caps; provider-cache boundaries remain uncapped.
  */
 async function resolveCooldownMs(
   config: PluginConfig,
@@ -159,13 +160,22 @@ async function resolveCooldownMs(
 ): Promise<number> {
   let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
   if (reason === "quota_exhausted" || reason === "rate_limit") {
-    let boundary =
+    const boundary =
       cooldownTarget && quotaBoundary ? await quotaBoundary(cooldownTarget) : null;
     const now = Date.now();
     if (boundary === null) {
-      boundary = parseMessageResetBoundary(errorText, now);
-    }
-    if (boundary !== null && boundary > now) {
+      const messageBoundary = parseMessageResetBoundary(errorText, now);
+      if (messageBoundary !== null && messageBoundary > now) {
+        const messageCooldownMs = messageBoundary - now;
+        const userCap = config.messageBoundaryCapsByCategory?.[reason];
+        cooldownMs =
+          typeof userCap === "number" &&
+          (Number.isFinite(userCap) || userCap === Number.POSITIVE_INFINITY) &&
+          userCap >= 0
+            ? Math.min(messageCooldownMs, userCap)
+            : messageCooldownMs;
+      }
+    } else if (boundary > now) {
       cooldownMs = boundary - now;
     }
   }

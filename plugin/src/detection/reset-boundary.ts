@@ -28,7 +28,7 @@ export const RESET_BOUNDARY_MAX_AHEAD_MS = 7 * 24 * 60 * 60 * 1000;
 // Calendar date + clock time, "T" or single-space separator, optional
 // seconds / fractional seconds / timezone (Z or ±HH:MM / ±HHMM).
 const RESET_AT_PATTERN =
-  /\b(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?/;
+  /\breset(?:s)?\s+at\s+(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}:?\d{2})?/i;
 
 /**
  * Parse the first reset boundary found in `text`. Returns the epoch-ms
@@ -43,10 +43,14 @@ export function parseMessageResetBoundary(
   if (!text) return null;
   const match = RESET_AT_PATTERN.exec(text);
   if (!match) return null;
-  const [, year, month, day, hour, minute, second, tz] = match;
+  const [, year, month, day, hour, minute, second, fraction, tz] = match;
   // Rebuild as canonical ISO with the "T" separator; missing seconds mean
-  // :00. The optional tz group passes through untouched.
-  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second ?? "00"}${tz ?? ""}`;
+  // :00. Normalize fractional seconds because Date.parse accepts precision
+  // beyond milliseconds but stores only three digits.
+  const milliseconds = fraction
+    ? `.${fraction.padEnd(3, "0").slice(0, 3)}`
+    : "";
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:${second ?? "00"}${milliseconds}${tz ?? ""}`;
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return null;
   if (ms <= now) return null;

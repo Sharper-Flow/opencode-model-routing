@@ -488,6 +488,29 @@ describe("parseMessageResetBoundary", () => {
       parseMessageResetBoundary("Resets at 2026-09-22T23:26:55+08:00", NOW),
     ).toBe(Date.parse("2026-09-22T23:26:55+08:00"));
   });
+  test("ISO with fractional seconds preserves milliseconds", () => {
+    const now = Date.parse("2026-09-25T01:20:00.000Z");
+    expect(
+      parseMessageResetBoundary(
+        "Your limit will RESET at 2026-09-25T01:21:27.817Z",
+        now,
+      ),
+    ).toBe(Date.parse("2026-09-25T01:21:27.817Z"));
+  });
+  test("fractional seconds are padded or truncated to milliseconds", () => {
+    const now = Date.parse("2026-09-25T01:20:00Z");
+    expect(
+      parseMessageResetBoundary("reset at 2026-09-25T01:21:27.8Z", now),
+    ).toBe(Date.parse("2026-09-25T01:21:27.800Z"));
+    expect(
+      parseMessageResetBoundary("resets at 2026-09-25T01:21:27.8179Z", now),
+    ).toBe(Date.parse("2026-09-25T01:21:27.817Z"));
+  });
+  test("future ISO timestamp without reset wording is ignored", () => {
+    expect(
+      parseMessageResetBoundary("request expires 2026-09-22T15:26:55Z", NOW),
+    ).toBeNull();
+  });
   test("seconds are optional", () => {
     expect(parseMessageResetBoundary("reset at 2026-09-22 15:26", NOW)).toBe(
       Date.parse("2026-09-22T15:26:00"),

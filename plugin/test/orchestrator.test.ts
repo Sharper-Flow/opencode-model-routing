@@ -1378,6 +1378,35 @@ describe("attemptFallback — message-parsed reset boundary", () => {
     expect(until).toBeLessThanOrEqual(cacheBoundary + 1_000);
   });
 
+  test("user cap does not clamp a fresh provider-cache boundary", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+    const cacheBoundary = before + 40 * HOUR;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: {
+        ...defaultConfig,
+        cooldownMsByCategory: { quota_exhausted: 60_000 },
+        messageBoundaryCapsByCategory: { quota_exhausted: 60_000 },
+      },
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(before + 6 * 24 * HOUR),
+      quotaBoundary: async () => cacheBoundary,
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(39 * HOUR);
+    expect(applied).toBeLessThanOrEqual(40 * HOUR + 1_000);
+  });
+
   test("null cache boundary falls back to the message-parsed boundary", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
@@ -1492,6 +1521,65 @@ describe("attemptFallback — message-parsed reset boundary", () => {
     const applied = store.health.get("a/one").cooldownUntil - before;
     expect(applied).toBeGreaterThan(9 * 60_000);
     expect(applied).toBeLessThanOrEqual(10.5 * 60_000);
+  });
+
+  test("user category constant caps a message-parsed boundary", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: {
+        ...defaultConfig,
+        cooldownMsByCategory: { quota_exhausted: 60_000 },
+        messageBoundaryCapsByCategory: { quota_exhausted: 60_000 },
+      },
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(before + 6 * 24 * HOUR),
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThanOrEqual(60_000);
+    expect(applied).toBeLessThan(61_000);
+  });
+
+  test("Infinity user category constant leaves the message boundary uncapped", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("s1").currentModel = "a/one";
+    const client = new MockClient({ messages: [userMsg()] });
+    const before = Date.now();
+    const boundary = before + 6 * 24 * HOUR;
+
+    await attemptFallback({
+      sessionId: "s1",
+      reason: "quota_exhausted",
+      chain,
+      client,
+      store,
+      config: {
+        ...defaultConfig,
+        cooldownMsByCategory: {
+          quota_exhausted: Number.POSITIVE_INFINITY,
+        },
+        messageBoundaryCapsByCategory: {
+          quota_exhausted: Number.POSITIVE_INFINITY,
+        },
+      },
+      logger: silentLogger,
+      sleepMs: async () => {},
+      errorText: resetText(boundary),
+    });
+
+    const applied = store.health.get("a/one").cooldownUntil - before;
+    expect(applied).toBeGreaterThan(5 * 24 * HOUR);
+    expect(applied).toBeLessThanOrEqual(6 * 24 * HOUR + 1_000);
   });
 
   test("non-quota categories never parse the error text", async () => {

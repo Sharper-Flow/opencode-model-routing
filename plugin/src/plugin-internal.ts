@@ -221,6 +221,14 @@ export function createPluginContext(
 ): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
+  const messageBoundaryCapsByCategory: PluginConfig["messageBoundaryCapsByCategory"] =
+    {
+      ...(opts.config?.cooldownMsByCategory ?? {}),
+      ...(opts.cooldownOverrides ?? {}),
+    };
+  if (Object.keys(messageBoundaryCapsByCategory).length > 0) {
+    merged.messageBoundaryCapsByCategory = messageBoundaryCapsByCategory;
+  }
 
   // 3-layer cooldown merge: default → opts.config → pluginOptions overrides.
   // Only rebuild when at least one override layer is present; otherwise the
