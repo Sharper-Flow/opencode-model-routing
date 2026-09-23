@@ -7,7 +7,8 @@
 # Runtime model:
 #   dev checkout:        ~/dev/opencode-model-routing/plugin
 #   active plugin copy:  ~/.local/share/opencode-model-routing/plugin
-#   opencode.jsonc:      plugin[] contains the active plugin copy
+#   opencode.jsonc:      plugin[]/plugins[] contains the active plugin copy
+#                        (V1 tuple or V2 native object entry; both accepted)
 #
 # Usage:
 #   ./scripts/deploy-local.sh           # Deploy plugin + report config drift
@@ -86,10 +87,17 @@ jsonc_to_json() {
 	fi
 }
 
+# A config registers the plugin either as a V1 "plugin" tuple (string or
+# [spec, options]) or as a V2 native "plugins" entry (string or
+# {"package": spec, "options": ...}). Either shape counts as registered.
 plugin_array_contains_spec() {
 	local file="$1" value="$2"
 	jsonc_to_json "$file" | jq --arg value "$value" \
-		-e '((.plugin // []) | if type == "array" then . else [.] end) | any((type == "string" and . == $value) or (type == "array" and .[0] == $value))' \
+		-e '(def norm: if type == "array" then . else [.] end;
+			((.plugin // []) | norm) + ((.plugins // []) | norm)
+			| any((type == "string" and . == $value)
+				or (type == "array" and .[0] == $value)
+				or (type == "object" and .package == $value)))' \
 		&>/dev/null
 }
 
@@ -110,13 +118,11 @@ check_config() {
 	if plugin_array_contains_spec "$GLOBAL_JSON" "$PLUGIN_CONFIG_PATH"; then
 		echo "    ✓ plugin registered: $PLUGIN_CONFIG_PATH"
 	else
-		echo "    ✗ plugin path missing from .plugin[]"
+		echo "    ✗ plugin path missing from .plugin[]/.plugins[]"
 		echo "       Expected: \"$PLUGIN_CONFIG_PATH\""
 		issues=1
 	fi
-	if jsonc_to_json "$GLOBAL_JSON" | jq -e --arg dev "$SOURCE_PLUGIN_PATH" \
-		'((.plugin // []) | if type == "array" then . else [.] end) | any((type == "string" and . == $dev) or (type == "array" and .[0] == $dev))' \
-		>/dev/null 2>&1; then
+	if plugin_array_contains_spec "$GLOBAL_JSON" "$SOURCE_PLUGIN_PATH"; then
 		echo "    ⚠ dev checkout plugin path still registered: $SOURCE_PLUGIN_PATH"
 		issues=1
 	fi

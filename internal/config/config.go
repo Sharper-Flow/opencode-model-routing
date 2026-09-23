@@ -204,6 +204,40 @@ func discoverModels(raw []byte) []Model {
 	return models
 }
 
+// agentSectionPath resolves the config path for one agent's field across the
+// two agent-section keys: V1 "agent" and the V2 native "agents". An existing
+// entry wins — the agent is addressed where it is defined. For an agent
+// absent from both sections, the config's primary section is used (the V2
+// "agents" object when present, the V1 "agent" key otherwise), so a write
+// never creates a duplicate entry under the other key and never converts the
+// config's existing shape.
+func agentSectionPath(raw []byte, name, field string) string {
+	entry := "agent." + name
+	v2Section := false
+	switch {
+	case gjson.GetBytes(raw, "agents."+name).Exists():
+		entry = "agents." + name
+		v2Section = true
+	case gjson.GetBytes(raw, "agent."+name).Exists():
+		entry = "agent." + name
+	case gjson.GetBytes(raw, "agents").IsObject():
+		entry = "agents." + name
+		v2Section = true
+	}
+	if field == "" {
+		return entry
+	}
+	// The enable/disable toggle is spelled "disable" in the V1 "agent"
+	// section and "disabled" in the V2 native "agents" section (the V2
+	// agents contract spells it "disabled"). Translate at this section
+	// boundary so callers address the toggle by meaning, never by one
+	// version's JSON name.
+	if field == "disable" && v2Section {
+		field = "disabled"
+	}
+	return entry + "." + field
+}
+
 // discoverTargets finds all agents from config + markdown files.
 func discoverTargets(configDir string, raw []byte) []Target {
 	seen := make(map[string]bool)
@@ -212,7 +246,7 @@ func discoverTargets(configDir string, raw []byte) []Target {
 
 	// Built-in agents
 	for _, a := range builtinAgents {
-		a.Model = gjson.GetBytes(raw, "agent."+a.Name+".model").String()
+		a.Model = gjson.GetBytes(raw, agentSectionPath(raw, a.Name, "model")).String()
 		a.FallbackModels = readFallbackChain(raw, a.Name)
 		a.BlockedModels = readBlockedModels(raw, a.Name)
 		targets = append(targets, a)
@@ -226,36 +260,43 @@ func discoverTargets(configDir string, raw []byte) []Target {
 		targets = append(targets, discoverMarkdownAgents(filepath.Join(projectDir, "agents"), raw, seen, false)...)
 	}
 
-	// JSON-configured agents (after markdown; mode here only applies to JSON-only agents)
-	gjson.GetBytes(raw, "agent").ForEach(func(name, val gjson.Result) bool {
-		n := name.String()
-		if seen[n] || systemAgents[n] {
+	// JSON-configured agents (after markdown; mode here only applies to
+	// JSON-only agents). Both section keys are read — the V2 native "agents"
+	// object and the V1 "agent" key — with seen[] deduplication; a config
+	// carries its agents under either or both.
+	for _, section := range []string{"agents", "agent"} {
+		gjson.GetBytes(raw, section).ForEach(func(name, val gjson.Result) bool {
+			n := name.String()
+			if seen[n] || systemAgents[n] {
+				return true
+			}
+			mode := val.Get("mode").String()
+			if mode == "" {
+				mode = "all"
+			}
+			hidden := val.Get("hidden").Bool()
+			targets = append(targets, Target{
+				Name:           n,
+				Kind:           KindAgent,
+				Mode:           mode,
+				Model:          val.Get("model").String(),
+				Description:    val.Get("description").String(),
+				Hidden:         hidden,
+				FallbackModels: readFallbackChain(raw, n),
+				BlockedModels:  readBlockedModels(raw, n),
+			})
+			seen[n] = true
 			return true
-		}
-		mode := val.Get("mode").String()
-		if mode == "" {
-			mode = "all"
-		}
-		hidden := val.Get("hidden").Bool()
-		targets = append(targets, Target{
-			Name:           n,
-			Kind:           KindAgent,
-			Mode:           mode,
-			Model:          val.Get("model").String(),
-			Description:    val.Get("description").String(),
-			Hidden:         hidden,
-			FallbackModels: readFallbackChain(raw, n),
-			BlockedModels:  readBlockedModels(raw, n),
 		})
-		seen[n] = true
-		return true
-	})
+	}
 
 	return targets
 }
 
 // readFallbackChain extracts the plugin-owned fallback chain first, then the
-// legacy agent.<name>.options.fallback_models path for migration.
+// legacy agent/agents options fallback_models path for migration. The legacy
+// path is checked under both section keys because OpenCode 2 renames the
+// agent section to "agents".
 func readFallbackChain(raw []byte, agentName string) []string {
 	var res gjson.Result
 	if path, ok := pluginFallbackPath(raw, agentName); ok {
@@ -263,6 +304,9 @@ func readFallbackChain(raw []byte, agentName string) []string {
 	}
 	if !res.Exists() {
 		res = gjson.GetBytes(raw, "agent."+agentName+"."+FallbackJSONPath)
+	}
+	if !res.Exists() {
+		res = gjson.GetBytes(raw, "agents."+agentName+"."+FallbackJSONPath)
 	}
 	if !res.Exists() || !res.IsArray() {
 		return nil
@@ -279,7 +323,7 @@ func readFallbackChain(raw []byte, agentName string) []string {
 }
 
 // readBlockedModels extracts the per-agent blocked-model set from the OMR
-// plugin tuple options. Plugin-tuple-only: blocked_models has no legacy or
+// plugin options. Plugin-options-only: blocked_models has no legacy or
 // frontmatter path.
 func readBlockedModels(raw []byte, agentName string) []string {
 	path, ok := pluginBlockedPath(raw, agentName)
@@ -355,8 +399,9 @@ func discoverMarkdownAgents(dir string, raw []byte, seen map[string]bool, allowP
 
 		hidden := parseFrontmatterField(agentPath, "hidden") == "true"
 
-		// Check if there's a model override in the JSON config
-		model := gjson.GetBytes(raw, "agent."+name+".model").String()
+		// Check if there's a model override in the JSON config (either
+		// section key — V2 native "agents" or V1 "agent")
+		model := gjson.GetBytes(raw, agentSectionPath(raw, name, "model")).String()
 
 		// Also check frontmatter for model
 		if model == "" {
@@ -494,6 +539,10 @@ func parseFrontmatterField(path, field string) string {
 // in the given order. This controls the Tab-cycle order for custom primary agents
 // in OpenCode, since it uses JS object insertion order.
 //
+// The section rewritten is the one carrying the agent entries: the V2 native
+// "agents" object when it has any, otherwise the V1 "agent" key. Each section
+// is rebuilt in place under its own key — never moved between keys.
+//
 // Built-in agents (build, plan) are always first in OpenCode's cycle regardless
 // of JSON order, so only custom/non-locked agents benefit from reordering.
 //
@@ -507,9 +556,16 @@ func SetAgentOrder(names []string) error {
 		return fmt.Errorf("reading config: %w", err)
 	}
 
+	// The section that holds the entries: V2 native "agents" when it has
+	// any, else the V1 "agent" key.
+	section := "agent"
+	if agentsRes := gjson.GetBytes(raw, "agents"); agentsRes.IsObject() && len(agentsRes.Map()) > 0 {
+		section = "agents"
+	}
+
 	// Collect existing agent entries in a map: name -> raw JSON value
 	agentEntries := make(map[string]string)
-	gjson.GetBytes(raw, "agent").ForEach(func(key, val gjson.Result) bool {
+	gjson.GetBytes(raw, section).ForEach(func(key, val gjson.Result) bool {
 		agentEntries[key.String()] = val.Raw
 		return true
 	})
@@ -520,7 +576,7 @@ func SetAgentOrder(names []string) error {
 	}
 
 	// Delete the entire agent section, then rebuild in order
-	updated, err := sjson.DeleteBytes(raw, "agent")
+	updated, err := sjson.DeleteBytes(raw, section)
 	if err != nil {
 		return fmt.Errorf("deleting agent section: %w", err)
 	}
@@ -535,7 +591,7 @@ func SetAgentOrder(names []string) error {
 		if err := json.Unmarshal([]byte(raw), &val); err != nil {
 			return fmt.Errorf("parsing agent %q: %w", name, err)
 		}
-		updated, err = sjson.SetBytes(updated, "agent."+name, val)
+		updated, err = sjson.SetBytes(updated, section+"."+name, val)
 		if err != nil {
 			return fmt.Errorf("writing agent %q: %w", name, err)
 		}
@@ -548,7 +604,7 @@ func SetAgentOrder(names []string) error {
 		if err := json.Unmarshal([]byte(raw), &val); err != nil {
 			return fmt.Errorf("parsing agent %q: %w", name, err)
 		}
-		updated, err = sjson.SetBytes(updated, "agent."+name, val)
+		updated, err = sjson.SetBytes(updated, section+"."+name, val)
 		if err != nil {
 			return fmt.Errorf("writing remaining agent %q: %w", name, err)
 		}

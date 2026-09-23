@@ -6,10 +6,15 @@
 // plugin's loader reference the field names `fallback_models` and
 // `blocked_models` verbatim — drift is enforced by schema-contract-check.sh.
 //
-// New writes target OMR plugin tuple options because OpenCode forwards
-// agent.options into provider/model requests. FallbackJSONPath remains only as
-// the legacy migration path under agent.<name>.options.fallback_models.
-// blocked_models has no legacy path — it is plugin-tuple-only.
+// New writes target OMR plugin options because OpenCode forwards
+// agent.options into provider/model requests. Two option shapes are
+// supported: the V1 "plugin" tuple (the cross-runtime safe default, also the
+// first-install shape when the config has no "plugins" array) and the V2
+// native "plugins" object entry. An existing OMR entry retains ownership in
+// either format; only a first install appends to a native plugins array.
+// FallbackJSONPath remains only as the legacy migration path under
+// agent.<name>.options.fallback_models. blocked_models has no legacy path —
+// it is plugin-options-only.
 package config
 
 import (
@@ -27,7 +32,7 @@ import (
 const ModelKeyPattern = `^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\.[A-Za-z0-9_:/-]+)*$`
 
 // FallbackJSONPath is the legacy JSON path under each agent for the fallback
-// chain. OMR now writes plugin tuple options instead; this path is retained for
+// chain. OMR now writes plugin options instead; this path is retained for
 // migration reads and cleanup.
 const FallbackJSONPath = "options.fallback_models"
 
@@ -38,6 +43,15 @@ func isRoutingPluginSpec(spec string) bool {
 	return spec == RoutingPluginID || strings.Contains(spec, RoutingPluginPathFragment)
 }
 
+// OpenCode config carries plugins in two shapes:
+//
+//	V1 (and the cross-runtime safe default): "plugin": [[spec, {options}]]
+//	V2 native:                               "plugins": [{"package": spec, "options": {...}}]
+//
+// OpenCode 2 reads V1 tuples in memory and normalizes them automatically, so
+// a V1 write keeps working under both runtimes. An existing OMR entry owns
+// its options in either format. When no OMR entry exists, a native plugins
+// array receives the first install; otherwise OMR creates a V1 tuple.
 func routingPluginIndex(raw []byte) (int, bool) {
 	plugins := gjson.GetBytes(raw, "plugin")
 	if !plugins.Exists() || !plugins.IsArray() {
@@ -57,7 +71,76 @@ func routingPluginIndex(raw []byte) (int, bool) {
 	return -1, false
 }
 
+// routingPluginsV2Index returns the index of the OMR entry inside the native
+// V2 "plugins" array. An entry matches when its top-level string form or its
+// "package" field names the routing plugin.
+func routingPluginsV2Index(raw []byte) (int, bool) {
+	plugins := gjson.GetBytes(raw, "plugins")
+	if !plugins.Exists() || !plugins.IsArray() {
+		return -1, false
+	}
+	for i, item := range plugins.Array() {
+		if item.Type == gjson.String && isRoutingPluginSpec(item.String()) {
+			return i, true
+		}
+		if item.IsObject() {
+			if pkg := item.Get("package"); pkg.Type == gjson.String && isRoutingPluginSpec(pkg.String()) {
+				return i, true
+			}
+		}
+	}
+	return -1, false
+}
+
+// ensureRoutingPluginOptions guarantees that plugin options for OMR exist in
+// the shape matching the detected target, and returns the updated bytes with
+// the entry's index. An existing native OMR entry is updated in place. An
+// existing V1 OMR entry keeps its package identity and all agent options even
+// when unrelated native plugins are configured. Only a first install appends
+// to a native plugins array; without one it creates a V1 tuple.
+// Unrelated entries and unrelated fields inside the OMR entry are never
+// touched.
 func ensureRoutingPluginOptions(raw []byte) ([]byte, int, error) {
+	if idx, ok := routingPluginsV2Index(raw); ok {
+		entry := gjson.GetBytes(raw, fmt.Sprintf("plugins.%d", idx))
+		entryPath := fmt.Sprintf("plugins.%d", idx)
+		if entry.Type == gjson.String {
+			// Upgrade a bare string entry to the object form so options have
+			// a home — mirrors the V1 string→tuple upgrade below.
+			updated, err := sjson.SetBytes(raw, entryPath, map[string]any{
+				"package": entry.String(),
+				"options": map[string]any{},
+			})
+			if err != nil {
+				return nil, -1, err
+			}
+			return updated, idx, nil
+		}
+		if entry.IsObject() && !gjson.GetBytes(raw, entryPath+".options").Exists() {
+			updated, err := sjson.SetBytes(raw, entryPath+".options", map[string]any{})
+			if err != nil {
+				return nil, -1, err
+			}
+			return updated, idx, nil
+		}
+		return raw, idx, nil
+	}
+
+	// V2-native first install: the config already carries a `plugins` array
+	// without an OMR entry in either format. Register OMR inside it, not
+	// beside an existing V1 OMR tuple whose options must remain authoritative.
+	if _, hasV1Owner := routingPluginIndex(raw); !hasV1Owner && gjson.GetBytes(raw, "plugins").IsArray() {
+		updated, err := sjson.SetBytes(raw, "plugins.-1", map[string]any{
+			"package": RoutingPluginID,
+			"options": map[string]any{},
+		})
+		if err != nil {
+			return nil, -1, err
+		}
+		idx, _ := routingPluginsV2Index(updated)
+		return updated, idx, nil
+	}
+
 	idx, ok := routingPluginIndex(raw)
 	if !ok {
 		updated := raw
@@ -87,7 +170,13 @@ func ensureRoutingPluginOptions(raw []byte) ([]byte, int, error) {
 	return raw, idx, nil
 }
 
+// pluginFallbackPath is the JSON path of the per-agent fallback chain under
+// the OMR plugin options, in the shape the config currently carries (V2
+// native object entry preferred, V1 tuple otherwise).
 func pluginFallbackPath(raw []byte, agentName string) (string, bool) {
+	if idx, ok := routingPluginsV2Index(raw); ok {
+		return fmt.Sprintf("plugins.%d.options.agents.%s.fallback_models", idx, agentName), true
+	}
 	idx, ok := routingPluginIndex(raw)
 	if !ok {
 		return "", false
@@ -96,9 +185,12 @@ func pluginFallbackPath(raw []byte, agentName string) (string, bool) {
 }
 
 // pluginBlockedPath is the JSON path of the per-agent blocked-models set under
-// the OMR plugin tuple options. Plugin-tuple-only: blocked_models has no
+// the OMR plugin options. Plugin-options-only: blocked_models has no
 // legacy migration path.
 func pluginBlockedPath(raw []byte, agentName string) (string, bool) {
+	if idx, ok := routingPluginsV2Index(raw); ok {
+		return fmt.Sprintf("plugins.%d.options.agents.%s.blocked_models", idx, agentName), true
+	}
 	idx, ok := routingPluginIndex(raw)
 	if !ok {
 		return "", false

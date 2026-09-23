@@ -8,6 +8,7 @@
 import type { QuotaBoundaryResolver } from "../availability/quota-state.ts";
 import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
+import type { SessionState } from "../state/session-state.ts";
 import type { FallbackStore } from "../state/store.ts";
 import type {
   ErrorCategory,
@@ -38,6 +39,33 @@ export interface OrchestratorClient {
     get(args: unknown): Promise<unknown>;
   };
 }
+
+export interface ReplayTailArgs {
+  sessionId: string;
+  // The chain entry resolveFallbackModel selected. Committing session state
+  // to `next` stays the orchestrator's job; the tail only moves the host
+  // session onto it.
+  next: ModelKey;
+  // The entrance that triggered this replay. The V2 tail uses it to decide
+  // whether the host re-drives the agent loop (classified failures approve
+  // one host retry) or the plugin must abort the stalled turn (a TTFT
+  // timeout leaves its request in flight). V1 never wires a tail, so this is
+  // optional and ignored there.
+  reason?: ErrorCategory;
+}
+
+/**
+ * Host-specific replay tail. When provided, it replaces the V1
+ * abort → revert → prompt sequence after the shared policy (lock, dedup,
+ * cooldown, chain resolution, subagent short-circuit) has selected `next`.
+ * OpenCode 2 has no revert and re-prompting would duplicate the user turn,
+ * so its adapter supplies switchModel(next). On TTFT timeout it also calls
+ * interrupt({resume:true}) to end the stalled turn; the next turn uses the
+ * new model. A rejection is logged and reported as success:false — the
+ * fallback bookkeeping is NOT advanced when
+ * the tail fails.
+ */
+export type ReplayTail = (args: ReplayTailArgs) => Promise<void>;
 
 export interface AttemptFallbackArgs {
   sessionId: string;
@@ -93,6 +121,9 @@ export interface AttemptFallbackArgs {
   // on every path that is not the classified-failure dispatcher, so the
   // refresh subprocess can never enter routing decisions or TTFT handling.
   quotaBoundary?: QuotaBoundaryResolver;
+  // Host-specific replay tail (see ReplayTail). Undefined → the V1
+  // abort → revert → prompt sequence runs unchanged.
+  replayTail?: ReplayTail;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -174,12 +205,33 @@ function findOrphanCandidate(
   }
 }
 
-function parseModelKey(key: ModelKey): { providerID: string; modelID: string } {
+export function parseModelKey(key: ModelKey): {
+  providerID: string;
+  modelID: string;
+} {
   const i = key.indexOf("/");
   return {
     providerID: key.slice(0, i),
     modelID: key.slice(i + 1),
   };
+}
+
+/**
+ * Commit session state after a successful replay: `next` was just dispatched,
+ * so it becomes the model serving this session; later model-less failure
+ * signals must attribute to it. originalModel records the pre-fallback model
+ * only when one was known — an unknown current model leaves it null.
+ */
+function commitFallbackSuccess(
+  state: SessionState,
+  next: ModelKey,
+  current: ModelKey | null,
+): void {
+  state.currentModel = next;
+  state.lastServedModel = next;
+  state.fallbackDepth += 1;
+  state.lastFallbackAt = Date.now();
+  if (!state.originalModel && current) state.originalModel = current;
 }
 
 /**
@@ -323,6 +375,35 @@ export async function attemptFallback(
       };
     }
 
+    // Host-specific replay: when a replay tail is wired (OpenCode 2), it
+    // moves the session onto `next` instead of the V1 abort → revert →
+    // prompt sequence below. No messages fetch and no revert — V2 has no
+    // revert, and re-prompting the last user message would duplicate the
+    // user turn. A tail failure leaves bookkeeping unadvanced so a later
+    // failure signal can retry the chain.
+    if (args.replayTail) {
+      try {
+        await args.replayTail({ sessionId, next, reason });
+      } catch (err) {
+        logger.error("fallback.replay_failed", {
+          sessionId,
+          next,
+          err: errorSummary(err),
+        });
+        return { success: false, error: "replay failed" };
+      }
+      commitFallbackSuccess(state, next, current);
+      logger.info("fallback.success", {
+        sessionId,
+        from: current,
+        to: next,
+        reason,
+        depth: state.fallbackDepth,
+        agent: state.agentName ?? null,
+      });
+      return { success: true, fallbackModel: next, fromModel: current };
+    }
+
     let messages: unknown[];
     try {
       const response = await client.session.messages({
@@ -418,14 +499,8 @@ export async function attemptFallback(
       return { success: false, error: "prompt failed" };
     }
 
-    // Success — update session state. prompt(next) was just dispatched, so
-    // next is now the model serving this session; later model-less failure
-    // signals must attribute to it.
-    state.currentModel = next;
-    state.lastServedModel = next;
-    state.fallbackDepth += 1;
-    state.lastFallbackAt = Date.now();
-    if (!state.originalModel && current) state.originalModel = current;
+    // Success — update session state (shared with the replay-tail path).
+    commitFallbackSuccess(state, next, current);
 
     // `agent` is a correlation dimension, not an anomaly marker, so it is
     // ALWAYS present — `?? null` normalizes the `undefined` that agentName
