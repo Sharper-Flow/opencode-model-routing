@@ -1,7 +1,7 @@
 {
   "name": "@sharper-flow/opencode-model-routing-plugin",
   "version": "0.1.0",
-  "description": "OpenCode plugin for transparent per-agent model fallback. Reads plugin tuple fallback_models options and rotates through the chain on errors, TTFT timeout, or cooldown.",
+  "description": "OpenCode 1 and 2 model routing plugin. Reads V1 tuple or V2 native plugin options. On V2 provider errors it retries on the next model; on a TTFT timeout it aborts the turn and selects the next model for a later turn.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,6 +24,7 @@
   },
   "files": [
     "dist",
+    "index.js",
     "NOTICE"
   ],
   "license": "Apache-2.0",
@@ -43,6 +44,7 @@
     "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "dependencies": {
+    "@opencode/plugin": "2.0.14",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {

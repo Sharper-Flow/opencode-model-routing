@@ -68,8 +68,8 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 	var err error
 
 	for _, t := range targets {
-		existsInConfig := gjson.GetBytes(raw, "agent."+t.Name).Exists()
-		jsonPath := "agent." + t.Name + ".model"
+		existsInConfig := gjson.GetBytes(raw, agentSectionPath(raw, t.Name, "")).Exists()
+		jsonPath := agentSectionPath(raw, t.Name, "model")
 
 		if !t.IsModelMappable() {
 			if !existsInConfig {
@@ -108,14 +108,24 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		if !t.IsModelMappable() {
 			continue
 		}
-		legacyChainPath := "agent." + t.Name + "." + FallbackJSONPath
+		// Legacy migration paths under both section keys (V1 "agent", V2
+		// "agents"): read for cleanup, never written.
+		legacyChainPaths := []string{
+			"agent." + t.Name + "." + FallbackJSONPath,
+			"agents." + t.Name + "." + FallbackJSONPath,
+		}
 		chain := pc.TargetFallbacks[t.Name]
 		pluginPath, pluginPathExists := pluginFallbackPath(updated, t.Name)
 		pluginValueExists := pluginPathExists && gjson.GetBytes(updated, pluginPath).Exists()
-		legacyValueExists := gjson.GetBytes(updated, legacyChainPath).Exists()
+		existingLegacy := make([]string, 0, len(legacyChainPaths))
+		for _, p := range legacyChainPaths {
+			if gjson.GetBytes(updated, p).Exists() {
+				existingLegacy = append(existingLegacy, p)
+			}
+		}
 
 		if len(chain) == 0 {
-			if !pluginValueExists && !legacyValueExists {
+			if !pluginValueExists && len(existingLegacy) == 0 {
 				continue
 			}
 			if pluginValueExists {
@@ -124,8 +134,8 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 					return ApplyPlan{}, err
 				}
 			}
-			if legacyValueExists {
-				updated, mutations, err = plannedDelete(updated, mutations, legacyChainPath)
+			for _, p := range existingLegacy {
+				updated, mutations, err = plannedDelete(updated, mutations, p)
 				if err != nil {
 					return ApplyPlan{}, err
 				}
@@ -148,10 +158,12 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		if err != nil {
 			return ApplyPlan{}, err
 		}
-		if gjson.GetBytes(updated, legacyChainPath).Exists() {
-			updated, mutations, err = plannedDelete(updated, mutations, legacyChainPath)
-			if err != nil {
-				return ApplyPlan{}, err
+		for _, p := range legacyChainPaths {
+			if gjson.GetBytes(updated, p).Exists() {
+				updated, mutations, err = plannedDelete(updated, mutations, p)
+				if err != nil {
+					return ApplyPlan{}, err
+				}
 			}
 		}
 	}
@@ -160,13 +172,13 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		if !validAdvProviders[name] {
 			continue
 		}
-		disablePath := "agent." + name + ".disable"
+		disablePath := agentSectionPath(updated, name, "disable")
 		updated, mutations, err = plannedSet(updated, mutations, disablePath, !cfg.Enabled)
 		if err != nil {
 			return ApplyPlan{}, err
 		}
 		if cfg.Model != "" {
-			modelPath := "agent." + name + ".model"
+			modelPath := agentSectionPath(updated, name, "model")
 			updated, mutations, err = plannedSet(updated, mutations, modelPath, cfg.Model)
 			if err != nil {
 				return ApplyPlan{}, err
@@ -174,9 +186,11 @@ func BuildApplyPlan(raw []byte, configPath string, pc PreferencesConfig, targets
 		}
 	}
 
-	// Blocked-model sets: plugin-tuple-only (no legacy path to clean up).
+	// Blocked-model sets: plugin-options-only (no legacy path to clean up).
 	// Empty list deletes the field; non-empty list validates against the
-	// schema contract and writes plugin.<idx>.1.agents.<name>.blocked_models.
+	// schema contract and writes the per-agent blocked_models set under the
+	// OMR plugin options (V2 native object entry or V1 tuple, whichever the
+	// config carries).
 	for _, t := range targets {
 		if !t.IsModelMappable() {
 			continue

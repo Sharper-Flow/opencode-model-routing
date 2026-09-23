@@ -35,6 +35,8 @@ import { applyPreemptiveSkip } from "./preemptive.ts";
 import {
   attemptFallback,
   type OrchestratorClient,
+  parseModelKey,
+  type ReplayTail,
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
@@ -47,6 +49,7 @@ import {
   type ErrorCategory,
   type ModelKey,
   type PluginConfig,
+  type ReplayResult,
 } from "./types.ts";
 import { isRecord, messageInfo, unwrapSdkData } from "./utils/type-guards.ts";
 
@@ -103,6 +106,13 @@ export interface PluginContext {
   // carries it into attemptFallback for quota_exhausted / rate_limit
   // failures only.
   quotaBoundary?: QuotaBoundaryResolver;
+  // Host-specific replay tail (orchestrator.ReplayTail). Undefined on the
+  // V1 path — attemptFallback keeps its abort → revert → prompt sequence.
+  // The OpenCode 2 setup wires switchModel, plus interrupt({resume:true})
+  // on the TTFT entrance: classified failures replay through the approved
+  // host retry, TTFT timeouts through interrupt+resume on the switched
+  // model (the stalled request never reaches the retry hook).
+  replayTail?: ReplayTail;
 }
 
 // Compile-time-exhaustive category set: adding/removing an ErrorCategory
@@ -460,6 +470,7 @@ export async function handleChatMessage(
   client: OrchestratorClient,
   input: ChatMessageInputShape | undefined,
   output: ChatMessageOutputShape | undefined,
+  applyRedirect?: (from: ModelKey, to: ModelKey) => Promise<void>,
 ): Promise<void> {
   // Defensive: OpenCode 1.15.9 may invoke chat.message with undefined args
   // during plugin registration / probe phases. Treat as no-op.
@@ -480,6 +491,9 @@ export async function handleChatMessage(
   // (currentModel undefined) → skips cooldown → model never marked unhealthy →
   // re-spawn hits the same dead model (the same-process fallover mystery).
   const hookModel = output.message.model;
+  const hookModelKey = hookModel
+    ? (`${hookModel.providerID}/${hookModel.modelID}` as ModelKey)
+    : undefined;
   if (hookModel) {
     const state = ctx.store.sessions.get(sessionId);
     if (!state.currentModel) {
@@ -533,14 +547,38 @@ export async function handleChatMessage(
 
   // Record the model actually about to serve this dispatch — captured AFTER
   // the availability preflight and preemptive skip, either of which may have
-  // redirected output.message.model to a healthy chain entry. Later
-  // model-less failure signals attribute their cooldown to this model
-  // instead of currentModel, which the subagent short-circuit can advance
-  // without a request ever being served.
+  // redirected output.message.model to a healthy chain entry. Under the V2
+  // context hook the redirect is not yet visible to the host: applyRedirect
+  // must push it onto the session (switchModel) BEFORE anything records the
+  // served model, so the bookkeeping names the model the request will really
+  // use. A failed apply is rolled back to the original model — recording the
+  // redirect target would attribute the next failure to a model that never
+  // served.
   const servedModel = output.message.model;
   if (servedModel) {
-    state.lastServedModel =
+    const servedKey =
       `${servedModel.providerID}/${servedModel.modelID}` as ModelKey;
+    if (applyRedirect && hookModel && servedKey !== hookModelKey) {
+      try {
+        await applyRedirect(hookModelKey as ModelKey, servedKey);
+      } catch (err) {
+        output.message.model = {
+          providerID: hookModel.providerID,
+          modelID: hookModel.modelID,
+        };
+        ctx.logger.warn("routing.redirect_apply_failed", {
+          sessionId,
+          from: hookModelKey,
+          to: servedKey,
+          err: errorSummary(err),
+        });
+      }
+    }
+    const finalModel = output.message.model;
+    if (finalModel) {
+      state.lastServedModel =
+        `${finalModel.providerID}/${finalModel.modelID}` as ModelKey;
+    }
   }
 
   // Arm the TTFT timer for this round. Cleared when the first token arrives
@@ -606,6 +644,7 @@ export async function handleTtftTimeout(
       unavailableVeto:
         claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
       familyVeto,
+      replayTail: ctx.replayTail,
     });
     if (isSubagent && result.success && result.subagentSkipped) {
       // Unlike session.error, a TTFT timeout has no provider error to
@@ -778,7 +817,13 @@ function hasStreamingTextContent(part: {
 }
 
 type TypedFailureSource =
-  "session_error" | "message_updated" | "session_status";
+  | "session_error"
+  | "message_updated"
+  | "session_status"
+  // OpenCode 2 retry-hook entrance — the single classified failure path
+  // under the V2 runtime (session.error / session.status events are not
+  // fed into the pipeline there, so dedup never sees two V2 copies).
+  | "v2_retry";
 
 function bounded(value: unknown, max: number): string | null {
   return typeof value === "string" ? value.slice(0, max) : null;
@@ -872,10 +917,10 @@ async function handleFailureSignal(
   ctx: PluginContext,
   client: OrchestratorClient,
   input: TypedFailureInput,
-): Promise<void> {
+): Promise<ReplayResult | undefined> {
   if (shouldSuppressReplay(input.sessionId, ctx)) {
     await advancePastUnavailableRung(ctx, client, input.sessionId);
-    return;
+    return undefined;
   }
 
   // Family correlation intentionally uses session+category rather than the
@@ -908,7 +953,7 @@ async function handleFailureSignal(
     category: input.category,
     duplicate,
   });
-  if (duplicate) return;
+  if (duplicate) return undefined;
 
   const agentName = await resolveAgentName(input.sessionId, client, ctx.store);
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
@@ -935,6 +980,7 @@ async function handleFailureSignal(
     unavailableVeto:
       claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
     familyVeto,
+    replayTail: ctx.replayTail,
     // Classified-failure dispatch is the only entrance that carries the
     // provider-reported boundary consumer: once per dedup-collapsed
     // quota_exhausted / rate_limit failure, never on a routing decision.
@@ -957,6 +1003,7 @@ async function handleFailureSignal(
   if (!result.success && result.error === "no chain") {
     ctx.store.failures.forget(identity);
   }
+  return result;
 }
 
 export function sanitizeChatParamsOutput(output: unknown): void {
@@ -1097,6 +1144,30 @@ export interface PluginHookDeps {
 }
 
 /**
+ * applyLoadedChains installs one loadFallbackChains result into the context
+ * maps. Mutation is in-place (clear + set) to preserve Map identity for
+ * handler closures that hold ctx by reference. Shared by the V1 config hook
+ * and the V2 setup so both runtimes keep one reload lifecycle: a re-delivery
+ * cannot leave a stale blocklist behind for an agent whose entry disappeared.
+ */
+export function applyLoadedChains(
+  ctx: PluginContext,
+  loaded: ReturnType<typeof loadFallbackChains>,
+): void {
+  ctx.chains.clear();
+  for (const [name, chain] of loaded.chains) ctx.chains.set(name, chain);
+  ctx.blocked.clear();
+  for (const [name, set] of loaded.blocked) ctx.blocked.set(name, set);
+  ctx.families.clear();
+  for (const [key, family] of loaded.families) ctx.families.set(key, family);
+  ctx.familyDisjoint.clear();
+  for (const name of loaded.familyDisjoint) ctx.familyDisjoint.add(name);
+  for (const w of loaded.warnings)
+    ctx.logger.warn("loader.warning", { message: w });
+  ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });
+}
+
+/**
  * createPluginHooks wires the closure-held context into the OpenCode hook
  * signatures. The runtime entry point wraps this in a V1 PluginModule object,
  * while hook payloads remain `unknown` and are narrowed inside handlers because
@@ -1147,24 +1218,516 @@ export async function createPluginHooks(
     // lifecycle so a re-delivery cannot leave a stale blocklist behind for an
     // agent whose tuple entry disappeared.
     config: async (input: unknown) => {
-      const {
-        chains: loaded,
-        blocked: loadedBlocked,
-        families: loadedFamilies,
-        familyDisjoint: loadedFamilyDisjoint,
-        warnings,
-      } = loadFallbackChains(input, ctx.logger, ctx.pluginOptions);
-      ctx.chains.clear();
-      for (const [name, chain] of loaded) ctx.chains.set(name, chain);
-      ctx.blocked.clear();
-      for (const [name, set] of loadedBlocked) ctx.blocked.set(name, set);
-      ctx.families.clear();
-      for (const [key, family] of loadedFamilies) ctx.families.set(key, family);
-      ctx.familyDisjoint.clear();
-      for (const name of loadedFamilyDisjoint) ctx.familyDisjoint.add(name);
-      for (const w of warnings)
-        ctx.logger.warn("loader.warning", { message: w });
-      ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });
+      applyLoadedChains(
+        ctx,
+        loadFallbackChains(input, ctx.logger, ctx.pluginOptions),
+      );
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenCode 2 (V2) integration
+//
+// OpenCode 2 decodes a package plugin's default export as { id, setup } (or
+// { id, effect }) and ignores V1-only members such as server(); V1 loaders
+// call server() and ignore setup(). The shared routing policy — chains,
+// cooldowns, dedup, family vetoes, replay orchestration — is unchanged; only
+// the integration boundary differs:
+//
+//   - Chains load once from ctx.options (the native `plugins` object
+//     options). There is no config hook under V2, so the legacy
+//     agent.<name>.options.fallback_models migration scan has nothing to
+//     read; the native options path is the only V2 source.
+//   - ctx.session.hook("context") replaces chat.message: same bookkeeping
+//     (turn-guard clear, TTFT arm, preemptive skip) over a synthesized V1
+//     output envelope. A preemptive redirect cannot mutate the readonly
+//     context-hook model, so the adapter applies it with switchModel().
+//   - ctx.session.hook("retry") is the single classified failure entrance,
+//     replacing the session.error / session.status / message.updated event
+//     paths. One failure passes through the shared dedup and chain selection.
+//     After an advance, OMR approves the host retry on the switched model;
+//     subagent handoff vetoes that retry.
+//   - ctx.event.subscribe maps session.text.delta to TTFT clear and handles
+//     session.deleted cleanup. Feeding session.error /
+//     session.status in as well would create a second fingerprint for the
+//     same failure and bypass dedup.
+//   - A classified failure switches the model and lets the host retry without
+//     interrupting. A TTFT timeout switches the model and interrupts the
+//     stalled request, ending that turn. V2 has no revert; re-prompting would
+//     duplicate the user turn.
+// ---------------------------------------------------------------------------
+
+/** Stable plugin id shared by the V1 module and the V2 definition. */
+export const PLUGIN_ID = "@sharper-flow/opencode-model-routing-plugin";
+
+/**
+ * The V2 half of the dual default export. Kept structural (no
+ * `@opencode/plugin` import): the V1 loader must be able to load this same
+ * entry without the V2 SDK present, and the V2 loader decodes the default
+ * export structurally as { id, setup }.
+ */
+export interface V2PluginDefinition {
+  id: string;
+  setup: (ctx: unknown) => Promise<void | (() => void)>;
+}
+
+/**
+ * Narrow structural surface of the V2 plugin ctx.session domain. Input shapes
+ * mirror the installed @opencode/plugin contract (SessionDomain =
+ * Pick<SessionApi, ...> + hook): sessionID-first flat parameters and
+ * interrupt({ sessionID, resume }). A TTFT interrupt aborts the stalled
+ * request; resume:true does not re-drive that turn in OpenCode 2.0.14.
+ */
+export interface V2SessionDomain {
+  get(input: Record<string, unknown>): Promise<unknown>;
+  context(input: Record<string, unknown>): Promise<unknown>;
+  switchModel(input: Record<string, unknown>): Promise<unknown>;
+  interrupt(input: Record<string, unknown>): Promise<unknown>;
+  prompt(input: Record<string, unknown>): Promise<unknown>;
+  hook(
+    name: string,
+    callback: (event: unknown) => unknown,
+    options?: unknown,
+  ): Promise<unknown>;
+}
+
+/** Narrow structural surface of the V2 plugin ctx the setup requires. */
+export interface V2PluginHost {
+  options?: unknown;
+  session: V2SessionDomain;
+  event?: {
+    subscribe(options?: Record<string, unknown>): AsyncIterable<unknown>;
+  };
+}
+
+export function isV2PluginHost(host: unknown): host is V2PluginHost {
+  if (!isRecord(host)) return false;
+  const session = host.session;
+  if (!isRecord(session)) return false;
+  return ["get", "context", "switchModel", "interrupt", "prompt", "hook"].every(
+    (key) => hasFunction(session, key),
+  );
+}
+
+// v2SessionId reads the V1-envelope { path: { id } } shape the shared
+// orchestrator code uses, so every adapter method extracts its target the
+// same way.
+function v2SessionId(args: unknown): string {
+  if (
+    isRecord(args) &&
+    isRecord(args.path) &&
+    typeof args.path.id === "string"
+  ) {
+    return args.path.id;
+  }
+  return "";
+}
+
+/**
+ * createV2OrchestratorClient adapts the V2 session domain onto the shared
+ * OrchestratorClient envelope. The V2 ctx methods take flat parameters and
+ * return bare domain objects, so reads are wrapped in the `{ data }`
+ * envelope unwrapSdkData expects.
+ *
+ * revert() throws deliberately: the V2 replay tail owns recovery and never
+ * reverts (no V2 API), and the default V1 tail must not run against this
+ * adapter — a silent no-op would hide a wiring bug behind a duplicated user
+ * turn.
+ */
+export function createV2OrchestratorClient(
+  session: V2SessionDomain,
+): OrchestratorClient {
+  return {
+    session: {
+      messages: async (args) => ({
+        data: await session.context({ sessionID: v2SessionId(args) }),
+      }),
+      abort: async (args) =>
+        session.interrupt({ sessionID: v2SessionId(args), resume: false }),
+      revert: async () => {
+        throw new Error(
+          "omr: session.revert is not part of the OpenCode 2 runtime; the V2 replay tail owns recovery",
+        );
+      },
+      prompt: async (args) => {
+        // Defensive total mapping. The V2 tail never prompts (no revert →
+        // a re-prompt would duplicate the user turn), but the shared client
+        // surface must stay total for the subagent and abort paths above.
+        const body = isRecord(args) && isRecord(args.body) ? args.body : {};
+        const parts = Array.isArray(body.parts) ? body.parts : [];
+        const text = parts
+          .map((p) => (isRecord(p) && typeof p.text === "string" ? p.text : ""))
+          .filter((t) => t.length > 0)
+          .join("\n");
+        const sessionID = v2SessionId(args);
+        return typeof body.agent === "string" && body.agent.length > 0
+          ? session.prompt({ sessionID, text, agent: body.agent })
+          : session.prompt({ sessionID, text });
+      },
+      get: async (args) => ({
+        data: await session.get({ sessionID: v2SessionId(args) }),
+      }),
+    },
+  };
+}
+
+/**
+ * createV2ReplayTail builds the V2 replay tail: move the session onto `next`
+ * with switchModel. Under V2 the replay itself is the HOST retry — the retry
+ * hook approves one rescheduled attempt (decision {retry:true}), and the
+ * host re-drives the agent loop on the session's switched model. Verified
+ * against opencode v2.0.14: interrupt({resume:true}) does not re-drive a
+ * settled turn, so a classified-failure tail never interrupts.
+ *
+ * A TTFT timeout is the opposite situation: the failed request is still IN
+ * FLIGHT, the retry hook never fires for it, and a bare switchModel would
+ * leave the session waiting on the stalled request forever while the
+ * fallback bookkeeping claims success (verified live against v2.0.14). For
+ * that entrance the tail additionally interrupts with resume:true, aborting
+ * the stalled request. Verified live against v2.0.14: that abort ENDS the
+ * hung turn — it does not re-drive it in-run, and no supported continuation
+ * surface re-drives a stalled turn without duplicating the user message
+ * (contract research, TTFT continuation-route investigation). The session
+ * stays anchored on the switched model, so the next turn serves the healthy
+ * rung. A rejection from either call propagates: attemptFallback records
+ * fallback.replay_failed and leaves the bookkeeping unadvanced — a TTFT
+ * recovery that did not happen is never reported as success.
+ */
+export function createV2ReplayTail(session: V2SessionDomain): ReplayTail {
+  return async ({ sessionId, next, reason }) => {
+    const { providerID, modelID } = parseModelKey(next);
+    await session.switchModel({
+      sessionID: sessionId,
+      model: { providerID, id: modelID },
+    });
+    if (reason === "ttft_timeout") {
+      await session.interrupt({ sessionID: sessionId, resume: true });
+    }
+  };
+}
+
+interface V2ContextEventShape {
+  sessionID: string;
+  agent?: string;
+  model?: { providerID: string; modelID: string };
+}
+
+/**
+ * narrowV2ContextEvent narrows the V2 "context" hook event. The event model
+ * is `{ providerID, id, variant? }` under V2; `modelID` is accepted as a
+ * defensive alias. Undefined when the event carries no usable session or
+ * model identity — the handler then leaves routing untouched.
+ */
+export function narrowV2ContextEvent(
+  raw: unknown,
+): V2ContextEventShape | undefined {
+  if (!isRecord(raw)) return undefined;
+  const sessionID =
+    typeof raw.sessionID === "string" && raw.sessionID.length > 0
+      ? raw.sessionID
+      : undefined;
+  if (!sessionID) return undefined;
+  const agent =
+    typeof raw.agent === "string" && raw.agent.trim().length > 0
+      ? raw.agent
+      : undefined;
+  const modelRaw = isRecord(raw.model) ? raw.model : undefined;
+  const providerID =
+    typeof modelRaw?.providerID === "string" && modelRaw.providerID.length > 0
+      ? modelRaw.providerID
+      : undefined;
+  const modelID =
+    typeof modelRaw?.id === "string" && modelRaw.id.length > 0
+      ? modelRaw.id
+      : typeof modelRaw?.modelID === "string" && modelRaw.modelID.length > 0
+        ? modelRaw.modelID
+        : undefined;
+  const model = providerID && modelID ? { providerID, modelID } : undefined;
+  return { sessionID, agent, model };
+}
+
+/**
+ * handleV2Context adapts the V2 "context" hook (fires immediately before
+ * each agent-loop model request) onto the shared chat.message pipeline:
+ * turn-guard clear, TTFT arm, availability preflight, preemptive skip, and
+ * served-model capture all run through handleChatMessage over a synthesized
+ * V1 output envelope. The context hook's model is readonly, so a preemptive
+ * redirect is applied with switchModel() through the applyRedirect callback —
+ * which handleChatMessage invokes BEFORE it records the served model or arms
+ * TTFT, and rolls back if the switch fails, so bookkeeping can never name a
+ * model the request will not use.
+ */
+export async function handleV2Context(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  session: V2SessionDomain,
+  raw: unknown,
+): Promise<void> {
+  const event = narrowV2ContextEvent(raw);
+  if (!event) return;
+  const output = {
+    message: {
+      model: event.model
+        ? { providerID: event.model.providerID, modelID: event.model.modelID }
+        : undefined,
+    },
+  };
+  await handleChatMessage(
+    ctx,
+    client,
+    { sessionID: event.sessionID, agent: event.agent },
+    output,
+    async (_from, to) => {
+      const { providerID, modelID } = parseModelKey(to);
+      await session.switchModel({
+        sessionID: event.sessionID,
+        model: { providerID, id: modelID },
+      });
+    },
+  );
+}
+
+/**
+ * classifyV2RetryError maps the V2 retry hook's typed error onto the shared
+ * session.error classifier by reshaping { type, status, message } into the
+ * { name, data: { statusCode, message } } NamedError envelope. One
+ * classification policy serves both runtimes; returning null leaves the
+ * host's retry decision untouched.
+ */
+export function classifyV2RetryError(error: unknown): ErrorCategory | null {
+  if (!isRecord(error)) return null;
+  const name = typeof error.type === "string" ? error.type : undefined;
+  const status = typeof error.status === "number" ? error.status : undefined;
+  if (name === undefined && status === undefined) return null;
+  return classifySessionError({
+    name,
+    data: {
+      statusCode: status,
+      message: typeof error.message === "string" ? error.message : undefined,
+    },
+  });
+}
+
+/**
+ * handleV2RetrySignal is the V2 failure entrance. Sequence: classify the
+ * typed error; run the shared handleFailureSignal (cooldowns, dedup,
+ * subagent short-circuit, and the switchModel replay tail); then decide the
+ * host retry from the outcome:
+ *
+ *   - chain advanced (success, not a subagent): approve exactly one host
+ *     retry at a short delay — the host re-drives the agent loop on the
+ *     session's switched model, which IS the V2 replay. Verified against
+ *     opencode v2.0.14: a veto leaves nobody retrying, and
+ *     interrupt({resume:true}) does not re-drive a settled turn.
+ *   - subagent short-circuit: the child was aborted so its parent can
+ *     respawn it — veto the host retry.
+ *   - anything else (exhausted, suppressed, duplicate, no chain): leave the
+ *     host's own retry decision untouched.
+ */
+export async function handleV2RetrySignal(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  raw: unknown,
+): Promise<void> {
+  if (!isRecord(raw)) return;
+  const sessionId =
+    typeof raw.sessionID === "string" && raw.sessionID.length > 0
+      ? raw.sessionID
+      : undefined;
+  if (!sessionId) return;
+  const errorRaw = isRecord(raw.error) ? raw.error : undefined;
+  const category = classifyV2RetryError(errorRaw);
+  if (!category) return;
+
+  const agent =
+    typeof raw.agent === "string" && raw.agent.trim().length > 0
+      ? raw.agent
+      : undefined;
+  let ownsRecovery = false;
+  if (agent) {
+    ctx.store.sessions.get(sessionId).agentName = agent;
+    const chain = ctx.chains.get(agent) ?? [];
+    if (chain.length > 0 && !shouldSuppressReplay(sessionId, ctx)) {
+      ownsRecovery = true;
+    }
+  }
+
+  // The retry event names the model that failed — attribute the cooldown to
+  // it directly instead of falling back to session state. The attempt
+  // number joins the fingerprint so consecutive host retries of the same
+  // category classify as distinct failures and each can advance the chain.
+  const modelRaw = isRecord(raw.model) ? raw.model : undefined;
+  const failedModel =
+    typeof modelRaw?.providerID === "string" &&
+    modelRaw.providerID.length > 0 &&
+    typeof modelRaw?.id === "string" &&
+    modelRaw.id.length > 0
+      ? (`${modelRaw.providerID}/${modelRaw.id}` as ModelKey)
+      : undefined;
+
+  const fingerprint = JSON.stringify({
+    type: typeof errorRaw?.type === "string" ? errorRaw.type : null,
+    status: typeof errorRaw?.status === "number" ? errorRaw.status : null,
+    message: bounded(errorRaw?.message, 256),
+    attempt: typeof raw.attempt === "number" ? raw.attempt : null,
+  });
+  ctx.logger.debug("v2.retry_event", { sessionId, fingerprint });
+  const result = await handleFailureSignal(ctx, client, {
+    source: "v2_retry",
+    sessionId,
+    category,
+    fingerprint,
+    failedModel,
+  });
+
+  if (!ownsRecovery) return;
+  if (result?.success && !result.subagentSkipped) {
+    (raw as { decision?: unknown }).decision = { retry: true, delay: 250 };
+  } else if (result?.subagentSkipped) {
+    (raw as { decision?: unknown }).decision = { retry: false };
+  }
+}
+
+/**
+ * normalizeV2Event narrows one event-stream record onto the internal V1
+ * event shape. Three encodings are accepted:
+ *
+ *   1. the V1 envelope ({type, properties}) — pass-through;
+ *   2. the live V2 flat envelope ({type, data}) — verified against
+ *      opencode v2.0.14, where streaming text is session.text.delta
+ *      (data: {sessionID, delta, ...}); V1 names like message.part.updated
+ *      do not exist on the V2 stream. Only the events OMR consumes are
+ *      mapped: session.text.delta → TTFT clear, session.deleted → cleanup;
+ *   3. a flat V1-style encoding ({type, part}) as a defensive fallback.
+ *
+ * Anything else is dropped — the V2 event stream carries no failure signals
+ * (the retry hook owns those).
+ */
+export function normalizeV2Event(raw: unknown): EventInputShape | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (isRecord(raw.properties) && isEventInputShape(raw)) {
+    return raw as EventInputShape;
+  }
+  if (typeof raw.type === "string" && isRecord(raw.data)) {
+    const data = raw.data;
+    if (
+      raw.type === "session.text.delta" &&
+      typeof data.sessionID === "string" &&
+      data.sessionID.length > 0 &&
+      typeof data.delta === "string" &&
+      data.delta.length > 0
+    ) {
+      return {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "text",
+            text: data.delta,
+            sessionID: data.sessionID,
+          },
+        },
+      };
+    }
+    if (
+      raw.type === "session.deleted" &&
+      typeof data.sessionID === "string" &&
+      data.sessionID.length > 0
+    ) {
+      return {
+        type: "session.deleted",
+        properties: { sessionID: data.sessionID },
+      };
+    }
+    return undefined;
+  }
+  const { type, ...properties } = raw;
+  const shaped = { type, properties } as unknown;
+  return isEventInputShape(shaped) ? (shaped as EventInputShape) : undefined;
+}
+
+async function consumeV2Events(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  host: V2PluginHost,
+  signal: AbortSignal,
+): Promise<void> {
+  const stream = host.event?.subscribe({ signal });
+  if (
+    !stream ||
+    typeof (stream as AsyncIterable<unknown>)[Symbol.asyncIterator] !==
+      "function"
+  ) {
+    return;
+  }
+  try {
+    for await (const raw of stream as AsyncIterable<unknown>) {
+      const event = normalizeV2Event(raw);
+      if (!event) continue;
+      // TTFT clear + session cleanup only. session.error / session.status
+      // are deliberately not fed into the failure pipeline: the retry hook
+      // is the single V2 classified entrance, and a second entrance would
+      // bypass failure dedup and duplicate replay.
+      if (
+        event.type === "message.part.updated" ||
+        event.type === "session.deleted"
+      ) {
+        await handleEvent(ctx, client, event);
+      }
+    }
+  } catch {
+    // Stream ended (host shutdown or cleanup abort). The controller abort in
+    // the setup cleanup handles resource teardown; nothing to recover.
+  }
+}
+
+/**
+ * setupV2Plugin is the OpenCode 2 setup() implementation: build the shared
+ * context from ctx.options, load chains, register the context and retry
+ * hooks, subscribe the event stream, and return the cleanup that aborts it.
+ */
+export async function setupV2Plugin(
+  host: unknown,
+  deps: PluginHookDeps = {},
+): Promise<(() => void) | undefined> {
+  if (!isV2PluginHost(host)) {
+    throw new Error(
+      "opencode-model-routing plugin: invalid OpenCode 2 plugin context",
+    );
+  }
+  const logger = createLogger();
+  const cooldownOverrides = extractCooldownOverrides(host.options, logger);
+  const ctx = createPluginContext({
+    pluginOptions: host.options,
+    cooldownOverrides,
+    logger,
+    quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
+  });
+  applyLoadedChains(ctx, loadFallbackChains(undefined, logger, host.options));
+  const client = createV2OrchestratorClient(host.session);
+  ctx.replayTail = createV2ReplayTail(host.session);
+
+  await host.session.hook("context", (event: unknown) =>
+    handleV2Context(ctx, client, host.session, event),
+  );
+  await host.session.hook("retry", (event: unknown) =>
+    handleV2RetrySignal(ctx, client, event),
+  );
+
+  const controller = new AbortController();
+  void consumeV2Events(ctx, client, host, controller.signal);
+  return () => controller.abort();
+}
+
+/**
+ * createV2PluginDefinition builds the V2 half of the dual default export.
+ * deps mirrors PluginHookDeps (test seam for the quota-boundary consumer).
+ */
+export function createV2PluginDefinition(
+  deps: PluginHookDeps = {},
+): V2PluginDefinition {
+  return {
+    id: PLUGIN_ID,
+    setup: (host: unknown) => setupV2Plugin(host, deps),
   };
 }
