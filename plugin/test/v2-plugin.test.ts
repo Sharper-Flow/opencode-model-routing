@@ -419,6 +419,89 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
       "anthropic/claude-opus-4-1",
     );
   });
+
+  test("recovered original returns via switchModel and resets the fallback bookkeeping", async () => {
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      pluginOptions: { agents: { general: { fallback_models: CHAIN } } },
+    });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains(undefined, silentLogger, ctx.pluginOptions),
+    );
+    // Session state as the replay tail left it: OMR fell back to the openai
+    // rung and the host was switched onto it.
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "openai/gpt-5.2";
+    state.originalModel = "anthropic/claude-opus-4-1";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 1234;
+    const mock = createMockV2Session();
+    await handleV2Context(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      mock.session,
+      {
+        sessionID: "s1",
+        agent: "general",
+        model: { providerID: "openai", id: "gpt-5.2" },
+      },
+    );
+    // The next agent-loop request arrives on the fallback; the recovered
+    // original must take over through switchModel.
+    const switches = mock.callsTo("session.switchModel");
+    expect(switches.length).toBe(1);
+    expect(switches[0]).toMatchObject({
+      sessionID: "s1",
+      model: { providerID: "anthropic", id: "claude-opus-4-1" },
+    });
+    expect(state.currentModel).toBe("anthropic/claude-opus-4-1");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    expect(state.lastServedModel).toBe("anthropic/claude-opus-4-1");
+  });
+
+  test("a failed return switch leaves the routing state naming the fallback that serves", async () => {
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      pluginOptions: { agents: { general: { fallback_models: CHAIN } } },
+    });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains(undefined, silentLogger, ctx.pluginOptions),
+    );
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "openai/gpt-5.2";
+    state.originalModel = "anthropic/claude-opus-4-1";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 1234;
+    const mock = createMockV2Session();
+    mock.session.switchModel = async (input) => {
+      // Record the refused attempt, then refuse it like a host would.
+      mock.calls.push({ method: "session.switchModel", args: input });
+      throw new Error("host refused the switch");
+    };
+    await handleV2Context(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      mock.session,
+      {
+        sessionID: "s1",
+        agent: "general",
+        model: { providerID: "openai", id: "gpt-5.2" },
+      },
+    );
+    // The switch was attempted and refused, so the request still serves the
+    // fallback. Every routing field must go back to pre-return values — a
+    // stale currentModel would read the next arrival as a manual change and
+    // crown the fallback the new original.
+    expect(mock.callsTo("session.switchModel").length).toBe(1);
+    expect(state.currentModel).toBe("openai/gpt-5.2");
+    expect(state.originalModel).toBe("anthropic/claude-opus-4-1");
+    expect(state.fallbackDepth).toBe(1);
+    expect(state.lastFallbackAt).toBe(1234);
+    expect(state.lastServedModel).toBe("openai/gpt-5.2");
+  });
 });
 
 describe("V2 adapters", () => {

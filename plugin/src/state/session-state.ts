@@ -28,10 +28,6 @@ export interface SessionState {
   fallbackDepth: number;
   // Epoch ms of the last fallback for this session — used for dedup.
   lastFallbackAt: number;
-  // Track which model the user was last notified about (avoid duplicate
-  // notifications when the same fallback is still active).
-  recoveryNotifiedForModel: ModelKey | null;
-  fallbackActiveNotifiedKey: ModelKey | null;
   // Cached subagent detection result: `true` if session.get returned a
   // non-empty parentID (this session is a child of another, observed by
   // the parent's Task tool). `false` if confirmed primary. `undefined`
@@ -61,8 +57,6 @@ export function newSessionState(): SessionState {
     agentFile: null,
     fallbackDepth: 0,
     lastFallbackAt: 0,
-    recoveryNotifiedForModel: null,
-    fallbackActiveNotifiedKey: null,
     // isSubagent intentionally omitted — undefined until first detection.
   };
 }

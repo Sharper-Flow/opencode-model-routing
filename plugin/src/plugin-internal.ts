@@ -505,6 +505,18 @@ export async function handleChatMessage(
 
   const state = ctx.store.sessions.get(sessionId);
   if (input.agent) state.agentName = input.agent;
+
+  // Snapshot the routing fields the preflight and preemptive step mutate,
+  // taken before any routing runs. If the V2 applyRedirect below fails, the
+  // session stays on the hook model, so the routing fields must go back to
+  // what named that model — otherwise currentModel would keep a target that
+  // never served and the next request would read as a manual model change.
+  const routingSnapshot = {
+    currentModel: state.currentModel,
+    originalModel: state.originalModel,
+    fallbackDepth: state.fallbackDepth,
+    lastFallbackAt: state.lastFallbackAt,
+  };
   if (!state.agentName) {
     // Fresh child messages have not been committed yet. Read the structural
     // session record before falling back to message history; this shares the
@@ -566,6 +578,13 @@ export async function handleChatMessage(
           providerID: hookModel.providerID,
           modelID: hookModel.modelID,
         };
+        // The switch never landed, so the request serves the hook model:
+        // restore the routing fields the redirect mutated, not just the
+        // output model, or state would name a model that never served.
+        state.currentModel = routingSnapshot.currentModel;
+        state.originalModel = routingSnapshot.originalModel;
+        state.fallbackDepth = routingSnapshot.fallbackDepth;
+        state.lastFallbackAt = routingSnapshot.lastFallbackAt;
         ctx.logger.warn("routing.redirect_apply_failed", {
           sessionId,
           from: hookModelKey,

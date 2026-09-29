@@ -11,7 +11,10 @@
 // — the user's first attempt simply starts on the allowed model.
 
 import type { Logger } from "./logging/logger.ts";
-import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
+import {
+  isModelAdmissible,
+  resolveFallbackModel,
+} from "./resolution/fallback-resolver.ts";
 import type { FallbackStore } from "./state/store.ts";
 import type { ModelKey, PluginConfig } from "./types.ts";
 import { claudeUnavailableVeto } from "./availability/preflight.ts";
@@ -50,11 +53,13 @@ export function applyPreemptiveSkip(
 
   // Mutate output.message.model to the allowed target and record it as the
   // session-current model. Shared by the blocklist redirect, the family
-  // redirect, and the cooldown redirect so all three leave identical
-  // bookkeeping.
+  // redirect, the cooldown redirect, and the return-to-original redirect so
+  // all four leave identical bookkeeping. The return logs its own distinct
+  // event: getting back to the original model is a recovery, not a redirect
+  // off a dead selection.
   const redirect = (
     next: ModelKey,
-    reason: "blocked" | "cooldown" | "family",
+    reason: "blocked" | "cooldown" | "family" | "recovered",
   ): void => {
     const parsed = next.split("/");
     if (parsed.length < 2) return;
@@ -64,13 +69,16 @@ export function applyPreemptiveSkip(
     };
     const state = store.sessions.get(input.sessionId);
     state.currentModel = next;
-    logger.info("preemptive.redirected", {
-      sessionId: input.sessionId,
-      from: key,
-      to: next,
-      agent: input.agentName,
-      reason,
-    });
+    logger.info(
+      reason === "recovered" ? "fallback.recovered" : "preemptive.redirected",
+      {
+        sessionId: input.sessionId,
+        from: key,
+        to: next,
+        agent: input.agentName,
+        reason,
+      },
+    );
   };
 
   let chain: ModelKey[] | undefined;
@@ -140,6 +148,33 @@ export function applyPreemptiveSkip(
     }
     chain = chains.get(input.agentName);
     if (!chain || chain.length === 0) return;
+
+    // Return-to-original rule: OMR moved this session off its original
+    // model (the arriving model equals currentModel and differs from
+    // originalModel), and the original has recovered. Serve the next
+    // request on the original again. Admission is the same predicate every
+    // redirect scan uses — while the original is cooled, blocked, or vetoed
+    // the session stays on its current rung. No maxDepth cap: a return
+    // reduces depth instead of adding a fallback step.
+    const state = store.sessions.get(input.sessionId);
+    if (
+      state.originalModel &&
+      state.currentModel === key &&
+      key !== state.originalModel &&
+      isModelAdmissible(
+        state.originalModel,
+        store.health,
+        blocked?.get(input.agentName),
+        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        familyVeto,
+      )
+    ) {
+      const original = state.originalModel;
+      redirect(original, "recovered");
+      state.fallbackDepth = 0;
+      state.lastFallbackAt = 0;
+      return;
+    }
   } else {
     // A structurally resolved agent should always be available for production
     // child sessions. If every source is temporarily unavailable, only use a
@@ -173,17 +208,32 @@ export function applyPreemptiveSkip(
       return;
     }
     if (state.currentModel !== key) {
+      // The session arrives on a different model than OMR last routed for
+      // it. When the arriving model is the session's original, the original
+      // has recovered and the host came back to it on its own (the
+      // OpenCode 1 TUI keeps the user's selection across turns), so log the
+      // return as a recovery. An arriving model that equals neither field
+      // is the user's own choice.
+      const returning = state.originalModel === key;
+      const from = state.currentModel;
       state.currentModel = key;
       state.originalModel = key;
       state.fallbackDepth = 0;
       state.lastFallbackAt = 0;
-      state.recoveryNotifiedForModel = null;
-      state.fallbackActiveNotifiedKey = null;
-      logger.info("manual_model_change.reset_depth", {
-        sessionId: input.sessionId,
-        agent: input.agentName,
-        model: key,
-      });
+      if (returning) {
+        logger.info("fallback.recovered", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          from,
+          to: key,
+        });
+      } else {
+        logger.info("manual_model_change.reset_depth", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          model: key,
+        });
+      }
     }
     return;
   }

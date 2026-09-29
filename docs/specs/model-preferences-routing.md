@@ -133,7 +133,15 @@ Under OpenCode 2 the plugin context replaces the client argument:
 - `ctx.session.hook("context")` replaces `chat.message`: turn-guard clear,
   TTFT arm, availability preflight, and preemptive skip run unchanged. The
   context hook's model is readonly, so a preemptive redirect is applied to
-  subsequent requests with `ctx.session.switchModel`.
+  subsequent requests with `ctx.session.switchModel`. The return to the
+  original model works the same way: once the original's cooldown ends, the
+  next context hook that arrives on the fallback rung is redirected back and
+  applied through `switchModel`; a failed switch restores the routing state
+  (currentModel, originalModel, fallbackDepth, lastFallbackAt) together with
+  the request model, so the bookkeeping keeps naming the rung that really
+  serves. The return shares one admission predicate with every redirect
+  scan — while the original is cooling, blocked, or vetoed, the session
+  stays on its current rung.
 - `ctx.session.hook("retry")` is the single classified failure entrance,
   replacing the `session.error` / `session.status` / `message.updated` event
   paths. When OMR owns recovery (a chain exists and the exhaustion guard
