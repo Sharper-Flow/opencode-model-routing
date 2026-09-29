@@ -58,12 +58,17 @@ export function claudeUnavailableVeto(
 // event for a redirect that never landed. The event payload keeps the AC7
 // surface: fixed event, correlation id, availability kind, optional retry
 // timestamp — no paths, account identities, or model internals beyond the
-// routing outcome.
+// routing outcome. `recovered` marks the landing-on-original case: the
+// session had fallen back off its original (non-Anthropic) model onto an
+// Anthropic rung, and this redirect is what returns it. handleChatMessage
+// logs the recovery as fallback.recovered after the same apply, so a
+// rejected V2 switch records no return that never happened.
 export interface AppliedAvailabilityRedirect {
   from: ModelKey;
   to: ModelKey;
   availability: "unavailable";
   retryAt: number | null;
+  recovered: boolean;
 }
 
 export function applyAvailabilityPreflight(
@@ -101,11 +106,29 @@ export function applyAvailabilityPreflight(
     modelID: modelIdOf(target),
   };
   const state = store.sessions.get(input.sessionId);
+  // Recovery check against the PRE-routing current model — the state this
+  // turn started with, not what earlier routing left behind. A routing step
+  // that lands the session on originalModel while the pre-routing current
+  // model differed is a recovery by the same definition the preemptive
+  // return rule applies: reset the fallback bookkeeping so a landing the
+  // availability redirect caused is not mistaken for a fresh rung choice,
+  // and let handleChatMessage log fallback.recovered once the redirect is
+  // applied.
+  const preRoutingCurrent = state.currentModel;
+  const recovered =
+    state.originalModel !== null &&
+    target === state.originalModel &&
+    preRoutingCurrent !== target;
   state.currentModel = target;
+  if (recovered) {
+    state.fallbackDepth = 0;
+    state.lastFallbackAt = 0;
+  }
   return {
     from: `${current.providerID}/${current.modelID}` as ModelKey,
     to: target,
     availability: "unavailable",
     retryAt: snapshot.retry_at,
+    recovered,
   };
 }

@@ -8,7 +8,10 @@
 // with no duplicate replay, the context hook applies preemptive redirects
 // via switchModel, and cleanup aborts the event subscription.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createLogger } from "../src/logging/logger.ts";
 import {
   applyLoadedChains,
@@ -817,5 +820,166 @@ describe("createV2PluginDefinition", () => {
     const def = createV2PluginDefinition();
     expect(def.id).toBe(PLUGIN_ID);
     expect(typeof def.setup).toBe("function");
+  });
+});
+
+describe("V2 availability-preflight recovery (composed unavailable snapshot)", () => {
+  // Composed case: the session's original is the non-Anthropic primary, it
+  // fell back onto the Anthropic rung, and a fresh exhausted-Claude snapshot
+  // makes applyAvailabilityPreflight the step that returns it. The landing
+  // must be a full recovery — depth and lastFallbackAt reset, one
+  // fallback.recovered after the switch — not a silent rung change that
+  // keeps the old depth.
+  let dir: string;
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "omr-v2-preflight-"));
+    savedEnv = process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY;
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) {
+      delete process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY;
+    } else {
+      process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY = savedEnv;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function writeSnapshot(doc: unknown): void {
+    const p = join(dir, "availability.json");
+    writeFileSync(p, JSON.stringify(doc));
+    chmodSync(p, 0o600);
+    process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY = p;
+  }
+
+  function freshUnavailable(): Record<string, unknown> {
+    const now = Date.now();
+    return {
+      schema: "opencode-claude-max/availability@1",
+      version: 1,
+      generated_at: new Date(now).toISOString(),
+      state: "unavailable",
+      accounts: { configured: 2, enabled: 2, usable: 0 },
+      retry_at: now + 300_000,
+      marker: "CLAUDE_MAX_UNAVAILABLE",
+    };
+  }
+
+  function composedContext(logs: string[]) {
+    const ctx = createPluginContext({
+      logger: createLogger({ minLevel: "info", write: (l) => logs.push(l) }),
+      pluginOptions: {
+        agents: {
+          general: {
+            fallback_models: [
+              "openai/gpt-5.2",
+              "anthropic/claude-opus-4-1",
+            ] as ModelKey[],
+          },
+        },
+      },
+    });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains(undefined, silentLogger, ctx.pluginOptions),
+    );
+    // Session state as the earlier fallback left it.
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "anthropic/claude-opus-4-1";
+    state.originalModel = "openai/gpt-5.2";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 1234;
+    return { ctx, state };
+  }
+
+  test("the preflight return switches back to the original and recovers fully", async () => {
+    writeSnapshot(freshUnavailable());
+    const logs: string[] = [];
+    const { ctx, state } = composedContext(logs);
+    const mock = createMockV2Session();
+    let recoveredBeforeSwitch: boolean | undefined;
+    const originalSwitch = mock.session.switchModel;
+    mock.session.switchModel = async (input) => {
+      // A recovery the switch has not yet confirmed must not be logged.
+      recoveredBeforeSwitch = logs.some(
+        (l) => JSON.parse(l).event === "fallback.recovered",
+      );
+      return originalSwitch(input);
+    };
+    await handleV2Context(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      mock.session,
+      {
+        sessionID: "s1",
+        agent: "general",
+        model: { providerID: "anthropic", id: "claude-opus-4-1" },
+      },
+    );
+    // The hook observed the Anthropic fallback; the return lands on the
+    // original through switchModel.
+    const switches = mock.callsTo("session.switchModel");
+    expect(switches.length).toBe(1);
+    expect(switches[0]).toMatchObject({
+      sessionID: "s1",
+      model: { providerID: "openai", id: "gpt-5.2" },
+    });
+    expect(state.currentModel).toBe("openai/gpt-5.2");
+    expect(state.originalModel).toBe("openai/gpt-5.2");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    // The host serves THIS request on the model it fixed before the hook —
+    // the Anthropic fallback. The original takes over from the next request.
+    expect(state.lastServedModel).toBe("anthropic/claude-opus-4-1");
+    expect(recoveredBeforeSwitch).toBe(false);
+    const events = logs.map((l) => JSON.parse(l));
+    const recovered = events.filter((e) => e.event === "fallback.recovered");
+    expect(recovered.length).toBe(1);
+    expect(recovered[0]).toMatchObject({
+      sessionId: "s1",
+      agent: "general",
+      from: "anthropic/claude-opus-4-1",
+      to: "openai/gpt-5.2",
+    });
+    expect(
+      events.filter((e) => e.event === "availability.preflight_redirected"),
+    ).toHaveLength(1);
+  });
+
+  test("a refused switch restores the fallback-era routing state and logs no recovery", async () => {
+    writeSnapshot(freshUnavailable());
+    const logs: string[] = [];
+    const { ctx, state } = composedContext(logs);
+    const mock = createMockV2Session();
+    mock.session.switchModel = async (input) => {
+      mock.calls.push({ method: "session.switchModel", args: input });
+      throw new Error("host refused the switch");
+    };
+    await handleV2Context(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      mock.session,
+      {
+        sessionID: "s1",
+        agent: "general",
+        model: { providerID: "anthropic", id: "claude-opus-4-1" },
+      },
+    );
+    // The switch was attempted and refused, so the session stays on the
+    // Anthropic rung and every routing field goes back to pre-turn values —
+    // including the depth the recovery had already reset.
+    expect(mock.callsTo("session.switchModel").length).toBe(1);
+    expect(state.currentModel).toBe("anthropic/claude-opus-4-1");
+    expect(state.originalModel).toBe("openai/gpt-5.2");
+    expect(state.fallbackDepth).toBe(1);
+    expect(state.lastFallbackAt).toBe(1234);
+    expect(state.lastServedModel).toBe("anthropic/claude-opus-4-1");
+    const names = logs.map((l) => JSON.parse(l).event);
+    expect(names).toContain("routing.redirect_apply_failed");
+    expect(names).not.toContain("fallback.recovered");
+    expect(names).not.toContain("availability.preflight_redirected");
+    expect(names).not.toContain("preemptive.redirected");
   });
 });

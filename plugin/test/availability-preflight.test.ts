@@ -302,7 +302,90 @@ describe("applyAvailabilityPreflight", () => {
       to: "openai/gpt-5",
       availability: "unavailable",
       retryAt: T0 + 300_000,
+      recovered: false,
     });
+  });
+
+  test("landing on the original model is a recovery: bookkeeping resets, no log at this layer", () => {
+    const lines: string[] = [];
+    const logger: Logger = createLogger({
+      minLevel: "debug",
+      write: (l) => lines.push(l),
+    });
+    const store = new FallbackStore();
+    // The session fell back off its non-Anthropic original onto an
+    // Anthropic rung; the exhausted-Claude snapshot sends it back.
+    const state = store.sessions.get("s1");
+    state.currentModel = "anthropic/claude" as ModelKey;
+    state.originalModel = "openai/gpt-5" as ModelKey;
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 999;
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["openai/gpt-5", "anthropic/claude"]],
+    ]);
+    const out = output("anthropic", "claude");
+    const applied = applyAvailabilityPreflight(
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
+      store,
+      chains,
+      logger,
+    );
+    expect(applied).toEqual({
+      from: "anthropic/claude",
+      to: "openai/gpt-5",
+      availability: "unavailable",
+      retryAt: T0 + 300_000,
+      recovered: true,
+    });
+    expect(state.currentModel).toBe("openai/gpt-5");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    // handleChatMessage owns both events post-apply — this layer logs nothing.
+    expect(lines.length).toBe(0);
+  });
+
+  test("landing on a non-original rung keeps the fallback bookkeeping and is no recovery", () => {
+    const now = 1_000_000;
+    const store = new FallbackStore(() => now);
+    const state = store.sessions.get("s1");
+    state.currentModel = "anthropic/claude" as ModelKey;
+    state.originalModel = "openai/gpt-5" as ModelKey;
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 999;
+    store.health.cooldown("openai/gpt-5" as ModelKey, 60_000);
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["openai/gpt-5", "anthropic/claude", "google/gemini"]],
+    ]);
+    const out = output("anthropic", "claude");
+    const applied = applyAvailabilityPreflight(
+      {
+        sessionId: "s1",
+        agentName: "scout",
+        output: out,
+        snapshot: unavailableSnapshot(),
+      },
+      store,
+      chains,
+      silentLogger,
+    );
+    // The redirect is OMR's own routing step, not a recovery and not a
+    // manual change: the original stays the original and the depth stays.
+    expect(applied).toEqual({
+      from: "anthropic/claude",
+      to: "google/gemini",
+      availability: "unavailable",
+      retryAt: T0 + 300_000,
+      recovered: false,
+    });
+    expect(state.currentModel).toBe("google/gemini");
+    expect(state.originalModel).toBe("openai/gpt-5");
+    expect(state.fallbackDepth).toBe(1);
+    expect(state.lastFallbackAt).toBe(999);
   });
 });
 
@@ -542,6 +625,59 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
       expect(record.availability).toBe("unavailable");
       expect(typeof record.retryAt).toBe("number");
     }
+    ctx.ttft.clear("s1");
+  });
+
+  test("preflight landing on the original is a recovery: depth resets, both events log post-apply (V1)", async () => {
+    // Composed case: the session fell back off its non-Anthropic original
+    // onto an Anthropic rung; a fresh unavailable snapshot makes the
+    // preflight the step that returns it. The landing is a recovery with
+    // the same bookkeeping as the preemptive return rule — not a silent
+    // rung change that keeps the old depth.
+    writeSnapshot(freshUnavailable());
+    const logs: string[] = [];
+    const ctx = createPluginContext({
+      logger: createLogger({ minLevel: "info", write: (l) => logs.push(l) }),
+    });
+    ctx.chains.set("scout", ["openai/gpt-5", "anthropic/claude-sonnet-4-5"]);
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "anthropic/claude-sonnet-4-5";
+    state.originalModel = "openai/gpt-5";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 1234;
+    const client = new MockClient({ messages: [userMsg()] });
+    // The host serves the rung OMR switched it to — the Anthropic fallback.
+    const out = output("anthropic", "claude-sonnet-4-5");
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "s1", agent: "scout" },
+      out,
+    );
+    expect(out.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
+    expect(state.currentModel).toBe("openai/gpt-5");
+    expect(state.originalModel).toBe("openai/gpt-5");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    const events = logs.map((l) => JSON.parse(l));
+    const recovered = events.filter((e) => e.event === "fallback.recovered");
+    expect(recovered.length).toBe(1);
+    expect(recovered[0]).toMatchObject({
+      sessionId: "s1",
+      agent: "scout",
+      from: "anthropic/claude-sonnet-4-5",
+      to: "openai/gpt-5",
+    });
+    const redirected = events.filter(
+      (e) => e.event === "availability.preflight_redirected",
+    );
+    expect(redirected.length).toBe(1);
+    expect(
+      events.some((e) => e.event === "manual_model_change.reset_depth"),
+    ).toBe(false);
     ctx.ttft.clear("s1");
   });
 });

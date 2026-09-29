@@ -150,7 +150,11 @@ Under OpenCode 2 the plugin context replaces the client argument:
   never the recovered original. Redirect and recovery events log only after
   `switchModel` resolves; a rejected switch logs
   `routing.redirect_apply_failed` and no `preemptive.redirected` or
-  `fallback.recovered` event.
+  `fallback.recovered` event. The availability preflight follows the same
+  recovery rule: when an `unavailable` snapshot's redirect lands the session
+  on its original model, that landing resets the fallback bookkeeping and
+  logs `fallback.recovered` after the switch resolves, so the return is one
+  recovery definition however the session lands back on the original.
 - `ctx.session.hook("retry")` is the single classified failure entrance,
   replacing the `session.error` / `session.status` / `message.updated` event
   paths. When OMR owns recovery (a chain exists and the exhaustion guard

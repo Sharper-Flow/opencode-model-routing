@@ -54,7 +54,10 @@ Recovery details:
   snapshot or the family constraint, the session stays on its current rung.
   A return logs `fallback.recovered` once the switch is applied and resets
   the fallback depth; a model you select yourself is still a manual change
-  and becomes the new original.
+  and becomes the new original. The availability preflight (Claude Max
+  exhaustion) can be the step that returns the session: when its redirect
+  lands on the original model, that landing is the same recovery — depth
+  reset, one `fallback.recovered` logged after the redirect is applied.
 - **Fail-soft**: when every alternative is blocked or cooling, the plugin logs
   `preemptive.no_allowed_model` and leaves the selection unchanged rather than
   killing the session.

@@ -574,6 +574,19 @@ export async function handleChatMessage(
         availability: availabilityRedirect.availability,
         retryAt: availabilityRedirect.retryAt,
       });
+      if (availabilityRedirect.recovered) {
+        // The availability redirect landed the session back on its original
+        // model — a recovery through the availability path. Same post-apply
+        // rule as every recovery event: never logged before the apply
+        // resolves, so a rejected V2 switch records no return that never
+        // happened.
+        ctx.logger.info("fallback.recovered", {
+          sessionId,
+          agent: agentName,
+          from: availabilityRedirect.from,
+          to: availabilityRedirect.to,
+        });
+      }
     }
     if (preemptiveRedirect) {
       ctx.logger.info(
