@@ -11,7 +11,10 @@
 // — the user's first attempt simply starts on the allowed model.
 
 import type { Logger } from "./logging/logger.ts";
-import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
+import {
+  isModelAdmissible,
+  resolveFallbackModel,
+} from "./resolution/fallback-resolver.ts";
 import type { FallbackStore } from "./state/store.ts";
 import type { ModelKey, PluginConfig } from "./types.ts";
 import { claudeUnavailableVeto } from "./availability/preflight.ts";
@@ -35,6 +38,19 @@ export interface PreemptiveInput {
   snapshot?: AvailabilitySnapshotV1 | null;
 }
 
+// The redirect applyPreemptiveSkip made, returned to the caller. The routing
+// step mutates output.message.model and session state but logs nothing about
+// the redirect itself: handleChatMessage owns the event and logs it once the
+// redirect is applied — at once on the OpenCode 1 chat.message hook (the
+// mutated output model is the apply), and only after the OpenCode 2
+// switchModel resolves, so a rejected switch never leaves a redirect or
+// recovery event for a model that never served.
+export interface AppliedRedirect {
+  from: ModelKey;
+  to: ModelKey;
+  reason: "blocked" | "cooldown" | "family" | "recovered";
+}
+
 export function applyPreemptiveSkip(
   input: PreemptiveInput,
   store: FallbackStore,
@@ -43,34 +59,30 @@ export function applyPreemptiveSkip(
   logger: Logger,
   blocked?: ReadonlyMap<string, ReadonlySet<ModelKey>>,
   familyVeto?: (key: ModelKey) => boolean,
-): void {
+): AppliedRedirect | null {
   const current = input.output.message.model;
-  if (!current) return;
+  if (!current) return null;
   const key = `${current.providerID}/${current.modelID}` as ModelKey;
 
   // Mutate output.message.model to the allowed target and record it as the
   // session-current model. Shared by the blocklist redirect, the family
-  // redirect, and the cooldown redirect so all three leave identical
-  // bookkeeping.
+  // redirect, the cooldown redirect, and the return-to-original redirect so
+  // all four leave identical bookkeeping, and each returns its descriptor for
+  // the caller to log post-apply. The return-to-original case is a recovery,
+  // not a redirect off a dead selection, and logs its own distinct event.
   const redirect = (
     next: ModelKey,
-    reason: "blocked" | "cooldown" | "family",
-  ): void => {
+    reason: AppliedRedirect["reason"],
+  ): AppliedRedirect | null => {
     const parsed = next.split("/");
-    if (parsed.length < 2) return;
+    if (parsed.length < 2) return null;
     input.output.message.model = {
       providerID: parsed[0]!,
       modelID: parsed.slice(1).join("/"),
     };
     const state = store.sessions.get(input.sessionId);
     state.currentModel = next;
-    logger.info("preemptive.redirected", {
-      sessionId: input.sessionId,
-      from: key,
-      to: next,
-      agent: input.agentName,
-      reason,
-    });
+    return { from: key, to: next, reason };
   };
 
   let chain: ModelKey[] | undefined;
@@ -100,10 +112,9 @@ export function applyPreemptiveSkip(
           agent: input.agentName,
           current: key,
         });
-        return;
+        return null;
       }
-      redirect(next, "blocked");
-      return;
+      return redirect(next, "blocked");
     }
     if (familyVeto?.(key)) {
       // Same family as the requesting parent (or no family entry): the
@@ -133,13 +144,39 @@ export function applyPreemptiveSkip(
           agent: input.agentName,
           current: key,
         });
-        return;
+        return null;
       }
-      redirect(next, "family");
-      return;
+      return redirect(next, "family");
     }
     chain = chains.get(input.agentName);
-    if (!chain || chain.length === 0) return;
+    if (!chain || chain.length === 0) return null;
+
+    // Return-to-original rule: OMR moved this session off its original
+    // model (the arriving model equals currentModel and differs from
+    // originalModel), and the original has recovered. Serve the next
+    // request on the original again. Admission is the same predicate every
+    // redirect scan uses — while the original is cooled, blocked, or vetoed
+    // the session stays on its current rung. No maxDepth cap: a return
+    // reduces depth instead of adding a fallback step.
+    const state = store.sessions.get(input.sessionId);
+    if (
+      state.originalModel &&
+      state.currentModel === key &&
+      key !== state.originalModel &&
+      isModelAdmissible(
+        state.originalModel,
+        store.health,
+        blocked?.get(input.agentName),
+        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        familyVeto,
+      )
+    ) {
+      const original = state.originalModel;
+      const applied = redirect(original, "recovered");
+      state.fallbackDepth = 0;
+      state.lastFallbackAt = 0;
+      return applied;
+    }
   } else {
     // A structurally resolved agent should always be available for production
     // child sessions. If every source is temporarily unavailable, only use a
@@ -148,7 +185,7 @@ export function applyPreemptiveSkip(
     // The blocklist stays inactive here with the agent identity: applying a
     // guessed agent's blocklist would be the same heuristic this guard
     // refuses.
-    if (!store.health.isInCooldown(key)) return;
+    if (!store.health.isInCooldown(key)) return null;
     const matches = [...chains.values()].filter((candidate) =>
       candidate.includes(key),
     );
@@ -158,7 +195,7 @@ export function applyPreemptiveSkip(
         current: key,
         matchingChainCount: matches.length,
       });
-      return;
+      return null;
     }
     chain = matches[0]!;
   }
@@ -170,22 +207,40 @@ export function applyPreemptiveSkip(
     if (!state.currentModel) {
       state.currentModel = key;
       state.originalModel = key;
-      return;
+      return null;
     }
     if (state.currentModel !== key) {
+      // The session arrives on a different model than OMR last routed for
+      // it. When the arriving model is the session's original, the original
+      // has recovered and the host came back to it on its own (the
+      // OpenCode 1 TUI keeps the user's selection across turns), so log the
+      // return as a recovery. An arriving model that equals neither field
+      // is the user's own choice.
+      const returning = state.originalModel === key;
+      const from = state.currentModel;
       state.currentModel = key;
       state.originalModel = key;
       state.fallbackDepth = 0;
       state.lastFallbackAt = 0;
-      state.recoveryNotifiedForModel = null;
-      state.fallbackActiveNotifiedKey = null;
-      logger.info("manual_model_change.reset_depth", {
-        sessionId: input.sessionId,
-        agent: input.agentName,
-        model: key,
-      });
+      if (returning) {
+        logger.info("fallback.recovered", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          from,
+          to: key,
+        });
+      } else {
+        logger.info("manual_model_change.reset_depth", {
+          sessionId: input.sessionId,
+          agent: input.agentName,
+          model: key,
+        });
+      }
+      return null;
     }
-    return;
+    // Healthy and already this session's current model: no redirect, and the
+    // cooldown scan below must not run — it would "rotate" a healthy model.
+    return null;
   }
 
   // Pick next healthy entry in the chain. The blocklist still applies to the
@@ -206,8 +261,8 @@ export function applyPreemptiveSkip(
       agent: input.agentName,
       current: key,
     });
-    return;
+    return null;
   }
 
-  redirect(next, "cooldown");
+  return redirect(next, "cooldown");
 }

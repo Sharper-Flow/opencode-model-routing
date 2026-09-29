@@ -133,7 +133,28 @@ Under OpenCode 2 the plugin context replaces the client argument:
 - `ctx.session.hook("context")` replaces `chat.message`: turn-guard clear,
   TTFT arm, availability preflight, and preemptive skip run unchanged. The
   context hook's model is readonly, so a preemptive redirect is applied to
-  subsequent requests with `ctx.session.switchModel`.
+  subsequent requests with `ctx.session.switchModel`. The return to the
+  original model works the same way: once the original's cooldown ends, the
+  next context hook that arrives on the fallback rung is redirected back and
+  applied through `switchModel`; a failed switch restores the routing state
+  (currentModel, originalModel, fallbackDepth, lastFallbackAt) together with
+  the request model, so the bookkeeping keeps naming the rung that really
+  serves. The return shares one admission predicate with every redirect
+  scan — while the original is cooling, blocked, or vetoed, the session
+  stays on its current rung. The host resolves the request model before the
+  context hook runs and never re-reads it, so the request whose hook
+  observed the original admissible still serves the fallback: the return
+  takes over from the next agent-loop request. That request's model is
+  therefore what `lastServedModel` records for every context hook — a
+  model-less failure (TTFT timeout) on it cools the fallback that served,
+  never the recovered original. Redirect and recovery events log only after
+  `switchModel` resolves; a rejected switch logs
+  `routing.redirect_apply_failed` and no `preemptive.redirected` or
+  `fallback.recovered` event. The availability preflight follows the same
+  recovery rule: when an `unavailable` snapshot's redirect lands the session
+  on its original model, that landing resets the fallback bookkeeping and
+  logs `fallback.recovered` after the switch resolves, so the return is one
+  recovery definition however the session lands back on the original.
 - `ctx.session.hook("retry")` is the single classified failure entrance,
   replacing the `session.error` / `session.status` / `message.updated` event
   paths. When OMR owns recovery (a chain exists and the exhaustion guard

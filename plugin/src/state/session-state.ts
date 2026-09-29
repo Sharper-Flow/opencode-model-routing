@@ -12,13 +12,15 @@ export interface SessionState {
   originalModel: ModelKey | null;
   // The model currently in use after fallback.
   currentModel: ModelKey | null;
-  // The model that last had a request dispatched for this session: set from
-  // chat.message (after availability preflight and preemptive redirect have
-  // settled the final model) and after a successful recovery prompt. Failure
-  // signals that carry no model identity attribute their cooldown here —
-  // currentModel can name a model this session advanced to without that
-  // model ever serving a request (subagent short-circuit), and cooling it
-  // would bench a healthy model for another model's failure.
+  // The model that last had a request dispatched for this session: the final
+  // output model on the OpenCode 1 chat.message hook, and the context hook's
+  // own model on OpenCode 2 — the host fixes the request model before the
+  // hook runs and never re-reads it, so the hook model is what serves that
+  // request even when the hook switches the session for later requests.
+  // Failure signals that carry no model identity attribute their cooldown
+  // here — currentModel can name a model this session advanced to without
+  // that model ever serving a request (subagent short-circuit), and cooling
+  // it would bench a healthy model for another model's failure.
   lastServedModel: ModelKey | null;
   // Agent name resolved from session.messages[0]; cached.
   agentName: string | null;
@@ -28,10 +30,6 @@ export interface SessionState {
   fallbackDepth: number;
   // Epoch ms of the last fallback for this session — used for dedup.
   lastFallbackAt: number;
-  // Track which model the user was last notified about (avoid duplicate
-  // notifications when the same fallback is still active).
-  recoveryNotifiedForModel: ModelKey | null;
-  fallbackActiveNotifiedKey: ModelKey | null;
   // Cached subagent detection result: `true` if session.get returned a
   // non-empty parentID (this session is a child of another, observed by
   // the parent's Task tool). `false` if confirmed primary. `undefined`
@@ -61,8 +59,6 @@ export function newSessionState(): SessionState {
     agentFile: null,
     fallbackDepth: 0,
     lastFallbackAt: 0,
-    recoveryNotifiedForModel: null,
-    fallbackActiveNotifiedKey: null,
     // isSubagent intentionally omitted — undefined until first detection.
   };
 }

@@ -505,6 +505,18 @@ export async function handleChatMessage(
 
   const state = ctx.store.sessions.get(sessionId);
   if (input.agent) state.agentName = input.agent;
+
+  // Snapshot the routing fields the preflight and preemptive step mutate,
+  // taken before any routing runs. If the V2 applyRedirect below fails, the
+  // session stays on the hook model, so the routing fields must go back to
+  // what named that model — otherwise currentModel would keep a target that
+  // never served and the next request would read as a manual model change.
+  const routingSnapshot = {
+    currentModel: state.currentModel,
+    originalModel: state.originalModel,
+    fallbackDepth: state.fallbackDepth,
+    lastFallbackAt: state.lastFallbackAt,
+  };
   if (!state.agentName) {
     // Fresh child messages have not been committed yet. Read the structural
     // session record before falling back to message history; this shares the
@@ -527,7 +539,7 @@ export async function handleChatMessage(
   // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
   // snapshot → null → no-op; non-Anthropic selections are never touched.
   const snapshot = readAvailabilitySnapshot();
-  applyAvailabilityPreflight(
+  const availabilityRedirect = applyAvailabilityPreflight(
     { sessionId, agentName, output, snapshot },
     ctx.store,
     ctx.chains,
@@ -535,7 +547,7 @@ export async function handleChatMessage(
     familyVeto,
   );
 
-  applyPreemptiveSkip(
+  const preemptiveRedirect = applyPreemptiveSkip(
     { sessionId, agentName, output, snapshot },
     ctx.store,
     ctx.chains,
@@ -545,39 +557,106 @@ export async function handleChatMessage(
     familyVeto,
   );
 
-  // Record the model actually about to serve this dispatch — captured AFTER
+  // Redirect and recovery events log once the redirect is applied — never
+  // before. On the OpenCode 1 chat.message hook the mutated output model is
+  // the apply, so the events log at once. On the OpenCode 2 context hook the
+  // redirect reaches the host through switchModel below, so the events log
+  // only after it resolves: a rejected switch restores state and logs
+  // routing.redirect_apply_failed, leaving no event for a redirect or
+  // recovery that never happened.
+  const logRedirectEvents = () => {
+    if (availabilityRedirect) {
+      // AC7: availability logs carry only the fixed event, correlation id,
+      // availability kind, and the optional retry timestamp. No paths,
+      // account identities, or model internals beyond the routing outcome.
+      ctx.logger.info("availability.preflight_redirected", {
+        sessionId,
+        availability: availabilityRedirect.availability,
+        retryAt: availabilityRedirect.retryAt,
+      });
+      if (availabilityRedirect.recovered) {
+        // The availability redirect landed the session back on its original
+        // model — a recovery through the availability path. Same post-apply
+        // rule as every recovery event: never logged before the apply
+        // resolves, so a rejected V2 switch records no return that never
+        // happened.
+        ctx.logger.info("fallback.recovered", {
+          sessionId,
+          agent: agentName,
+          from: availabilityRedirect.from,
+          to: availabilityRedirect.to,
+        });
+      }
+    }
+    if (preemptiveRedirect) {
+      ctx.logger.info(
+        preemptiveRedirect.reason === "recovered"
+          ? "fallback.recovered"
+          : "preemptive.redirected",
+        {
+          sessionId,
+          from: preemptiveRedirect.from,
+          to: preemptiveRedirect.to,
+          agent: agentName,
+          reason: preemptiveRedirect.reason,
+        },
+      );
+    }
+  };
+
+  // Record the model that will actually serve this dispatch — captured AFTER
   // the availability preflight and preemptive skip, either of which may have
-  // redirected output.message.model to a healthy chain entry. Under the V2
-  // context hook the redirect is not yet visible to the host: applyRedirect
-  // must push it onto the session (switchModel) BEFORE anything records the
-  // served model, so the bookkeeping names the model the request will really
-  // use. A failed apply is rolled back to the original model — recording the
-  // redirect target would attribute the next failure to a model that never
-  // served.
+  // redirected output.message.model to a healthy chain entry. Which model
+  // that is depends on the host: OpenCode 1 serves the final output model;
+  // OpenCode 2 fixed the request model before the context hook and never
+  // re-reads it, so it serves the hook model and applyRedirect (switchModel)
+  // moves the session for the requests that follow.
   const servedModel = output.message.model;
   if (servedModel) {
     const servedKey =
       `${servedModel.providerID}/${servedModel.modelID}` as ModelKey;
-    if (applyRedirect && hookModel && servedKey !== hookModelKey) {
-      try {
-        await applyRedirect(hookModelKey as ModelKey, servedKey);
-      } catch (err) {
-        output.message.model = {
-          providerID: hookModel.providerID,
-          modelID: hookModel.modelID,
-        };
-        ctx.logger.warn("routing.redirect_apply_failed", {
-          sessionId,
-          from: hookModelKey,
-          to: servedKey,
-          err: errorSummary(err),
-        });
+    if (applyRedirect && hookModel) {
+      // OpenCode 2: the host resolves the request model before the context
+      // hook runs and never re-reads it, so this request serves the hook
+      // model whether or not the hook reroutes the session.
+      // lastServedModel therefore names the hook model on every path — a
+      // model-less failure (TTFT) attributes through it, so naming the
+      // switch target would cool a model that did not serve. currentModel
+      // keeps naming the switched session model after a successful switch.
+      if (servedKey !== hookModelKey) {
+        try {
+          await applyRedirect(hookModelKey as ModelKey, servedKey);
+          logRedirectEvents();
+        } catch (err) {
+          output.message.model = {
+            providerID: hookModel.providerID,
+            modelID: hookModel.modelID,
+          };
+          // The switch never landed, so the request serves the hook model:
+          // restore the routing fields the redirect mutated, not just the
+          // output model, or state would name a model that never served.
+          state.currentModel = routingSnapshot.currentModel;
+          state.originalModel = routingSnapshot.originalModel;
+          state.fallbackDepth = routingSnapshot.fallbackDepth;
+          state.lastFallbackAt = routingSnapshot.lastFallbackAt;
+          ctx.logger.warn("routing.redirect_apply_failed", {
+            sessionId,
+            from: hookModelKey,
+            to: servedKey,
+            err: errorSummary(err),
+          });
+        }
+      } else {
+        // Nothing to push onto the host: the routing outcome is already the
+        // model this request serves, so the events log at once.
+        logRedirectEvents();
       }
-    }
-    const finalModel = output.message.model;
-    if (finalModel) {
-      state.lastServedModel =
-        `${finalModel.providerID}/${finalModel.modelID}` as ModelKey;
+      state.lastServedModel = hookModelKey as ModelKey;
+    } else {
+      // OpenCode 1: mutating output.message.model is the apply; the events
+      // log at once and the final output model serves this request.
+      logRedirectEvents();
+      state.lastServedModel = servedKey;
     }
   }
 
@@ -1453,10 +1532,13 @@ export function narrowV2ContextEvent(
  * turn-guard clear, TTFT arm, availability preflight, preemptive skip, and
  * served-model capture all run through handleChatMessage over a synthesized
  * V1 output envelope. The context hook's model is readonly, so a preemptive
- * redirect is applied with switchModel() through the applyRedirect callback —
- * which handleChatMessage invokes BEFORE it records the served model or arms
- * TTFT, and rolls back if the switch fails, so bookkeeping can never name a
- * model the request will not use.
+ * redirect is applied with switchModel() through the applyRedirect callback.
+ * The host fixes the request model before the hook and never re-reads it, so
+ * handleChatMessage records the hook model as lastServedModel on every path,
+ * logs redirect and recovery events only after applyRedirect resolves (a
+ * rejected switch logs routing.redirect_apply_failed and no redirect or
+ * recovery event), and rolls back the routing fields if the switch fails, so
+ * bookkeeping can never name a model the request did not use.
  */
 export async function handleV2Context(
   ctx: PluginContext,

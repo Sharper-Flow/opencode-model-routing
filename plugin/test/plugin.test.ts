@@ -322,6 +322,81 @@ describe("handleChatMessage", () => {
     expect(state.lastFallbackAt).toBe(0);
     ctx.ttft.clear("s1");
   });
+
+  test("recovered original returns the session to its primary model (V1 chat.message path)", async () => {
+    const logs: string[] = [];
+    const ctx = createPluginContext({
+      logger: createLogger({
+        minLevel: "info",
+        write: (line) => logs.push(line),
+      }),
+    });
+    ctx.chains.set("scout", ["a/one", "b/two"]);
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "b/two";
+    state.originalModel = "a/one";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = Date.now();
+
+    const client = new MockClient({ messages: [userMsg()] });
+    // The host TUI kept the user's selection, so the next turn arrives on
+    // the original by itself; OMR must reset the depth and log the recovery
+    // instead of a manual model change.
+    const output = { message: { model: { providerID: "a", modelID: "one" } } };
+    await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
+
+    expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(state.currentModel).toBe("a/one");
+    expect(state.originalModel).toBe("a/one");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    expect(
+      logs
+        .map((line) => JSON.parse(line))
+        .some((e) => e.event === "fallback.recovered"),
+    ).toBe(true);
+    ctx.ttft.clear("s1");
+  });
+
+  test("return to a recovered original redirects the arriving fallback (V1 chat.message path)", async () => {
+    const logs: string[] = [];
+    const ctx = createPluginContext({
+      logger: createLogger({
+        minLevel: "info",
+        write: (line) => logs.push(line),
+      }),
+    });
+    ctx.chains.set("scout", ["a/one", "b/two"]);
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "b/two";
+    state.originalModel = "a/one";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = Date.now();
+
+    const client = new MockClient({ messages: [userMsg()] });
+    // The host still serves the fallback rung, so the turn arrives on it;
+    // OMR must redirect the turn back to the recovered original.
+    const output = { message: { model: { providerID: "b", modelID: "two" } } };
+    await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
+
+    expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
+    expect(state.currentModel).toBe("a/one");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    // V1 applies the redirect by mutating the output model, so the recovery
+    // event logs at once — no switch can still reject it.
+    const recovered = logs
+      .map((line) => JSON.parse(line))
+      .find((e) => e.event === "fallback.recovered");
+    expect(recovered).toMatchObject({
+      sessionId: "s1",
+      agent: "scout",
+      from: "b/two",
+      to: "a/one",
+      reason: "recovered",
+    });
+    ctx.ttft.clear("s1");
+  });
 });
 
 describe("handleEvent — undefined input", () => {

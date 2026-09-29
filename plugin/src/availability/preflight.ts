@@ -49,21 +49,43 @@ export function claudeUnavailableVeto(
   return (key: ModelKey) => providerOf(key) === ANTHROPIC_PROVIDER_ID;
 }
 
+// What applyAvailabilityPreflight returns: the redirect it applied. The
+// routing step mutates output.message.model and session state but logs
+// nothing about the redirect itself: handleChatMessage owns the
+// availability.preflight_redirected event and logs it once the redirect is
+// applied — at once on the OpenCode 1 chat.message hook, and only after the
+// OpenCode 2 switchModel resolves, so a rejected switch never leaves an
+// event for a redirect that never landed. The event payload keeps the AC7
+// surface: fixed event, correlation id, availability kind, optional retry
+// timestamp — no paths, account identities, or model internals beyond the
+// routing outcome. `recovered` marks the landing-on-original case: the
+// session had fallen back off its original (non-Anthropic) model onto an
+// Anthropic rung, and this redirect is what returns it. handleChatMessage
+// logs the recovery as fallback.recovered after the same apply, so a
+// rejected V2 switch records no return that never happened.
+export interface AppliedAvailabilityRedirect {
+  from: ModelKey;
+  to: ModelKey;
+  availability: "unavailable";
+  retryAt: number | null;
+  recovered: boolean;
+}
+
 export function applyAvailabilityPreflight(
   input: AvailabilityPreflightInput,
   store: FallbackStore,
   chains: Map<string, ModelKey[]>,
   logger: Logger,
   familyVeto?: (key: ModelKey) => boolean,
-): void {
+): AppliedAvailabilityRedirect | null {
   const snapshot = input.snapshot;
-  if (!snapshot || snapshot.state !== "unavailable") return;
+  if (!snapshot || snapshot.state !== "unavailable") return null;
 
   const current = input.output.message.model;
-  if (!current || current.providerID !== ANTHROPIC_PROVIDER_ID) return;
-  if (!input.agentName) return;
+  if (!current || current.providerID !== ANTHROPIC_PROVIDER_ID) return null;
+  if (!input.agentName) return null;
   const chain = chains.get(input.agentName);
-  if (!chain || chain.length === 0) return;
+  if (!chain || chain.length === 0) return null;
 
   const target = chain.find(
     (key) =>
@@ -76,7 +98,7 @@ export function applyAvailabilityPreflight(
       sessionId: input.sessionId,
       availability: snapshot.state,
     });
-    return;
+    return null;
   }
 
   input.output.message.model = {
@@ -84,13 +106,29 @@ export function applyAvailabilityPreflight(
     modelID: modelIdOf(target),
   };
   const state = store.sessions.get(input.sessionId);
+  // Recovery check against the PRE-routing current model — the state this
+  // turn started with, not what earlier routing left behind. A routing step
+  // that lands the session on originalModel while the pre-routing current
+  // model differed is a recovery by the same definition the preemptive
+  // return rule applies: reset the fallback bookkeeping so a landing the
+  // availability redirect caused is not mistaken for a fresh rung choice,
+  // and let handleChatMessage log fallback.recovered once the redirect is
+  // applied.
+  const preRoutingCurrent = state.currentModel;
+  const recovered =
+    state.originalModel !== null &&
+    target === state.originalModel &&
+    preRoutingCurrent !== target;
   state.currentModel = target;
-  // AC7: availability logs carry only the fixed event, correlation id,
-  // availability kind, and the optional retry timestamp. No paths, account
-  // identities, or model internals beyond the routing outcome.
-  logger.info("availability.preflight_redirected", {
-    sessionId: input.sessionId,
-    availability: snapshot.state,
+  if (recovered) {
+    state.fallbackDepth = 0;
+    state.lastFallbackAt = 0;
+  }
+  return {
+    from: `${current.providerID}/${current.modelID}` as ModelKey,
+    to: target,
+    availability: "unavailable",
     retryAt: snapshot.retry_at,
-  });
+    recovered,
+  };
 }

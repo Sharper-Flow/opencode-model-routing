@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { AvailabilitySnapshotV1 } from "../src/availability/snapshot.ts";
 import { createLogger } from "../src/logging/logger.ts";
 import { applyPreemptiveSkip } from "../src/preemptive.ts";
 import { FallbackStore } from "../src/state/store.ts";
@@ -33,7 +34,7 @@ describe("applyPreemptiveSkip", () => {
       ["scout", ["a/one", "b/two", "c/three"]],
     ]);
     const out = output("a", "one");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -41,6 +42,7 @@ describe("applyPreemptiveSkip", () => {
       silentLogger,
     );
     expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(applied).toEqual({ from: "a/one", to: "b/two", reason: "cooldown" });
   });
 
   test("no chain for agent → no mutation", () => {
@@ -325,13 +327,13 @@ describe("applyPreemptiveSkip — blocked_models", () => {
     expect(out.message.model).toEqual({ providerID: "c", modelID: "three" });
   });
 
-  test("redirect logs preemptive.redirected with a blocked reason", () => {
+  test("blocked redirect returns the applied redirect descriptor", () => {
     const store = new FallbackStore();
     const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
     const blocked = new Map([["scout", new Set<ModelKey>(["x/cur"])]]);
     const logs: string[] = [];
     const out = output("x", "cur");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -339,14 +341,206 @@ describe("applyPreemptiveSkip — blocked_models", () => {
       createLogger({ minLevel: "info", write: (line) => logs.push(line) }),
       blocked,
     );
-    const redirected = logs
-      .map((line) => JSON.parse(line))
-      .find((e) => e.event === "preemptive.redirected");
-    expect(redirected).toMatchObject({
-      from: "x/cur",
+    expect(applied).toEqual({ from: "x/cur", to: "a/one", reason: "blocked" });
+    // The event itself logs in handleChatMessage once the redirect is
+    // applied — not in the routing step.
+    expect(
+      logs
+        .map((line) => JSON.parse(line))
+        .some((e) => e.event === "preemptive.redirected"),
+    ).toBe(false);
+  });
+});
+
+describe("applyPreemptiveSkip — return to original model", () => {
+  // Seeds the state a session carries after OMR fell back: original a/one,
+  // current (fallback) b/two, one fallback step recorded.
+  function fallenBackStore(): FallbackStore {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "b/two" as ModelKey;
+    state.originalModel = "a/one" as ModelKey;
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 999;
+    return store;
+  }
+
+  function infoLogger(logs: string[]) {
+    return createLogger({ minLevel: "info", write: (line) => logs.push(line) });
+  }
+
+  function events(logs: string[]): Array<Record<string, unknown>> {
+    return logs.map((line) => JSON.parse(line));
+  }
+
+  test("recovered original returns: redirect, depth reset, descriptor", () => {
+    const store = fallenBackStore();
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const logs: string[] = [];
+    const out = output("b", "two");
+    const applied = applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      infoLogger(logs),
+    );
+    expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
+    const state = store.sessions.get("s1");
+    expect(state.currentModel).toBe("a/one");
+    expect(state.originalModel).toBe("a/one");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    expect(applied).toEqual({
+      from: "b/two",
       to: "a/one",
-      agent: "scout",
-      reason: "blocked",
+      reason: "recovered",
     });
+    // handleChatMessage logs fallback.recovered once the redirect is
+    // applied — V2 may still reject the switchModel this descriptor feeds.
+    expect(events(logs).some((e) => e.event === "fallback.recovered")).toBe(
+      false,
+    );
+  });
+
+  test("original still in cooldown → no return, session stays on the fallback", () => {
+    const store = fallenBackStore();
+    store.health.cooldown("a/one" as ModelKey, 5_000);
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const logs: string[] = [];
+    const out = output("b", "two");
+    const applied = applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      infoLogger(logs),
+    );
+    expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(store.sessions.get("s1").currentModel).toBe("b/two");
+    expect(store.sessions.get("s1").fallbackDepth).toBe(1);
+    expect(applied).toBeNull();
+    expect(events(logs).some((e) => e.event === "fallback.recovered")).toBe(
+      false,
+    );
+  });
+
+  test("original blocked for the agent → no return", () => {
+    const store = fallenBackStore();
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const blocked = new Map([["scout", new Set<ModelKey>(["a/one"])]]);
+    const out = output("b", "two");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      silentLogger,
+      blocked,
+    );
+    expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(store.sessions.get("s1").currentModel).toBe("b/two");
+  });
+
+  test("availability snapshot vetoes the original → no return", () => {
+    const store = new FallbackStore();
+    const state = store.sessions.get("s1");
+    state.currentModel = "b/two" as ModelKey;
+    state.originalModel = "anthropic/claude" as ModelKey;
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 999;
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "b/two"]],
+    ]);
+    const snapshot: AvailabilitySnapshotV1 = {
+      schema: "opencode-claude-max/availability@1",
+      version: 1,
+      generated_at: new Date(1_800_000_000_000).toISOString(),
+      state: "unavailable",
+      accounts: { configured: 2, enabled: 2, usable: 0 },
+      retry_at: 1_800_300_000_000,
+      marker: "CLAUDE_MAX_UNAVAILABLE",
+    };
+    const out = output("b", "two");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out, snapshot },
+      store,
+      chains,
+      defaultConfig,
+      silentLogger,
+    );
+    expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(store.sessions.get("s1").currentModel).toBe("b/two");
+  });
+
+  test("family veto rejects the original → no return", () => {
+    const store = fallenBackStore();
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const out = output("b", "two");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      silentLogger,
+      undefined,
+      (key) => key === ("a/one" as ModelKey),
+    );
+    expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(store.sessions.get("s1").currentModel).toBe("b/two");
+  });
+
+  test("arriving model equals neither field → manual change, not a return", () => {
+    const store = fallenBackStore();
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const logs: string[] = [];
+    const out = output("c", "manual");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      infoLogger(logs),
+    );
+    expect(out.message.model).toEqual({ providerID: "c", modelID: "manual" });
+    const state = store.sessions.get("s1");
+    expect(state.currentModel).toBe("c/manual");
+    expect(state.originalModel).toBe("c/manual");
+    const names = events(logs).map((e) => e.event);
+    expect(names).toContain("manual_model_change.reset_depth");
+    expect(names).not.toContain("fallback.recovered");
+  });
+
+  test("arriving equals original but differs from current → healthy-branch recovery", () => {
+    // The OpenCode 1 TUI keeps the user's selection, so the turn after the
+    // cooldown expires arrives on the original by itself.
+    const store = fallenBackStore();
+    const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
+    const logs: string[] = [];
+    const out = output("a", "one");
+    applyPreemptiveSkip(
+      { sessionId: "s1", agentName: "scout", output: out },
+      store,
+      chains,
+      defaultConfig,
+      infoLogger(logs),
+    );
+    expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
+    const state = store.sessions.get("s1");
+    expect(state.currentModel).toBe("a/one");
+    expect(state.fallbackDepth).toBe(0);
+    expect(state.lastFallbackAt).toBe(0);
+    const recovered = events(logs).find(
+      (e) => e.event === "fallback.recovered",
+    );
+    expect(recovered).toMatchObject({
+      sessionId: "s1",
+      agent: "scout",
+      from: "b/two",
+      to: "a/one",
+    });
+    expect(
+      events(logs).some((e) => e.event === "manual_model_change.reset_depth"),
+    ).toBe(false);
   });
 });
