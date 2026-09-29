@@ -49,21 +49,38 @@ export function claudeUnavailableVeto(
   return (key: ModelKey) => providerOf(key) === ANTHROPIC_PROVIDER_ID;
 }
 
+// What applyAvailabilityPreflight returns: the redirect it applied. The
+// routing step mutates output.message.model and session state but logs
+// nothing about the redirect itself: handleChatMessage owns the
+// availability.preflight_redirected event and logs it once the redirect is
+// applied — at once on the OpenCode 1 chat.message hook, and only after the
+// OpenCode 2 switchModel resolves, so a rejected switch never leaves an
+// event for a redirect that never landed. The event payload keeps the AC7
+// surface: fixed event, correlation id, availability kind, optional retry
+// timestamp — no paths, account identities, or model internals beyond the
+// routing outcome.
+export interface AppliedAvailabilityRedirect {
+  from: ModelKey;
+  to: ModelKey;
+  availability: "unavailable";
+  retryAt: number | null;
+}
+
 export function applyAvailabilityPreflight(
   input: AvailabilityPreflightInput,
   store: FallbackStore,
   chains: Map<string, ModelKey[]>,
   logger: Logger,
   familyVeto?: (key: ModelKey) => boolean,
-): void {
+): AppliedAvailabilityRedirect | null {
   const snapshot = input.snapshot;
-  if (!snapshot || snapshot.state !== "unavailable") return;
+  if (!snapshot || snapshot.state !== "unavailable") return null;
 
   const current = input.output.message.model;
-  if (!current || current.providerID !== ANTHROPIC_PROVIDER_ID) return;
-  if (!input.agentName) return;
+  if (!current || current.providerID !== ANTHROPIC_PROVIDER_ID) return null;
+  if (!input.agentName) return null;
   const chain = chains.get(input.agentName);
-  if (!chain || chain.length === 0) return;
+  if (!chain || chain.length === 0) return null;
 
   const target = chain.find(
     (key) =>
@@ -76,7 +93,7 @@ export function applyAvailabilityPreflight(
       sessionId: input.sessionId,
       availability: snapshot.state,
     });
-    return;
+    return null;
   }
 
   input.output.message.model = {
@@ -85,12 +102,10 @@ export function applyAvailabilityPreflight(
   };
   const state = store.sessions.get(input.sessionId);
   state.currentModel = target;
-  // AC7: availability logs carry only the fixed event, correlation id,
-  // availability kind, and the optional retry timestamp. No paths, account
-  // identities, or model internals beyond the routing outcome.
-  logger.info("availability.preflight_redirected", {
-    sessionId: input.sessionId,
-    availability: snapshot.state,
+  return {
+    from: `${current.providerID}/${current.modelID}` as ModelKey,
+    to: target,
+    availability: "unavailable",
     retryAt: snapshot.retry_at,
-  });
+  };
 }

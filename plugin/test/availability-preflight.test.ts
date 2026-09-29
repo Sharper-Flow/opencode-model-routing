@@ -272,7 +272,7 @@ describe("applyAvailabilityPreflight", () => {
     expect(store.sessions.get("s1").currentModel).toBe("openai/gpt-5");
   });
 
-  test("availability logs carry only fixed event, correlation id, kind, retry timestamp", () => {
+  test("redirect returns the applied descriptor and logs nothing at this layer", () => {
     const lines: string[] = [];
     const logger: Logger = createLogger({
       minLevel: "debug",
@@ -283,7 +283,7 @@ describe("applyAvailabilityPreflight", () => {
       ["scout", ["anthropic/claude", "openai/gpt-5"]],
     ]);
     const out = output("anthropic", "claude");
-    applyAvailabilityPreflight(
+    const applied = applyAvailabilityPreflight(
       {
         sessionId: "s1",
         agentName: "scout",
@@ -294,25 +294,15 @@ describe("applyAvailabilityPreflight", () => {
       chains,
       logger,
     );
-    expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) {
-      const record = JSON.parse(line) as Record<string, unknown>;
-      for (const key of Object.keys(record)) {
-        expect([
-          "ts",
-          "level",
-          "plugin",
-          "event",
-          "sessionId",
-          "availability",
-          "retryAt",
-        ]).toContain(key);
-      }
-      expect(record.event).toBe("availability.preflight_redirected");
-      expect(record.sessionId).toBe("s1");
-      expect(record.availability).toBe("unavailable");
-      expect(record.retryAt).toBe(T0 + 300_000);
-    }
+    // handleChatMessage emits availability.preflight_redirected once the
+    // redirect is applied — under V2 the switchModel can still reject it.
+    expect(lines.length).toBe(0);
+    expect(applied).toEqual({
+      from: "anthropic/claude",
+      to: "openai/gpt-5",
+      availability: "unavailable",
+      retryAt: T0 + 300_000,
+    });
   });
 });
 
@@ -511,6 +501,47 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
       providerID: "anthropic",
       modelID: "claude-sonnet-4-5",
     });
+    ctx.ttft.clear("s1");
+  });
+
+  test("availability event through chat.message carries only the fixed AC7 surface", async () => {
+    writeSnapshot(freshUnavailable());
+    const lines: string[] = [];
+    const ctx = createPluginContext({
+      logger: createLogger({ minLevel: "info", write: (l) => lines.push(l) }),
+    });
+    ctx.chains.set("scout", ["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
+    const client = new MockClient({ messages: [userMsg()] });
+    const out = output("anthropic", "claude-sonnet-4-5");
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "s1", agent: "scout" },
+      out,
+    );
+    const redirected = lines
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.event === "availability.preflight_redirected");
+    expect(redirected.length).toBe(1);
+    // AC7: availability logs carry only the fixed event, correlation id,
+    // availability kind, and the optional retry timestamp. No paths, account
+    // identities, or model internals beyond the routing outcome.
+    for (const record of redirected) {
+      for (const key of Object.keys(record)) {
+        expect([
+          "ts",
+          "level",
+          "plugin",
+          "event",
+          "sessionId",
+          "availability",
+          "retryAt",
+        ]).toContain(key);
+      }
+      expect(record.sessionId).toBe("s1");
+      expect(record.availability).toBe("unavailable");
+      expect(typeof record.retryAt).toBe("number");
+    }
     ctx.ttft.clear("s1");
   });
 });

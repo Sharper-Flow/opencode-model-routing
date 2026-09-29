@@ -379,10 +379,13 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
       },
     );
     // The switch observed the pre-redirect state (no served-model record of
-    // the target yet), and only after it did the record land.
+    // the target yet), and the record never claims the target: the host
+    // serves this request on the model it fixed before the hook.
     expect(seenAtSwitch.length).toBe(1);
     expect(seenAtSwitch[0]).not.toBe("openai/gpt-5.2");
-    expect(ctx.store.sessions.get("s9").lastServedModel).toBe("openai/gpt-5.2");
+    expect(ctx.store.sessions.get("s9").lastServedModel).toBe(
+      "anthropic/claude-opus-4-1",
+    );
   });
 
   test("failed redirect rolls the served-model record back to the model that will serve", async () => {
@@ -421,8 +424,12 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
   });
 
   test("recovered original returns via switchModel and resets the fallback bookkeeping", async () => {
+    const logs: string[] = [];
     const ctx = createPluginContext({
-      logger: silentLogger,
+      logger: createLogger({
+        minLevel: "info",
+        write: (line) => logs.push(line),
+      }),
       pluginOptions: { agents: { general: { fallback_models: CHAIN } } },
     });
     applyLoadedChains(
@@ -437,6 +444,15 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
     state.fallbackDepth = 1;
     state.lastFallbackAt = 1234;
     const mock = createMockV2Session();
+    let recoveredBeforeSwitch: boolean | undefined;
+    const originalSwitch = mock.session.switchModel;
+    mock.session.switchModel = async (input) => {
+      // A recovery the switch has not yet confirmed must not be logged.
+      recoveredBeforeSwitch = logs.some(
+        (l) => JSON.parse(l).event === "fallback.recovered",
+      );
+      return originalSwitch(input);
+    };
     await handleV2Context(
       ctx,
       createV2OrchestratorClient(mock.session),
@@ -458,12 +474,31 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
     expect(state.currentModel).toBe("anthropic/claude-opus-4-1");
     expect(state.fallbackDepth).toBe(0);
     expect(state.lastFallbackAt).toBe(0);
-    expect(state.lastServedModel).toBe("anthropic/claude-opus-4-1");
+    // fallback.recovered logs only after the switch resolves — never before.
+    expect(recoveredBeforeSwitch).toBe(false);
+    const recovered = logs
+      .map((line) => JSON.parse(line))
+      .filter((e) => e.event === "fallback.recovered");
+    expect(recovered.length).toBe(1);
+    expect(recovered[0]).toMatchObject({
+      sessionId: "s1",
+      agent: "general",
+      from: "openai/gpt-5.2",
+      to: "anthropic/claude-opus-4-1",
+      reason: "recovered",
+    });
+    // The host serves THIS request on the model it fixed before the hook —
+    // the fallback. The return takes over from the next agent-loop request.
+    expect(state.lastServedModel).toBe("openai/gpt-5.2");
   });
 
   test("a failed return switch leaves the routing state naming the fallback that serves", async () => {
+    const logs: string[] = [];
     const ctx = createPluginContext({
-      logger: silentLogger,
+      logger: createLogger({
+        minLevel: "info",
+        write: (line) => logs.push(line),
+      }),
       pluginOptions: { agents: { general: { fallback_models: CHAIN } } },
     });
     applyLoadedChains(
@@ -501,6 +536,57 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
     expect(state.fallbackDepth).toBe(1);
     expect(state.lastFallbackAt).toBe(1234);
     expect(state.lastServedModel).toBe("openai/gpt-5.2");
+    // A rejected switch logs the failure and no redirect or recovery event:
+    // the books must not record a return that never happened.
+    const names = logs.map((line) => JSON.parse(line).event);
+    expect(names).toContain("routing.redirect_apply_failed");
+    expect(names).not.toContain("fallback.recovered");
+    expect(names).not.toContain("preemptive.redirected");
+  });
+
+  test("a TTFT timeout on the request after a V2 return cools the fallback that served, not the original", async () => {
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      pluginOptions: { agents: { general: { fallback_models: CHAIN } } },
+    });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains(undefined, silentLogger, ctx.pluginOptions),
+    );
+    const state = ctx.store.sessions.get("s1");
+    state.currentModel = "openai/gpt-5.2";
+    state.originalModel = "anthropic/claude-opus-4-1";
+    state.fallbackDepth = 1;
+    state.lastFallbackAt = 1234;
+    const mock = createMockV2Session();
+    await handleV2Context(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      mock.session,
+      {
+        sessionID: "s1",
+        agent: "general",
+        model: { providerID: "openai", id: "gpt-5.2" },
+      },
+    );
+    // The return switch landed, but this request still serves the fallback
+    // the host fixed before the hook ran.
+    expect(state.lastServedModel).toBe("openai/gpt-5.2");
+    // A model-less failure (TTFT) attributes through lastServedModel, so the
+    // fallback cools — never the recovered original that did not serve.
+    await handleTtftTimeout(
+      ctx,
+      createV2OrchestratorClient(mock.session),
+      "s1",
+      "general",
+    );
+    expect(ctx.store.health.isInCooldown("openai/gpt-5.2")).toBe(true);
+    expect(ctx.store.health.isInCooldown("anthropic/claude-opus-4-1")).toBe(
+      false,
+    );
+    // The chain is exhausted after the fallback cools, so no further switch
+    // fires: only the return switch ran.
+    expect(mock.callsTo("session.switchModel").length).toBe(1);
   });
 });
 

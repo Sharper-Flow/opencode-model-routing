@@ -186,11 +186,26 @@ describe("applyPreemptiveSkip family redirect", () => {
       modelID: "gpt-5.6-sol",
     });
     expect(store.sessions.get("child").currentModel).toBe(OPENAI_SOL);
-    const redirected = captured.events.filter(
-      (e) => e.event === "preemptive.redirected",
-    );
-    expect(redirected.length).toBe(1);
-    expect(redirected[0]!.reason).toBe("family");
+    // The routing step returns the redirect it made; handleChatMessage logs
+    // the preemptive.redirected event once the redirect is applied.
+    expect(
+      captured.events.some((e) => e.event === "preemptive.redirected"),
+    ).toBe(false);
+    expect(
+      applyPreemptiveSkip(
+        {
+          sessionId: "child-2",
+          agentName: "concord-advisor",
+          output: output("opencode-go", "glm-5.3-flash"),
+        },
+        store,
+        chains,
+        defaultConfig,
+        captured.logger,
+        undefined,
+        veto,
+      ),
+    ).toEqual({ from: GO_GLM, to: OPENAI_SOL, reason: "family" });
   });
 
   test("unsatisfiable: every rung shares the requester family → serve and warn", () => {

@@ -34,7 +34,7 @@ describe("applyPreemptiveSkip", () => {
       ["scout", ["a/one", "b/two", "c/three"]],
     ]);
     const out = output("a", "one");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -42,6 +42,7 @@ describe("applyPreemptiveSkip", () => {
       silentLogger,
     );
     expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(applied).toEqual({ from: "a/one", to: "b/two", reason: "cooldown" });
   });
 
   test("no chain for agent → no mutation", () => {
@@ -326,13 +327,13 @@ describe("applyPreemptiveSkip — blocked_models", () => {
     expect(out.message.model).toEqual({ providerID: "c", modelID: "three" });
   });
 
-  test("redirect logs preemptive.redirected with a blocked reason", () => {
+  test("blocked redirect returns the applied redirect descriptor", () => {
     const store = new FallbackStore();
     const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
     const blocked = new Map([["scout", new Set<ModelKey>(["x/cur"])]]);
     const logs: string[] = [];
     const out = output("x", "cur");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -340,15 +341,14 @@ describe("applyPreemptiveSkip — blocked_models", () => {
       createLogger({ minLevel: "info", write: (line) => logs.push(line) }),
       blocked,
     );
-    const redirected = logs
-      .map((line) => JSON.parse(line))
-      .find((e) => e.event === "preemptive.redirected");
-    expect(redirected).toMatchObject({
-      from: "x/cur",
-      to: "a/one",
-      agent: "scout",
-      reason: "blocked",
-    });
+    expect(applied).toEqual({ from: "x/cur", to: "a/one", reason: "blocked" });
+    // The event itself logs in handleChatMessage once the redirect is
+    // applied — not in the routing step.
+    expect(
+      logs
+        .map((line) => JSON.parse(line))
+        .some((e) => e.event === "preemptive.redirected"),
+    ).toBe(false);
   });
 });
 
@@ -373,12 +373,12 @@ describe("applyPreemptiveSkip — return to original model", () => {
     return logs.map((line) => JSON.parse(line));
   }
 
-  test("recovered original returns: redirect, depth reset, fallback.recovered", () => {
+  test("recovered original returns: redirect, depth reset, descriptor", () => {
     const store = fallenBackStore();
     const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
     const logs: string[] = [];
     const out = output("b", "two");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -391,15 +391,16 @@ describe("applyPreemptiveSkip — return to original model", () => {
     expect(state.originalModel).toBe("a/one");
     expect(state.fallbackDepth).toBe(0);
     expect(state.lastFallbackAt).toBe(0);
-    const recovered = events(logs).find(
-      (e) => e.event === "fallback.recovered",
-    );
-    expect(recovered).toMatchObject({
-      sessionId: "s1",
-      agent: "scout",
+    expect(applied).toEqual({
       from: "b/two",
       to: "a/one",
+      reason: "recovered",
     });
+    // handleChatMessage logs fallback.recovered once the redirect is
+    // applied — V2 may still reject the switchModel this descriptor feeds.
+    expect(events(logs).some((e) => e.event === "fallback.recovered")).toBe(
+      false,
+    );
   });
 
   test("original still in cooldown → no return, session stays on the fallback", () => {
@@ -408,7 +409,7 @@ describe("applyPreemptiveSkip — return to original model", () => {
     const chains = new Map<string, ModelKey[]>([["scout", ["a/one", "b/two"]]]);
     const logs: string[] = [];
     const out = output("b", "two");
-    applyPreemptiveSkip(
+    const applied = applyPreemptiveSkip(
       { sessionId: "s1", agentName: "scout", output: out },
       store,
       chains,
@@ -418,6 +419,7 @@ describe("applyPreemptiveSkip — return to original model", () => {
     expect(out.message.model).toEqual({ providerID: "b", modelID: "two" });
     expect(store.sessions.get("s1").currentModel).toBe("b/two");
     expect(store.sessions.get("s1").fallbackDepth).toBe(1);
+    expect(applied).toBeNull();
     expect(events(logs).some((e) => e.event === "fallback.recovered")).toBe(
       false,
     );

@@ -141,7 +141,16 @@ Under OpenCode 2 the plugin context replaces the client argument:
   the request model, so the bookkeeping keeps naming the rung that really
   serves. The return shares one admission predicate with every redirect
   scan — while the original is cooling, blocked, or vetoed, the session
-  stays on its current rung.
+  stays on its current rung. The host resolves the request model before the
+  context hook runs and never re-reads it, so the request whose hook
+  observed the original admissible still serves the fallback: the return
+  takes over from the next agent-loop request. That request's model is
+  therefore what `lastServedModel` records for every context hook — a
+  model-less failure (TTFT timeout) on it cools the fallback that served,
+  never the recovered original. Redirect and recovery events log only after
+  `switchModel` resolves; a rejected switch logs
+  `routing.redirect_apply_failed` and no `preemptive.redirected` or
+  `fallback.recovered` event.
 - `ctx.session.hook("retry")` is the single classified failure entrance,
   replacing the `session.error` / `session.status` / `message.updated` event
   paths. When OMR owns recovery (a chain exists and the exhaustion guard

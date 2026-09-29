@@ -44,14 +44,17 @@ Recovery details:
 - **Sub-agent aware**: a failing sub-agent is marked unhealthy and the parent's
   replacement hits the preemptive redirect path instead of a mid-turn replay.
 - **Return to the original model**: when the original model's cooldown
-  expires, the next request OMR routes for the session serves on the original
-  again — on OpenCode 1 at the next user turn, on OpenCode 2 at the next
-  agent-loop request (applied through `switchModel`). The return passes the
-  same admission as every redirect: while the original is cooling, blocked,
-  or vetoed by the availability snapshot or the family constraint, the
-  session stays on its current rung. A return logs `fallback.recovered` and
-  resets the fallback depth; a model you select yourself is still a manual
-  change and becomes the new original.
+  expires, OMR returns the session to the original — on OpenCode 1 at the
+  next user turn; on OpenCode 2 the hook that observes the original
+  admissible applies the return through `switchModel`, and the next
+  agent-loop request serves on it (the host fixes a request's model before
+  the hook runs and never re-reads it, so the request in flight still serves
+  the fallback). The return passes the same admission as every redirect:
+  while the original is cooling, blocked, or vetoed by the availability
+  snapshot or the family constraint, the session stays on its current rung.
+  A return logs `fallback.recovered` once the switch is applied and resets
+  the fallback depth; a model you select yourself is still a manual change
+  and becomes the new original.
 - **Fail-soft**: when every alternative is blocked or cooling, the plugin logs
   `preemptive.no_allowed_model` and leaves the selection unchanged rather than
   killing the session.

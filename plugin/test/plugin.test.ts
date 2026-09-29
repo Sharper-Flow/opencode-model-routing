@@ -359,7 +359,14 @@ describe("handleChatMessage", () => {
   });
 
   test("return to a recovered original redirects the arriving fallback (V1 chat.message path)", async () => {
-    const ctx = ctxWithChain(["a/one", "b/two"]);
+    const logs: string[] = [];
+    const ctx = createPluginContext({
+      logger: createLogger({
+        minLevel: "info",
+        write: (line) => logs.push(line),
+      }),
+    });
+    ctx.chains.set("scout", ["a/one", "b/two"]);
     const state = ctx.store.sessions.get("s1");
     state.currentModel = "b/two";
     state.originalModel = "a/one";
@@ -376,6 +383,18 @@ describe("handleChatMessage", () => {
     expect(state.currentModel).toBe("a/one");
     expect(state.fallbackDepth).toBe(0);
     expect(state.lastFallbackAt).toBe(0);
+    // V1 applies the redirect by mutating the output model, so the recovery
+    // event logs at once — no switch can still reject it.
+    const recovered = logs
+      .map((line) => JSON.parse(line))
+      .find((e) => e.event === "fallback.recovered");
+    expect(recovered).toMatchObject({
+      sessionId: "s1",
+      agent: "scout",
+      from: "b/two",
+      to: "a/one",
+      reason: "recovered",
+    });
     ctx.ttft.clear("s1");
   });
 });
