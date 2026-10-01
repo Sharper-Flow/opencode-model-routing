@@ -33,6 +33,21 @@ process.env.OMR_LOG_FILE = "";
 // tests that assume a cold store.
 process.env.OPENCODE_MODEL_ROUTING_COOLDOWN = "/dev/null/omr-test-isolation";
 
+// Same isolation principle for the host-wide live-session registry. A test
+// that needs a registry builds one over its own temp dir; the default must
+// never point at the operator's real
+// ~/.local/share/opencode-model-routing/live-sessions state.
+process.env.OPENCODE_MODEL_ROUTING_LIVE_SESSIONS_DIR =
+  "/dev/null/omr-test-isolation";
+
+// Same isolation for the quota-provider-state cache the first-turn router
+// reads (cache-only). Unset, it falls back to the REAL
+// ~/.cache/opencode/quota-provider-state/, whose live zero-remaining
+// boundaries would veto router candidates based on the operator's actual
+// quota. A nonexistent path reads as absent → null boundary → no veto.
+// Router tests that exercise quota filtering inject their own quotaRead.
+process.env.OPENCODE_QUOTA_PROVIDER_STATE_DIR = "/dev/null/omr-test-isolation";
+
 // Same isolation principle for the Claude Max availability snapshot. Unset,
 // it falls back to the REAL ~/.config/opencode-claude-max/availability.json,
 // whose live state (e.g. `unavailable` during a real exhaustion window)

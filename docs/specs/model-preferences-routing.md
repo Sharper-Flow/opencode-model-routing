@@ -120,6 +120,30 @@ orchestration); only the integration boundary differs.
 The TypeScript runtime targets the OpenCode plugin server API, which passes a
 main `@opencode-ai/sdk` client in `PluginInput.client`.
 
+### V1 first-turn child router
+
+The V1 `chat.message` hook routes only child sessions for agents with a
+plugin-tuple `router` block. OMR joins text parts up to 8,000 characters and
+asks Jev (`typesafe/jev-1.13`) for one closed `low | medium | high | extreme`
+grade. That grade selects the agent's ordered `router.tiers[grade]` list.
+OMR picks the first candidate that passes `isModelAdmissible`, has no fresh
+zero-remaining quota boundary, and whose provider is below its
+`provider_session_caps` entry in the shared live-session registry.
+
+The router runs once per session. A successful pick replaces
+`output.message.model` and sets `SessionState.currentModel`, `originalModel`,
+and `routedModel`. Later turns re-assert the pick while it remains admissible;
+the existing cooldown fallback and recovery logic owns later model changes.
+The host-wide registry stores one atomically written JSON entry per busy
+session and counts only entries whose process is alive and whose timestamp is
+less than 30 minutes old. Every V1 and V2 session contributes to the registry.
+
+Any Jev, quota, or registry fault leaves the configured model unchanged and
+lets the existing preemptive skip and fallback chain run. V2 does not route by
+task grade and logs `router.inactive_v2` once during setup. The OpenCode 1.18.34
+Task tool exposes no caller model parameter, so explicit caller-model
+detection is not applicable until the host provides that field.
+
 - `session.messages({ path: { id } })` returns `{ info: Message, parts: Part[] }[]`.
 - `session.prompt({ path: { id }, body })`, `session.abort({ path: { id } })`, and `session.revert({ path: { id }, body })` use the documented main SDK request envelope.
 - Streaming token arrival is `message.part.updated`; the session id is read from `event.properties.part.sessionID`.

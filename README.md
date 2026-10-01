@@ -241,6 +241,52 @@ Matching is exact-key only; patterns and model classes are intentionally not
 supported. `blocked_models` has no legacy `agent.options` path — it is
 plugin-tuple-only.
 
+### First-turn child routing
+
+A plugin-tuple `router` block designates an agent for first-turn routing. On
+the first V1 `chat.message` of a child session, OMR sends up to 8,000 prompt
+characters to Jev (`typesafe/jev-1.13`) through the OpenRouter Decisions API.
+The returned `low`, `medium`, `high`, or `extreme` grade selects that agent's
+ordered `router.tiers` list. OMR picks the first candidate that passes model
+admission, has no fresh zero-remaining quota boundary, and is below its
+provider's configured live-session cap.
+
+```jsonc
+{
+  "plugin": [
+    [
+      "/home/you/.local/share/opencode-model-routing/plugin",
+      {
+        "agents": {
+          "implement": {
+            "router": {
+              "tiers": {
+                "low": ["opencode-go/glm-5.3-flash"],
+                "medium": [
+                  "zai-coding-plan/glm-5.3",
+                  "commandcode/glm-5.3-flash",
+                ],
+                "high": ["anthropic/claude-sonnet-4-5"],
+                "extreme": ["openai/gpt-6.1-sol"],
+              },
+            },
+          },
+        },
+        "provider_session_caps": { "zai-coding-plan": 12 },
+        "jev": { "api_key_file": "~/.config/opencode/openrouter.key" },
+      },
+    ],
+  ],
+}
+```
+
+The key file is read at call time and is never passed through an environment
+variable. Routing runs once per child session. The selected model becomes the
+session's original model, and the existing cooldown, blocklist, availability,
+and family checks still apply. Jev, quota, or registry faults leave the
+configured model in place. The router is inactive on the V2 runtime. V2 still
+records live sessions for host-wide capacity counts.
+
 ### Legacy migration
 
 Legacy `agent.<name>.options.fallback_models` is still read as a migration

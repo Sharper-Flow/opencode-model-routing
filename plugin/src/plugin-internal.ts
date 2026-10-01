@@ -18,9 +18,13 @@ import {
   applyAvailabilityPreflight,
   claudeUnavailableVeto,
 } from "./availability/preflight.ts";
-import { readAvailabilitySnapshot } from "./availability/snapshot.ts";
+import {
+  readAvailabilitySnapshot,
+  type AvailabilitySnapshotV1,
+} from "./availability/snapshot.ts";
 import {
   resolveProviderReportedBoundary,
+  readFreshQuotaBoundary,
   type QuotaBoundaryResolver,
 } from "./availability/quota-state.ts";
 import { loadFallbackChains } from "./config/loader.ts";
@@ -39,17 +43,28 @@ import {
   type ReplayTail,
 } from "./replay/orchestrator.ts";
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
-import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
+import {
+  isModelAdmissible,
+  resolveFallbackModel,
+} from "./resolution/fallback-resolver.ts";
 import { familyVetoFor } from "./resolution/family.ts";
+import { gradeTaskComplexity } from "./routing/jev-client.ts";
+import {
+  getLiveRegistryDir,
+  LiveSessionRegistry,
+} from "./routing/live-registry.ts";
+import { routeFirstTurn, type RouterRuntime } from "./routing/router.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
 import {
   defaultConfig,
   type ErrorCategory,
+  type JevConfig,
   type ModelKey,
   type PluginConfig,
   type ReplayResult,
+  type RouterTiers,
 } from "./types.ts";
 import { isRecord, messageInfo, unwrapSdkData } from "./utils/type-guards.ts";
 
@@ -100,6 +115,25 @@ export interface PluginContext {
   config: PluginConfig;
   logger: Logger;
   pluginOptions?: unknown;
+  // Per-agent router tier lists from the plugin tuple
+  // (agents.<name>.router.tiers). Same in-place-reload lifecycle as
+  // `blocked`. Presence designates the agent for the first-turn router.
+  routers: Map<string, RouterTiers>;
+  // Global providerID → positive concurrent-session cap
+  // (provider_session_caps). Same lifecycle as `routers`.
+  providerSessionCaps: Map<string, number>;
+  // Jev classifier config (jev.api_key_file) from the plugin tuple.
+  jev?: JevConfig;
+  // Host-wide live-session registry (one file per busy session under the
+  // OMR state dir). Wired by both runtime composition roots so every
+  // session on the host is counted; undefined on bare createPluginContext
+  // (unit-test seam) so handler unit tests never touch the filesystem.
+  registry?: LiveSessionRegistry;
+  // First-turn router runtime (Jev grading + cache-only quota reads).
+  // Wired ONLY by createPluginHooks — the OpenCode 1 chat.message path.
+  // Under the V2 runtime it stays undefined, so the router is inactive
+  // there by construction and setupV2Plugin logs that once.
+  router?: RouterRuntime;
   // Provider-reported quota boundary resolver. Undefined by default so
   // nothing spawns on the test path; createPluginHooks (the production
   // composition root) wires the real consumer, and handleFailureSignal
@@ -237,6 +271,8 @@ export function createPluginContext(
     blocked: new Map(),
     families: new Map(),
     familyDisjoint: new Set(),
+    routers: new Map(),
+    providerSessionCaps: new Map(),
     config: merged,
     logger,
     pluginOptions: opts.pluginOptions,
@@ -257,6 +293,12 @@ interface ChatMessageInputShape {
 }
 interface ChatMessageOutputShape {
   message: { model?: { providerID: string; modelID: string } };
+  // The user-turn parts the OpenCode 1 chat.message hook delivers beside
+  // the message envelope (verified against the installed 1.18.34 host:
+  // trigger("chat.message", {...}, {message, parts})). The first-turn
+  // router joins the text parts into the graded prompt; the shape stays
+  // unknown here and is read defensively downstream.
+  parts?: unknown;
 }
 
 function hasFunction(record: Record<string, unknown>, key: string): boolean {
@@ -465,6 +507,94 @@ async function buildFamilyVeto(
   return veto;
 }
 
+/**
+ * routeChildSession gates and runs the first-turn router (V1 chat.message
+ * path only — ctx.router is wired only by createPluginHooks).
+ *
+ * Eligibility, in order: the runtime wiring exists; the agent carries a
+ * plugin-tuple router block (presence designates the agent); and the
+ * session has not routed yet (D2 route-once). The `routed` flag is set
+ * before the first await, so one session can never grade twice even when
+ * two turns race in the same process. An undesignated agent returns
+ * silently — that is today's behavior for every session, not a routing
+ * decision, and it emits no router.decision line. A designated session
+ * always produces exactly one structured router.decision line, on the pick
+ * or on the fail-open reason.
+ *
+ * After the first turn, the stored pick is re-asserted while it stays
+ * admissible: the host re-derives the agent's configured model every turn,
+ * and without the re-assertion OMR would read every later turn as a manual
+ * model change and drop the pick. Route-once governs grading, not
+ * persistence — later moves still belong to the existing cooldown fallback
+ * and the PR #16 revert (D2).
+ */
+async function routeChildSession(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+  agentName: string | null,
+  output: ChatMessageOutputShape,
+  snapshot: AvailabilitySnapshotV1 | null,
+  familyVeto: ((key: ModelKey) => boolean) | undefined,
+): Promise<void> {
+  const router = ctx.router;
+  if (!router) return;
+  const state = ctx.store.sessions.get(sessionId);
+  const tiers = agentName ? ctx.routers.get(agentName) : undefined;
+  if (!tiers) return;
+  const hookModel = output.message.model;
+  if (!hookModel) return;
+  const arrivingKey =
+    `${hookModel.providerID}/${hookModel.modelID}` as ModelKey;
+  if (state.routed) {
+    const pick = state.routedModel;
+    if (
+      pick &&
+      pick !== arrivingKey &&
+      isModelAdmissible(
+        pick,
+        ctx.store.health,
+        agentName ? ctx.blocked.get(agentName) : undefined,
+        claudeUnavailableVeto(snapshot) ?? undefined,
+        familyVeto,
+      )
+    ) {
+      const slash = pick.indexOf("/");
+      output.message.model = {
+        providerID: pick.slice(0, slash),
+        modelID: pick.slice(slash + 1),
+      };
+      state.currentModel = pick;
+      state.originalModel = pick;
+      ctx.logger.debug("router.reapplied", {
+        sessionId,
+        from: arrivingKey,
+        to: pick,
+      });
+    }
+    return;
+  }
+  state.routed = true;
+  const isSubagent = await detectSubagent(sessionId, client, ctx.store);
+  await routeFirstTurn({
+    sessionId,
+    agentName,
+    isSubagent,
+    output,
+    parts: output.parts,
+    store: ctx.store,
+    tiers,
+    providerSessionCaps: ctx.providerSessionCaps,
+    runtime: router,
+    registry: ctx.registry,
+    blocked: agentName ? ctx.blocked.get(agentName) : undefined,
+    unavailable: undefined,
+    familyVeto,
+    snapshot,
+    logger: ctx.logger,
+  });
+}
+
 export async function handleChatMessage(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -532,13 +662,28 @@ export async function handleChatMessage(
   // leaves routing unchanged (with a warn event for the latter two).
   const familyVeto = await buildFamilyVeto(ctx, client, sessionId, agentName);
 
-  // Availability preflight: consume one descriptor-validated snapshot per
-  // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
-  // Anthropic/Claude selection to the first healthy configured non-Anthropic
-  // chain entry before dispatch — no Claude child attempt starts on confirmed
-  // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
-  // snapshot → null → no-op; non-Anthropic selections are never touched.
+  // Availability snapshot: read once per turn, BEFORE the first-turn router,
+  // so a router candidate passes the same availability veto the preflight
+  // and preemptive skip apply below.
   const snapshot = readAvailabilitySnapshot();
+
+  // First-turn router (V1 chat.message path): grades a designated child
+  // session's prompt with Jev and rewrites output.message.model to the
+  // picked candidate BEFORE the availability preflight and preemptive skip.
+  // Those two still run on the routed pick, so cooldown, blocklist, family,
+  // and availability checks apply after the pick exactly as before. Any
+  // router fault fails open upstream: the model is untouched and this
+  // sequence is byte-identical to the pre-router behavior.
+  await routeChildSession(
+    ctx,
+    client,
+    sessionId,
+    agentName,
+    output,
+    snapshot,
+    familyVeto,
+  );
+
   const availabilityRedirect = applyAvailabilityPreflight(
     { sessionId, agentName, output, snapshot },
     ctx.store,
@@ -658,6 +803,12 @@ export async function handleChatMessage(
       logRedirectEvents();
       state.lastServedModel = servedKey;
     }
+    // Live-session registry (D4): every turn start records this host's
+    // busy session — routed or not, main or child — so every OpenCode
+    // process counts the provider load this session contributes. The
+    // entry lands after the routing decisions, so it names the model that
+    // will actually serve.
+    ctx.registry?.upsert(sessionId, servedKey);
   }
 
   // Arm the TTFT timer for this round. Cleared when the first token arrives
@@ -1117,10 +1268,16 @@ export async function handleEvent(
     case "session.status": {
       const sessionId = props.sessionID ?? props.sessionId ?? "";
       if (!sessionId) return;
+      const status = props.status;
+      // An idle status ends the busy window: drop the live-registry entry
+      // before any failure classification (an idle status is not a failure).
+      if (status?.type === "idle") {
+        ctx.registry?.remove(sessionId);
+        return;
+      }
       // Structural first (P33): typed action.reason on retry status events is
       // an Effect Schema field; prefer it over lossy text-pattern matching.
       // Map definition lives at REASON_TO_CATEGORY near the top of this file.
-      const status = props.status;
       let category: ReturnType<typeof classifyRetryStatusText> = null;
       const reason = status?.action?.reason;
       if (status?.type === "retry" && reason) {
@@ -1196,13 +1353,19 @@ export async function handleEvent(
       }
       return;
     }
-    case "session.idle":
-      // Idle is informational; nothing to mutate. Recovery detection lives
-      // here in production but is out of scope for v1 tests.
+    case "session.idle": {
+      // The session stopped consuming provider concurrency: drop its
+      // live-registry entry so sibling processes stop counting it.
+      const idleSessionId = props.sessionID ?? props.sessionId ?? "";
+      if (idleSessionId) ctx.registry?.remove(idleSessionId);
       return;
+    }
     case "session.deleted": {
       const sessionId = props.sessionID ?? props.sessionId ?? "";
-      if (sessionId) ctx.store.failures.clearSession(sessionId);
+      if (sessionId) {
+        ctx.store.failures.clearSession(sessionId);
+        ctx.registry?.remove(sessionId);
+      }
       return;
     }
     default:
@@ -1220,6 +1383,15 @@ export interface PluginHookDeps {
   // Test seam for the quota-boundary consumer. Production omits it and
   // gets PRODUCTION_QUOTA_BOUNDARY.
   quotaBoundary?: QuotaBoundaryResolver;
+  // Test seam for the host-wide live-session registry. Production omits it
+  // and gets a registry on the default OMR state dir. Both composition
+  // roots wire a registry so every session on the host is counted.
+  registry?: LiveSessionRegistry;
+  // Test seam for the first-turn router runtime (Jev grading + quota
+  // reads). Production omits it and gets the real Jev client plus the
+  // cache-only quota-boundary read. V1 only — the V2 setup never wires a
+  // router runtime.
+  router?: RouterRuntime;
 }
 
 /**
@@ -1241,6 +1413,17 @@ export function applyLoadedChains(
   for (const [key, family] of loaded.families) ctx.families.set(key, family);
   ctx.familyDisjoint.clear();
   for (const name of loaded.familyDisjoint) ctx.familyDisjoint.add(name);
+  // First-turn router config: designated agents, provider caps, and the
+  // Jev key file. Same in-place lifecycle as the maps above — a re-delivery
+  // cannot leave a stale designation behind for an agent whose router block
+  // disappeared. ctx.router (the runtime wiring) is NOT touched here: it is
+  // owned by the composition roots.
+  ctx.routers.clear();
+  for (const [name, tiers] of loaded.routers) ctx.routers.set(name, tiers);
+  ctx.providerSessionCaps.clear();
+  for (const [provider, cap] of loaded.providerSessionCaps)
+    ctx.providerSessionCaps.set(provider, cap);
+  ctx.jev = loaded.jev;
   for (const w of loaded.warnings)
     ctx.logger.warn("loader.warning", { message: w });
   ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });
@@ -1271,6 +1454,18 @@ export async function createPluginHooks(
     logger,
     quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
   });
+  // V1 runtime wiring: the live-session registry (both runtimes count
+  // sessions; this is the V1 root) and the first-turn router runtime. The
+  // grade closure reads ctx.jev at call time so a config reload that
+  // replaces the Jev key file takes effect without re-wiring.
+  ctx.registry = deps.registry ?? new LiveSessionRegistry(getLiveRegistryDir());
+  ctx.router = deps.router ?? {
+    grade: (taskText: string) =>
+      ctx.jev
+        ? gradeTaskComplexity(taskText, { apiKeyFile: ctx.jev.apiKeyFile })
+        : Promise.resolve(null),
+    quotaRead: (modelKey: ModelKey) => readFreshQuotaBoundary(modelKey),
+  };
 
   return {
     "chat.message": async (input: unknown, output: unknown) => {
@@ -1788,6 +1983,12 @@ export async function setupV2Plugin(
   applyLoadedChains(ctx, loadFallbackChains(undefined, logger, host.options));
   const client = createV2OrchestratorClient(host.session);
   ctx.replayTail = createV2ReplayTail(host.session);
+  // The live-session registry runs under V2 too: every busy session on the
+  // host counts toward provider caps, whichever runtime drives it. The
+  // first-turn router itself stays inactive under V2 — ctx.router is never
+  // wired here — and that inactivity logs exactly once, at setup.
+  ctx.registry = deps.registry ?? new LiveSessionRegistry(getLiveRegistryDir());
+  ctx.logger.info("router.inactive_v2", { runtime: "v2" });
 
   await host.session.hook("context", (event: unknown) =>
     handleV2Context(ctx, client, host.session, event),

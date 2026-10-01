@@ -879,7 +879,7 @@ describe("plugin event hook boundary", () => {
     });
 
     await callRuntimeChatMessage(
-      hooks,
+      hooks as never,
       { sessionID: "s1" },
       { message: { model: { providerID: 7, modelID: "one" } } },
     );
@@ -1224,7 +1224,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
     // Establish a/one as the serving model for the session first.
     await callRuntimeChatMessage(
-      hooks,
+      hooks as never,
       { sessionID: "s1" },
       {
         message: { model: { providerID: "a", modelID: "one" } },
@@ -1258,7 +1258,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
 
     const output = { message: { model: { providerID: "a", modelID: "one" } } };
     await callRuntimeChatMessage(
-      hooks,
+      hooks as never,
       { sessionID: "s2", agent: "adv" },
       output,
     );
@@ -1511,7 +1511,7 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
 
     // Establish a/one as the active model, then fail it with rate_limit.
     await callRuntimeChatMessage(
-      hooks,
+      hooks as never,
       { sessionID: "s1" },
       {
         message: { model: { providerID: "a", modelID: "one" } },
@@ -1674,5 +1674,222 @@ describe("cooldown attribution to the message's own model", () => {
 
     expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
     expect(ctx.store.sessions.get("s1").lastServedModel).toBe("a/one");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// First-turn router wiring (V1 chat.message path). createPluginHooks is the
+// V1 composition root: it wires the live-session registry and the router
+// runtime, and the Hooks.config callback installs the tuple's router block,
+// provider caps, and Jev config.
+// ---------------------------------------------------------------------------
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createPluginHooks } from "../src/plugin-internal.ts";
+import { LiveSessionRegistry } from "../src/routing/live-registry.ts";
+import type { JevGradeResult } from "../src/types.ts";
+
+function routerTmpDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "omr-router-wiring-"));
+}
+
+const ROUTER_PLUGIN_OPTIONS = {
+  agents: {
+    implement: {
+      router: {
+        tiers: {
+          medium: ["prov-a/one", "prov-b/two"],
+          extreme: ["openai/gpt-6.1-sol"],
+        },
+      },
+    },
+  },
+  provider_session_caps: { "prov-a": 1 },
+  jev: { api_key_file: "/nonexistent/omr-wiring.key" },
+};
+
+function gradedRouterRuntime(grades: JevGradeResult["grade"][] = ["medium"]) {
+  return {
+    grade: async () => ({
+      grade: grades.shift() ?? "medium",
+      probabilities: {},
+      confidence: 0.9,
+      usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.0001 },
+      responseModel: "typesafe/jev-1.13-20260917",
+    }),
+    quotaRead: () => null,
+  };
+}
+
+describe("first-turn router — createPluginHooks wiring", () => {
+  test("production wiring grades a designated child through the tuple config", async () => {
+    const dir = routerTmpDir();
+    const registry = new LiveSessionRegistry(path.join(dir, "live-sessions"));
+    const hooks = await createPluginHooks(
+      {
+        client: new MockClient({
+          sessionInfo: { parentID: "p1", agent: "implement" },
+        }),
+      } as never,
+      ROUTER_PLUGIN_OPTIONS,
+      { registry, router: gradedRouterRuntime() },
+    );
+    await (hooks as HooksWithConfig).config?.({});
+
+    const output = {
+      message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.3" } },
+      parts: [{ type: "text", text: "Implement the parser fix" }],
+    };
+    await callRuntimeChatMessage(
+      hooks as never,
+      { sessionID: "s1", agent: "implement" },
+      output,
+    );
+
+    expect(output.message.model).toEqual({
+      providerID: "prov-a",
+      modelID: "one",
+    });
+    // The live-session registry recorded the serving model for the host.
+    expect(registry.countByProvider("prov-a")).toBe(1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a provider at its cap redirects the pick to the next candidate", async () => {
+    const dir = routerTmpDir();
+    const registry = new LiveSessionRegistry(path.join(dir, "live-sessions"));
+    registry.upsert("busy-sibling", "prov-a/one");
+    const hooks = await createPluginHooks(
+      {
+        client: new MockClient({
+          sessionInfo: { parentID: "p1", agent: "implement" },
+        }),
+      } as never,
+      ROUTER_PLUGIN_OPTIONS,
+      { registry, router: gradedRouterRuntime() },
+    );
+    await (hooks as HooksWithConfig).config?.({});
+
+    const output = {
+      message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.3" } },
+      parts: [{ type: "text", text: "Implement the parser fix" }],
+    };
+    await callRuntimeChatMessage(
+      hooks as never,
+      { sessionID: "s1", agent: "implement" },
+      output,
+    );
+    expect(output.message.model).toEqual({
+      providerID: "prov-b",
+      modelID: "two",
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("without a readable Jev key file the production router fails open", async () => {
+    const dir = routerTmpDir();
+    const registry = new LiveSessionRegistry(path.join(dir, "live-sessions"));
+    const hooks = await createPluginHooks(
+      {
+        client: new MockClient({
+          sessionInfo: { parentID: "p1", agent: "implement" },
+        }),
+      } as never,
+      ROUTER_PLUGIN_OPTIONS,
+      { registry },
+    );
+    await (hooks as HooksWithConfig).config?.({});
+
+    const output = {
+      message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.3" } },
+      parts: [{ type: "text", text: "Implement the parser fix" }],
+    };
+    await callRuntimeChatMessage(
+      hooks as never,
+      { sessionID: "s1", agent: "implement" },
+      output,
+    );
+    // jev.api_key_file points at a nonexistent path: gradeTaskComplexity
+    // resolves null and the configured model stands.
+    expect(output.message.model).toEqual({
+      providerID: "zai-coding-plan",
+      modelID: "glm-5.3",
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("config reload that drops the router block undesignates the agent", async () => {
+    const dir = routerTmpDir();
+    const registry = new LiveSessionRegistry(path.join(dir, "live-sessions"));
+    const pluginOptions = structuredClone(ROUTER_PLUGIN_OPTIONS);
+    let graded = 0;
+    const hooks = await createPluginHooks(
+      {
+        client: new MockClient({
+          sessionInfo: { parentID: "p1", agent: "implement" },
+        }),
+      } as never,
+      pluginOptions,
+      {
+        registry,
+        router: {
+          grade: async () => {
+            graded += 1;
+            return null;
+          },
+          quotaRead: () => null,
+        },
+      },
+    );
+    await (hooks as HooksWithConfig).config?.({});
+    delete (pluginOptions.agents.implement as { router?: unknown }).router;
+    const configHook = (hooks as HooksWithConfig).config!;
+    await configHook({}); // reload with no router block
+
+    const output = {
+      message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.3" } },
+      parts: [{ type: "text", text: "Implement the parser fix" }],
+    };
+    await callRuntimeChatMessage(
+      hooks as never,
+      { sessionID: "s1", agent: "implement" },
+      output,
+    );
+    expect(graded).toBe(0);
+    expect(output.message.model).toEqual({
+      providerID: "zai-coding-plan",
+      modelID: "glm-5.3",
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("idle removes the session's live-registry entry", async () => {
+    const dir = routerTmpDir();
+    const registry = new LiveSessionRegistry(path.join(dir, "live-sessions"));
+    const hooks = await createPluginHooks(
+      { client: new MockClient({ sessionInfo: {} }) } as never,
+      ROUTER_PLUGIN_OPTIONS,
+      { registry },
+    );
+    await (hooks as HooksWithConfig).config?.({});
+    const output = {
+      message: { model: { providerID: "zai-coding-plan", modelID: "glm-5.3" } },
+    };
+    await callRuntimeChatMessage(
+      hooks as never,
+      { sessionID: "s1", agent: "scout" },
+      output,
+    );
+    expect(registry.countByProvider("zai-coding-plan")).toBe(1);
+    await callRuntimeEvent(hooks as never, {
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "s1" },
+      },
+    });
+    expect(registry.countByProvider("zai-coding-plan")).toBe(0);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
