@@ -58,6 +58,72 @@
           "openai/gpt-5.6-sol": "openai"
         }
       ]
+    },
+    "router": {
+      "type": "object",
+      "description": "Per-agent first-turn router designation (plugin tuple `agents.<name>.router`). Presence designates the agent: on the first chat.message of a child session dispatched to this agent, the prompt is graded low | medium | high | extreme and the grade selects `tiers.<grade>` — the ordered candidate list the router walks. A grade with no tier entry fails open to the agent's configured model. Only `tiers` is read; any other member is ignored.",
+      "additionalProperties": false,
+      "properties": {
+        "tiers": {
+          "type": "object",
+          "description": "Ordered candidate lists per grade. Each list is walked in order; the first candidate that passes model admission (cooldown, blocklist, availability veto, family veto), has no fresh zero-remaining quota boundary, and whose provider is below its provider_session_caps entry becomes the session's model.",
+          "additionalProperties": false,
+          "properties": {
+            "low": { "$ref": "#/$defs/routerTierList" },
+            "medium": { "$ref": "#/$defs/routerTierList" },
+            "high": { "$ref": "#/$defs/routerTierList" },
+            "extreme": { "$ref": "#/$defs/routerTierList" }
+          },
+          "examples": [
+            {
+              "low": ["opencode-go/glm-5.3-flash"],
+              "medium": ["zai-coding-plan/glm-5.3"],
+              "high": ["anthropic/claude-sonnet-4-5"],
+              "extreme": ["openai/gpt-6.1-sol", "commandcode/glm-5.3-flash"]
+            }
+          ]
+        }
+      }
+    },
+    "provider_session_caps": {
+      "type": "object",
+      "description": "Global map of providerID → maximum concurrent live sessions for the first-turn router (plugin tuple level, beside `agents`). Counts come from the host-wide live-session registry — one file per busy session across every OpenCode process on the host — so a new dispatch skips a provider already at its cap. Per provider because plan concurrency is per account. A candidate whose provider has no entry here is never cap-filtered.",
+      "additionalProperties": { "type": "integer", "minimum": 1 },
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*$" },
+      "maxProperties": 16,
+      "examples": [
+        {
+          "zai-coding-plan": 12,
+          "commandcode": 6
+        }
+      ]
+    },
+    "jev": {
+      "type": "object",
+      "description": "Jev classifier configuration (plugin tuple level). The OpenRouter API key is read from `api_key_file` at call time; it never travels through an environment variable. Absent or invalid config fails every routing decision open to the agent's configured model — no Jev call is made.",
+      "additionalProperties": false,
+      "properties": {
+        "api_key_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to a file holding the OpenRouter API key (leading `~/` is expanded). Trailing whitespace is trimmed."
+        }
+      },
+      "required": ["api_key_file"],
+      "examples": [{ "api_key_file": "~/.config/opencode/openrouter.key" }]
+    }
+  },
+
+  "$defs": {
+    "routerTierList": {
+      "type": "array",
+      "description": "Ordered `provider/model` candidate list for one router grade. Up to 8 entries, same key pattern as fallback_models.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*/[A-Za-z0-9_:/-]+(\\.[A-Za-z0-9_:/-]+)*$"
+      },
+      "maxItems": 8,
+      "uniqueItems": true
     }
   },
 

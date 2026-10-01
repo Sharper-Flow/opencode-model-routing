@@ -48,6 +48,15 @@ export interface SessionState {
   // usually transient (assistant turn still streaming), so each scan
   // re-attempts resolution.
   parentModelKey?: ModelKey;
+  // First-turn router bookkeeping (V1 chat.message path). True once the
+  // router has run for this session, whether it picked a model or failed
+  // open — route-once semantics (D2): the session is graded on its first
+  // turn only, and later turns never grade again.
+  routed?: boolean;
+  // The model the router picked for this session. Re-asserted on later
+  // turns while it stays admissible, so the pick holds for the session
+  // even though the host re-derives the configured model every turn.
+  routedModel?: ModelKey;
 }
 
 export function newSessionState(): SessionState {

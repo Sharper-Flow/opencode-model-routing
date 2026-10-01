@@ -17,7 +17,12 @@
 
 import type { Logger } from "../logging/logger.ts";
 import { isRecord } from "../utils/type-guards.ts";
-import type { ModelKey } from "../types.ts";
+import type {
+  JevConfig,
+  ModelKey,
+  RouterGrade,
+  RouterTiers,
+} from "../types.ts";
 
 // Mirrors `items.pattern` in schema/fallback-schema.json. Validation is
 // inline (no JSON-Schema runtime dependency) — both the Go side and this
@@ -40,6 +45,24 @@ export const maxBlocklistLength = 16;
 // fleet.
 export const maxFamilyMapEntries = 64;
 
+// Bound for the global `provider_session_caps` map. The map covers the
+// providers named in the designated agents' router tiers; anything larger is
+// a misconfiguration, not a fleet.
+export const maxProviderSessionCapsEntries = 16;
+
+// Closed grade-key set for `router.tiers`. The router grades low | medium |
+// high | extreme; any other key is dropped with a warning.
+export const ROUTER_GRADE_KEYS: readonly RouterGrade[] = [
+  "low",
+  "medium",
+  "high",
+  "extreme",
+] as const;
+
+// Provider-id pattern: the ModelKey prefix before the first slash (the same
+// first-char discipline as the model-key pattern).
+export const providerIdPattern = /^[a-z0-9][a-z0-9-]*$/;
+
 export interface AgentConfigShape {
   // What OpenCode's parsed AgentConfig actually looks like at runtime is
   // permissive — we read defensively via `any`.
@@ -59,12 +82,18 @@ export interface PluginOptionsShape {
       fallback_models?: unknown;
       blocked_models?: unknown;
       family_disjoint_from_parent?: unknown;
+      router?: unknown;
     }
   >;
   // Global model-key → family map (model_families). Flat and closed, the
   // same shape class as cooldownMsByCategory: one typed map, not a rule
   // language.
   model_families?: unknown;
+  // Global providerID → positive concurrent-session cap for the first-turn
+  // router. Per provider because plan concurrency is per account.
+  provider_session_caps?: unknown;
+  // Jev classifier configuration (api_key_file).
+  jev?: unknown;
 }
 
 export interface LoaderResult {
@@ -81,6 +110,16 @@ export interface LoaderResult {
   // this set get the family constraint; routing for every other agent is
   // untouched.
   familyDisjoint: Set<string>;
+  // Per-agent router tier lists, keyed by agent name. Presence designates
+  // the agent for the first-turn router. Only plugin-tuple agents with at
+  // least one valid tier appear here.
+  routers: Map<string, RouterTiers>;
+  // ProviderID → positive concurrent-session cap, from plugin tuple
+  // `provider_session_caps`.
+  providerSessionCaps: Map<string, number>;
+  // Jev classifier config, from plugin tuple `jev`. Undefined when absent or
+  // invalid (the router then fails open with no Jev call).
+  jev: JevConfig | undefined;
   warnings: string[];
 }
 
@@ -111,6 +150,74 @@ function validateModelKeyEntries(
   return { keys: out, dropped };
 }
 
+// Parse one agent's `router` block into RouterTiers. Closed shape: only
+// `tiers` is read, and `tiers` carries only the four grade keys. A block
+// with no valid tier does not designate the agent (null + dropped count).
+function parseRouterTiers(raw: unknown): {
+  tiers: RouterTiers;
+  dropped: number;
+} | null {
+  if (!isRecord(raw)) return null;
+  const tiersRaw = raw.tiers;
+  if (!isRecord(tiersRaw)) return null;
+  const tiers: RouterTiers = {};
+  let dropped = 0;
+  for (const [key, value] of Object.entries(tiersRaw)) {
+    if (!ROUTER_GRADE_KEYS.includes(key as RouterGrade)) {
+      dropped += 1;
+      continue;
+    }
+    if (!Array.isArray(value)) {
+      dropped += 1;
+      continue;
+    }
+    const { keys, dropped: invalid } = validateModelKeyEntries(
+      value,
+      maxChainLength,
+    );
+    dropped += invalid;
+    if (keys.length > 0) {
+      tiers[key as RouterGrade] = keys;
+    }
+  }
+  return { tiers, dropped };
+}
+
+// Parse `provider_session_caps`: providerID → positive finite integer.
+function parseProviderSessionCaps(raw: unknown): {
+  caps: Map<string, number>;
+  dropped: number;
+} {
+  const caps = new Map<string, number>();
+  if (!isRecord(raw)) return { caps, dropped: 1 };
+  let dropped = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (caps.size >= maxProviderSessionCapsEntries) {
+      dropped += 1;
+      continue;
+    }
+    if (
+      !providerIdPattern.test(key) ||
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value <= 0
+    ) {
+      dropped += 1;
+      continue;
+    }
+    caps.set(key, value);
+  }
+  return { caps, dropped };
+}
+
+// Parse `jev`: { api_key_file: non-empty string }.
+function parseJevConfig(raw: unknown): JevConfig | null {
+  if (!isRecord(raw)) return null;
+  const file = raw.api_key_file;
+  if (typeof file !== "string" || file.trim().length === 0) return null;
+  return { apiKeyFile: file };
+}
+
 /**
  * loadFallbackChains reads per-agent chains and blocked-model sets from the
  * OpenCode config hook input. Returns a Map keyed by agent name with
@@ -131,14 +238,18 @@ export function loadFallbackChains(
   const blocked = new Map<string, Set<ModelKey>>();
   const families = new Map<ModelKey, string>();
   const familyDisjoint = new Set<string>();
+  const routers = new Map<string, RouterTiers>();
+  const providerSessionCaps = new Map<string, number>();
+  let jev: JevConfig | undefined;
   const warnings: string[] = [];
 
-  const pluginAgents =
+  const tupleOptions =
     pluginOptions &&
     typeof pluginOptions === "object" &&
     !Array.isArray(pluginOptions)
-      ? (pluginOptions as PluginOptionsShape).agents
+      ? (pluginOptions as PluginOptionsShape)
       : undefined;
+  const pluginAgents = tupleOptions?.agents;
   if (pluginAgents && typeof pluginAgents === "object") {
     for (const [name, agent] of Object.entries(pluginAgents)) {
       if (!name || !name.trim()) continue;
@@ -185,6 +296,64 @@ export function loadFallbackChains(
       if (agent.family_disjoint_from_parent === true) {
         familyDisjoint.add(name);
       }
+
+      // First-turn router designation. Presence of a valid `router` block
+      // designates the agent; a block that parses to no valid tier is
+      // reported and ignored (the agent stays unrouted).
+      if (agent.router !== undefined) {
+        const parsed = parseRouterTiers(agent.router);
+        if (!parsed) {
+          const msg = `plugin option agent '${name}' has a malformed router block; ignored`;
+          warnings.push(msg);
+          logger?.warn("loader.invalid_router_block", { agent: name });
+        } else {
+          if (parsed.dropped > 0) {
+            const msg = `plugin option agent '${name}' router block has ${parsed.dropped} invalid entr${parsed.dropped === 1 ? "y" : "ies"}; skipped`;
+            warnings.push(msg);
+            logger?.warn("loader.invalid_plugin_option_entries", {
+              agent: name,
+              count: parsed.dropped,
+              field: "router.tiers",
+            });
+          }
+          if (Object.keys(parsed.tiers).length > 0) {
+            routers.set(name, parsed.tiers);
+          } else {
+            const msg = `plugin option agent '${name}' router block has no valid tiers; agent not designated`;
+            warnings.push(msg);
+            logger?.warn("loader.empty_router_tiers", { agent: name });
+          }
+        }
+      }
+    }
+  }
+
+  // provider_session_caps is a sibling of `agents` at the plugin tuple
+  // level, so it parses even when no agents block is present.
+  if (tupleOptions && tupleOptions.provider_session_caps !== undefined) {
+    const { caps, dropped } = parseProviderSessionCaps(
+      tupleOptions.provider_session_caps,
+    );
+    for (const [provider, cap] of caps) providerSessionCaps.set(provider, cap);
+    if (dropped > 0) {
+      const msg = `plugin option provider_session_caps has ${dropped} invalid entr${dropped === 1 ? "y" : "ies"}; skipped`;
+      warnings.push(msg);
+      logger?.warn("loader.invalid_plugin_option_entries", {
+        count: dropped,
+        field: "provider_session_caps",
+      });
+    }
+  }
+
+  if (tupleOptions && tupleOptions.jev !== undefined) {
+    const parsed = parseJevConfig(tupleOptions.jev);
+    if (!parsed) {
+      const msg =
+        "plugin option jev must be { api_key_file: <non-empty path> }; ignored";
+      warnings.push(msg);
+      logger?.warn("loader.invalid_jev_config");
+    } else {
+      jev = parsed;
     }
   }
 
@@ -237,7 +406,16 @@ export function loadFallbackChains(
   const root = (cfg ?? {}) as ConfigShape;
   const agents = root.agent ?? {};
   if (typeof agents !== "object" || agents === null) {
-    return { chains, blocked, families, familyDisjoint, warnings };
+    return {
+      chains,
+      blocked,
+      families,
+      familyDisjoint,
+      routers,
+      providerSessionCaps,
+      jev,
+      warnings,
+    };
   }
 
   for (const [name, agent] of Object.entries(agents)) {
@@ -292,5 +470,14 @@ export function loadFallbackChains(
     }
   }
 
-  return { chains, blocked, families, familyDisjoint, warnings };
+  return {
+    chains,
+    blocked,
+    families,
+    familyDisjoint,
+    routers,
+    providerSessionCaps,
+    jev,
+    warnings,
+  };
 }

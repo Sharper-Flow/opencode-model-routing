@@ -65,6 +65,43 @@ export interface PluginConfig {
   cooldownMsByCategory?: Partial<Record<ErrorCategory, number>>;
 }
 
+// First-turn router (V1 chat.message path). Jev grades a designated child
+// session's prompt into one of these closed grades; the grade selects the
+// agent's `router.tiers[grade]` candidate list. The union is closed: a grade
+// outside it fails the routing decision open (no model change).
+export type RouterGrade = "low" | "medium" | "high" | "extreme";
+
+export interface JevGradeResult {
+  grade: RouterGrade;
+  probabilities: Partial<Record<RouterGrade, number>>;
+  confidence: number | null;
+  usage: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    costUsd: number | null;
+  };
+  responseModel: string | null;
+}
+
+// Per-agent candidate lists for the first-turn router, beside fallback_models
+// in the plugin tuple (`agents.<name>.router.tiers`). Presence of `router`
+// designates the agent. Ordered per grade: the router picks the first
+// candidate that passes admission, quota, and capacity filters. A grade with
+// no tier entry fails open to the configured model.
+export interface RouterTiers {
+  low?: ModelKey[];
+  medium?: ModelKey[];
+  high?: ModelKey[];
+  extreme?: ModelKey[];
+}
+
+// Jev classifier configuration at the plugin tuple level
+// (`jev.api_key_file`). The file holds an OpenRouter API key read at call
+// time; the key never passes through an environment variable.
+export interface JevConfig {
+  apiKeyFile: string;
+}
+
 export interface ReplayResult {
   success: boolean;
   fallbackModel?: ModelKey;
