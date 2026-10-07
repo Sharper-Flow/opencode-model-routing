@@ -88,6 +88,31 @@ function quotaErrorEvent(sessionId: string): EventInputShape {
   };
 }
 
+// The failing request's open assistant row (agent = the sub-agent), as the
+// host persists it before processing. Model-less quota signals attribute
+// through it.
+function assistantRowEvent(
+  sessionId: string,
+  model: ModelKey = PRIMARY,
+  messageId = "assistant-1",
+): EventInputShape {
+  const [providerID, ...rest] = model.split("/");
+  return {
+    type: "message.updated",
+    properties: {
+      sessionID: sessionId,
+      info: {
+        id: messageId,
+        sessionID: sessionId,
+        role: "assistant",
+        agent: AGENT,
+        providerID,
+        modelID: rest.join("/"),
+      },
+    },
+  };
+}
+
 // Full sub-agent setup: chat.message (sets currentModel) + sub-agent session info.
 async function setupSubagent(
   ctx: ReturnType<typeof createPluginContext>,
@@ -104,6 +129,8 @@ async function setupSubagent(
     },
   };
   await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
+  // The request's assistant row opens (persisted before processing).
+  await handleEvent(ctx, client, assistantRowEvent(sessionId));
   return client;
 }
 
@@ -220,9 +247,10 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
     });
     await handleEvent(ctx, client, quotaErrorEvent(sessionId));
 
-    // DEFECT: currentModel was never set → `if (current)` is false →
-    // cooldown NOT marked. This is the gap that explains the production
-    // same-process re-spawn hitting the exhausted model.
+    // No chat.message fired AND no assistant row is open → the model-less
+    // signal is unattributed (no open call to attribute through): no
+    // cooldown, no rotation. Historic gap: same-process re-spawns hit the
+    // exhausted model when nothing marked it unhealthy.
     expect(ctx.store.health.isInCooldown(PRIMARY)).toBe(false);
     expect(fs.existsSync(cooldownPath)).toBe(false);
   });
@@ -254,8 +282,10 @@ describe("Sub-agent fallover flow (AC3 diagnostic reproduction)", () => {
     const state = ctx.store.sessions.get(sessionId);
     expect(state.currentModel).toBe(PRIMARY);
 
-    // Now messages are committed (sub-agent ran) → session.error fires.
+    // Now messages are committed (sub-agent ran) → the request's row opens
+    // → session.error fires.
     client.setMessages(messagesWithAgent(AGENT));
+    await handleEvent(ctx, client, assistantRowEvent(sessionId));
     await handleEvent(ctx, client, quotaErrorEvent(sessionId));
 
     // Cooldown should be marked because currentModel was set by the fix.

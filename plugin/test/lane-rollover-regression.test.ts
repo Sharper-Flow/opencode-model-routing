@@ -130,6 +130,31 @@ async function serveOn(
   await handleChatMessage(ctx, client, { sessionID: sessionId }, output);
 }
 
+// The failing request's open assistant row (agent = the session agent), as
+// the host persists it before processing. Model-less quota signals
+// attribute through it.
+function assistantRowEvent(
+  sessionId: string,
+  model: ModelKey,
+  messageId = "assistant-1",
+): EventInputShape {
+  const [providerID, ...rest] = model.split("/");
+  return {
+    type: "message.updated",
+    properties: {
+      sessionID: sessionId,
+      info: {
+        id: messageId,
+        sessionID: sessionId,
+        role: "assistant",
+        agent: AGENT,
+        providerID,
+        modelID: rest.join("/"),
+      },
+    },
+  };
+}
+
 describe("lane rollover regression (2026-09-18 incident)", () => {
   test("D1: subagent failure skips the anthropic rung the snapshot marks dead", async () => {
     writeUnavailableSnapshot();
@@ -139,6 +164,7 @@ describe("lane rollover regression (2026-09-18 incident)", () => {
     const sessionId = "ses_rev_d1";
     const client = subagentClient(sessionId);
     await serveOn(ctx, client, sessionId, SOL);
+    await handleEvent(ctx, client, assistantRowEvent(sessionId, SOL));
 
     await handleEvent(
       ctx,
@@ -185,6 +211,7 @@ describe("lane rollover regression (2026-09-18 incident)", () => {
     const sessionId = "ses_rev_d2";
     const client = subagentClient(sessionId);
     await serveOn(ctx, client, sessionId, OPUS);
+    await handleEvent(ctx, client, assistantRowEvent(sessionId, OPUS));
 
     await handleEvent(
       ctx,
@@ -212,6 +239,7 @@ describe("lane rollover regression (2026-09-18 incident)", () => {
     const sessionId = "ses_rev_d3";
     const client = subagentClient(sessionId);
     await serveOn(ctx, client, sessionId, SOL);
+    await handleEvent(ctx, client, assistantRowEvent(sessionId, SOL));
 
     await handleEvent(
       ctx,
@@ -233,6 +261,7 @@ describe("lane rollover regression (2026-09-18 incident)", () => {
     const sessionId = "ses_rev_nosnap";
     const client = subagentClient(sessionId);
     await serveOn(ctx, client, sessionId, SOL);
+    await handleEvent(ctx, client, assistantRowEvent(sessionId, SOL));
 
     await handleEvent(
       ctx,

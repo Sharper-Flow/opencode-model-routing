@@ -35,6 +35,33 @@ function userMsg(id = "msg-1", agent = "scout") {
   return { info: { id, role: "user", agent }, parts: [] };
 }
 
+// The assistant row the host persists BEFORE processing a request. Under
+// the attribution contract a model-less failure signal (session.error /
+// session.status retry) attributes through these open rows — tests that
+// expect a dispatch from a model-less signal must open one first.
+function assistantRowEvent(
+  sessionId: string,
+  messageId = "assistant-1",
+  agent = "scout",
+  model = "a/one",
+) {
+  const [providerID, ...rest] = model.split("/");
+  return {
+    type: "message.updated",
+    properties: {
+      sessionID: sessionId,
+      info: {
+        id: messageId,
+        sessionID: sessionId,
+        role: "assistant" as const,
+        agent,
+        providerID,
+        modelID: rest.join("/"),
+      },
+    },
+  };
+}
+
 async function createRuntimeHooks(
   client: MockClient,
   config: unknown,
@@ -88,6 +115,9 @@ describe("quota boundary wiring", () => {
       return Date.now() + 40 * 3_600_000;
     };
     const client = new MockClient({ messages: [userMsg()] });
+    // The failing request's assistant row is open (provider "a"); the
+    // status's action.provider token matches it.
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
 
     await handleEvent(ctx, client, {
       type: "session.status",
@@ -98,7 +128,7 @@ describe("quota boundary wiring", () => {
           message: "any",
           action: {
             reason: "free_tier_limit",
-            provider: "x",
+            provider: "a",
             title: "t",
             message: "m",
             label: "l",
@@ -342,6 +372,7 @@ describe("handleEvent — session.error", () => {
     const client = new MockClient({
       messages: [userMsg()],
     });
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {
@@ -391,6 +422,7 @@ describe("handleEvent — session.error", () => {
       sessionInfo: { id: "s1", parentID: "ses_parent_abc" },
     });
 
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {
@@ -430,7 +462,9 @@ describe("handleEvent — session.error", () => {
       sessionInfo: { id: "s1", parentID: "ses_parent_abc" },
     });
 
-    // First error: detects subagent via session.get.
+    // First error: detects subagent via session.get. The session's open
+    // assistant row attributes the model-less signal.
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {
@@ -474,6 +508,7 @@ describe("handleEvent — session.error", () => {
       sessionInfo: { id: "s1" },
     });
 
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {
@@ -497,6 +532,7 @@ describe("handleEvent — session.error", () => {
       getError: new Error("network failure"),
     });
 
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {
@@ -537,6 +573,9 @@ describe("handleEvent — durable assistant error reconciliation", () => {
           id: "assistant-1",
           sessionID: "s1",
           role: "assistant",
+          agent: "scout",
+          providerID: "a",
+          modelID: "one",
           error: apiError,
         },
       },
@@ -559,6 +598,9 @@ describe("handleEvent — durable assistant error reconciliation", () => {
           id: "assistant-1",
           sessionID: "s1",
           role: "assistant",
+          agent: "scout",
+          providerID: "a",
+          modelID: "one",
           error: apiError,
         },
       },
@@ -641,6 +683,9 @@ describe("handleEvent — durable assistant error reconciliation", () => {
           id: "assistant-1",
           sessionID: "s1",
           role: "assistant",
+          agent: "scout",
+          providerID: "a",
+          modelID: "one",
           error: apiError,
         },
       },
@@ -670,6 +715,9 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
         id: "assistant-1",
         sessionID: "s1",
         role: "assistant" as const,
+        agent: "scout",
+        providerID: "a",
+        modelID: "one",
         error: {
           name: "APIError",
           data: { statusCode: 429, isRetryable: false, message: "rate limit" },
@@ -684,7 +732,9 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
       status: {
         type: "retry" as const,
         message: "rate limited",
-        action: { reason: "account_rate_limit", provider: "test" },
+        // Provider token matches the open assistant-1 row (provider "a")
+        // so the model-less status copy attributes to the same call.
+        action: { reason: "account_rate_limit", provider: "a" },
       },
     },
   });
@@ -698,6 +748,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("session.error then message.updated dispatches exactly once", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, errorEvent());
     await handleEvent(ctx, client, messageEvent());
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -712,6 +763,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("session.status retry then terminal session.error dispatches exactly once", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, statusEvent());
     await handleEvent(ctx, client, errorEvent());
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -719,6 +771,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("session.status retry then message.updated dispatches exactly once", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, statusEvent());
     await handleEvent(ctx, client, messageEvent());
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -733,6 +786,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("concurrent error and message delivery dispatches exactly once", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await Promise.all([
       handleEvent(ctx, client, errorEvent()),
       handleEvent(ctx, client, messageEvent()),
@@ -754,6 +808,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("accepted category reaches persistent health cooldown unchanged", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, errorEvent());
     expect(ctx.store.health.get("a/one" as ModelKey).lastCategory).toBe(
       "rate_limit",
@@ -762,6 +817,7 @@ describe("handleEvent — exactly-once failure reconciliation", () => {
 
   test("session.deleted clears failure registry", async () => {
     const { ctx, client } = setup();
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, errorEvent());
     expect(ctx.store.failures.size).toBeGreaterThan(0);
     await handleEvent(ctx, client, {
@@ -822,6 +878,10 @@ describe("plugin event hook boundary", () => {
       },
     });
 
+    // The failing request's assistant row is open before the error fires.
+    await callRuntimeEvent(hooks, {
+      event: assistantRowEvent("s1"),
+    });
     await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",
@@ -881,6 +941,7 @@ describe("handleEvent — session.status retry", () => {
     const client = new MockClient({
       messages: [userMsg()],
     });
+    await handleEvent(ctx, client, assistantRowEvent("s1"));
     await handleEvent(ctx, client, {
       type: "session.status",
       properties: {
@@ -914,6 +975,7 @@ describe("handleEvent — session.status retry", () => {
       const client = new MockClient({
         messages: [userMsg()],
       });
+      await handleEvent(ctx, client, assistantRowEvent("s1"));
       await handleEvent(ctx, client, {
         type: "session.status",
         properties: {
@@ -923,7 +985,7 @@ describe("handleEvent — session.status retry", () => {
             message: "any text — ignored when action.reason is present",
             action: {
               reason: "account_rate_limit",
-              provider: "opencode-go",
+              provider: "a",
               title: "Go limit reached",
               message: "Usage limit reached.",
               label: "open settings",
@@ -940,6 +1002,7 @@ describe("handleEvent — session.status retry", () => {
       const client = new MockClient({
         messages: [userMsg()],
       });
+      await handleEvent(ctx, client, assistantRowEvent("s1"));
       await handleEvent(ctx, client, {
         type: "session.status",
         properties: {
@@ -949,7 +1012,7 @@ describe("handleEvent — session.status retry", () => {
             message: "any",
             action: {
               reason: "free_tier_limit",
-              provider: "opencode-go",
+              provider: "a",
               title: "Free limit reached",
               message: "Subscribe to Go.",
               label: "subscribe",
@@ -966,6 +1029,7 @@ describe("handleEvent — session.status retry", () => {
       const client = new MockClient({
         messages: [userMsg()],
       });
+      await handleEvent(ctx, client, assistantRowEvent("s1"));
       await handleEvent(ctx, client, {
         type: "session.status",
         properties: {
@@ -976,7 +1040,7 @@ describe("handleEvent — session.status retry", () => {
               "5 hour usage limit reached. It will reset in 5 hours 23 minutes.",
             action: {
               reason: "some_future_reason_not_yet_mapped",
-              provider: "x",
+              provider: "a",
               title: "t",
               message: "m",
               label: "l",
@@ -1090,6 +1154,17 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     };
   }
 
+  // The assistant row for the failing request, delivered through the
+  // runtime event hook. `model` defaults to a primary outside the chain so
+  // the rotation still lands on chain[0] after the failing model cools.
+  function usageAssistantRow(
+    sessionID = "s1",
+    agent = "adv",
+    model = "x/serving",
+  ) {
+    return { event: assistantRowEvent(sessionID, "assistant-1", agent, model) };
+  }
+
   test("config hook is registered on returned hooks", async () => {
     const hooks = await makeHooks(new MockClient());
     expect(typeof (hooks as HooksWithConfig).config).toBe("function");
@@ -1106,7 +1181,9 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
         adv: { options: { fallback_models: ["anthropic/claude", "z/glm"] } },
       },
     });
-    // Bus event arrives after config hook completed
+    // Bus event arrives after config hook completed. The failing request's
+    // assistant row (x/serving — a primary outside the chain) is open.
+    await callRuntimeEvent(hooks, usageAssistantRow());
     await callRuntimeEvent(hooks, { event: usageRetryEvent() });
     expect(client.callsTo("session.abort").length).toBe(1);
     const promptCalls = client.callsTo("session.prompt");
@@ -1125,7 +1202,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
       agents: { adv: { fallback_models: ["plugin/primary"] } },
     });
     await callConfig(hooks, {});
-
+    await callRuntimeEvent(hooks, usageAssistantRow());
     await callRuntimeEvent(hooks, { event: usageRetryEvent() });
 
     const promptCalls = client.callsTo("session.prompt");
@@ -1157,6 +1234,8 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     );
 
     // a/one fails → rotation must skip blocked b/two and land on c/three.
+    // The session's open assistant row carries the failing a/one.
+    await callRuntimeEvent(hooks, usageAssistantRow("s1", "adv", "a/one"));
     await callRuntimeEvent(hooks, { event: usageRetryEvent("s1") });
 
     const promptCalls = client.callsTo("session.prompt");
@@ -1195,7 +1274,9 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
       messages: [userMsg("msg-1", "adv")],
     });
     const hooks = await makeHooks(client);
-    // Fire event BEFORE config — codifies the ordering contract.
+    // The failing request's assistant row opens before any config arrives.
+    await callRuntimeEvent(hooks, usageAssistantRow());
+    // Fire failure event BEFORE config — codifies the ordering contract.
     // Chains are empty; handler must short-circuit cleanly (no abort, no prompt, no crash).
     await expect(
       callRuntimeEvent(hooks, { event: usageRetryEvent() }),
@@ -1234,6 +1315,7 @@ describe("createPluginHooks — Hooks.config lifecycle", () => {
     await callConfig(hooks, {
       agent: { adv: { options: { fallback_models: ["updated/model"] } } },
     });
+    await callRuntimeEvent(hooks, usageAssistantRow());
     await callRuntimeEvent(hooks, { event: usageRetryEvent() });
     // Fallback fires AND uses the UPDATED chain (not the initial one).
     // Without the model assertion, the test would pass even if the
@@ -1442,6 +1524,10 @@ describe("createPluginHooks — pluginOptions.cooldownMsByCategory plumbing", ()
         message: { model: { providerID: "a", modelID: "one" } },
       },
     );
+    // The failing request's assistant row carries the session's model.
+    await callRuntimeEvent(hooks, {
+      event: assistantRowEvent("s1", "assistant-1", "adv", "a/one"),
+    });
     await callRuntimeEvent(hooks, {
       event: {
         type: "session.error",

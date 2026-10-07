@@ -41,6 +41,7 @@ import {
 import { resolveAgentName } from "./resolution/agent-resolver.ts";
 import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
 import { familyVetoFor } from "./resolution/family.ts";
+import { InFlightCallTracker } from "./state/call-tracker.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { TtftRegistry } from "./ttft.ts";
@@ -86,6 +87,13 @@ export interface PluginContext {
   store: FallbackStore;
   ttft: TtftRegistry;
   guard: ExhaustionGuardRegistry;
+  // Per-session in-flight LLM call records, opened by assistant-row
+  // message.updated arrivals, closed by the row's terminal updates, and
+  // confirmed by chat.params. Model-less failure signals (session.status
+  // retry, session.error) attribute through these records — see
+  // handleFailureSignal. Bounded and per-process, same lifecycle as the
+  // rest of the closure state.
+  calls: InFlightCallTracker;
   chains: Map<string, ModelKey[]>;
   // Per-agent blocked-model sets from plugin tuple options
   // (agents.<name>.blocked_models). Same lifecycle as `chains`: populated
@@ -233,6 +241,7 @@ export function createPluginContext(
     ),
     ttft: new TtftRegistry(),
     guard: new ExhaustionGuardRegistry(),
+    calls: new InFlightCallTracker(),
     chains: new Map(),
     blocked: new Map(),
     families: new Map(),
@@ -665,6 +674,9 @@ export interface EventInputShape {
   properties?: {
     sessionID?: string;
     sessionId?: string;
+    // message.removed carries the removed row's id — closes the in-flight
+    // call record for a message that no longer exists.
+    messageID?: string;
     // Real OpenCode session.error payload shape — see classifier.ts
     // SessionErrorLike for the nested {name, data:{...}} contract.
     error?: {
@@ -696,12 +708,20 @@ export interface EventInputShape {
       sessionID?: string;
       sessionId?: string;
       role?: "user" | "assistant";
+      // Agent named on the persisted row. The host persists agent+model
+      // before processing a request (the main loop and compaction alike),
+      // so an incomplete assistant row's agent + providerID/modelID mark
+      // the call that is currently in flight.
+      agent?: string;
       // Assistant messages carry the model that produced them
       // (@opencode-ai/sdk AssistantMessage.modelID/providerID). Present on
       // message.updated; used to attribute the failure cooldown to the
       // message's own model.
       modelID?: string;
       providerID?: string;
+      // AssistantMessage.time — `completed` present means the call behind
+      // the row finished and its in-flight record closes.
+      time?: { created?: unknown; completed?: unknown };
       error?: SessionErrorLike;
     };
   };
@@ -743,6 +763,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
   const props = event.properties;
   if (!isOptionalString(props.sessionID) || !isOptionalString(props.sessionId))
     return false;
+  if (!isOptionalString(props.messageID)) return false;
   if (props.error !== undefined) {
     if (!isRecord(props.error)) return false;
     const error = props.error;
@@ -778,6 +799,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     if (!isOptionalString(info.id)) return false;
     if (!isOptionalString(info.sessionID) || !isOptionalString(info.sessionId))
       return false;
+    if (!isOptionalString(info.agent)) return false;
     if (
       info.role !== undefined &&
       info.role !== "user" &&
@@ -792,6 +814,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     }
     if (!isOptionalString(info.modelID) || !isOptionalString(info.providerID))
       return false;
+    if (info.time !== undefined && !isRecord(info.time)) return false;
   }
   return true;
 }
@@ -862,6 +885,18 @@ interface TypedFailureInput {
   // providerID/modelID). attemptFallback attributes the cooldown to it
   // instead of state.currentModel — see AttemptFallbackArgs.failedModel.
   failedModel?: ModelKey;
+  // Provider token from a model-less signal (session.status
+  // action.provider, session.error data.providerID). Never a ModelKey
+  // source on its own — only a filter over open in-flight call records.
+  providerHint?: string;
+  // Agent named by the signal itself (message.updated info.agent). When it
+  // differs from the session's tracked agent, the failure is isolated: the
+  // failing model is cooled but the parent session is not rotated.
+  attributedAgent?: string | null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 // Suppressed-entrance recovery: the guard fired because the session's
@@ -923,14 +958,49 @@ async function handleFailureSignal(
     return undefined;
   }
 
-  // Family correlation intentionally uses session+category rather than the
-  // mutable currentModel. attemptFallback advances currentModel before the
-  // terminal error/message update can arrive; including it would defeat the
-  // retry-status → terminal-error correlation validated in design review.
-  const familyKey = `${input.sessionId}\u0000${input.category}`;
+  // Attribution. Identity-carrying signals (message.updated info
+  // providerID/modelID, the V2 retry event model) name the failing model
+  // directly. Model-less signals (session.status retry, session.error)
+  // attribute through the open in-flight call records: a provider token on
+  // the signal must match the unique open call on that provider, or — with
+  // no token — exactly one open call must exist. Anything else is
+  // unattributed: log it and stop, with NO cooldown and NO rotation.
+  // Falling back to the session's last-served model here is exactly the
+  // 2026-10-07 misattribution (a pinned-compaction quota failure benching
+  // the healthy model serving the parent session). A provider token alone
+  // never becomes a ModelKey.
+  let failedModel = input.failedModel;
+  let messageId = input.messageId;
+  let attributedAgent = input.attributedAgent ?? null;
+  if (!failedModel) {
+    const attributed = ctx.calls.attribute(input.sessionId, input.providerHint);
+    if (!attributed) {
+      ctx.logger.warn("failure.unattributed", {
+        sessionId: input.sessionId,
+        source: input.source,
+        category: input.category,
+        providerHint: input.providerHint ?? null,
+        openCalls: ctx.calls.openCalls(input.sessionId).length,
+      });
+      return undefined;
+    }
+    failedModel = `${attributed.providerID}/${attributed.modelID}` as ModelKey;
+    messageId ??= attributed.messageId;
+    attributedAgent ??= attributed.agent;
+  }
+
+  // Family correlation uses session+category rather than the mutable
+  // currentModel (attemptFallback advances currentModel before the
+  // terminal error/message update can arrive; including it would defeat
+  // the retry-status → terminal-error correlation validated in design
+  // review). The attributed call's assistant message id joins the key so
+  // the model-less copy of one call cannot swallow the identity-carrying
+  // copy of a DIFFERENT call — copies of the same call (host retries
+  // included) still dedup to a single dispatch.
+  const familyKey = `${input.sessionId}\u0000${input.category}\u0000${messageId ?? ""}`;
   const identity = {
     sessionId: input.sessionId,
-    messageId: input.messageId,
+    messageId,
     fingerprint: input.fingerprint,
     familyKey,
   };
@@ -945,17 +1015,53 @@ async function handleFailureSignal(
     });
   }
 
-  if (ctx.ttft.has(input.sessionId)) ctx.ttft.clear(input.sessionId);
   ctx.logger.debug("failure.signal", {
     sessionId: input.sessionId,
-    messageId: input.messageId,
+    messageId,
     source: input.source,
     category: input.category,
+    failedModel,
     duplicate,
   });
   if (duplicate) return undefined;
 
   const agentName = await resolveAgentName(input.sessionId, client, ctx.store);
+
+  // Cross-agent isolation (the compaction case): the failing call belongs
+  // to a different agent inside this session than the tracked conversation
+  // agent. Cool the failing model under existing category rules and leave
+  // everything else untouched — no chain resolution, no replay tail
+  // (abort/revert/prompt), no parent state mutation, and the TTFT timer
+  // keeps running for the conversation's own call. The next use of the
+  // cooled model is handled by the existing preemptive redirect.
+  if (attributedAgent && agentName && attributedAgent !== agentName) {
+    ctx.logger.info("failure.isolated_cooldown", {
+      sessionId: input.sessionId,
+      agent: attributedAgent,
+      sessionAgent: agentName,
+      model: failedModel,
+      messageId: messageId ?? null,
+      reason: input.category,
+      source: input.source,
+    });
+    return await attemptFallback({
+      sessionId: input.sessionId,
+      reason: input.category,
+      chain: [],
+      client,
+      store: ctx.store,
+      config: ctx.config,
+      logger: ctx.logger,
+      failedModel,
+      cooldownOnly: true,
+      quotaBoundary: ctx.quotaBoundary,
+    });
+  }
+
+  // The failure belongs to the session's own conversation call — existing
+  // recovery runs unchanged. Clear the turn's TTFT timer: the call it was
+  // armed for has terminated.
+  if (ctx.ttft.has(input.sessionId)) ctx.ttft.clear(input.sessionId);
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
   // Blocklist follows agent identity: unresolved identity leaves it inactive.
   const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
@@ -975,7 +1081,7 @@ async function handleFailureSignal(
     config: ctx.config,
     logger: ctx.logger,
     isSubagent,
-    failedModel: input.failedModel,
+    failedModel,
     blocked,
     unavailableVeto:
       claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
@@ -1011,6 +1117,32 @@ export function sanitizeChatParamsOutput(output: unknown): void {
   delete output.options.fallback_models;
 }
 
+/**
+ * chat.params fires once per LLM request — compaction included — carrying
+ * {sessionID, agent, model}. Confirm the matching open in-flight call
+ * record: refresh its recency and let an agent-less record adopt the
+ * request's agent. Rows (message.updated) are the identity authority; this
+ * only confirms and enriches. Exported for direct unit testing.
+ */
+export function confirmOpenCallFromChatParams(
+  ctx: PluginContext,
+  input: unknown,
+): void {
+  if (!isRecord(input)) return;
+  const sessionId =
+    nonEmptyString(input.sessionID) ?? nonEmptyString(input.sessionId);
+  if (!sessionId) return;
+  const modelRaw = isRecord(input.model) ? input.model : undefined;
+  const providerID = nonEmptyString(modelRaw?.providerID);
+  // The Model type spells the id field `id`; `modelID` accepted as a
+  // defensive alias (chat.message uses that spelling).
+  const modelID =
+    nonEmptyString(modelRaw?.id) ?? nonEmptyString(modelRaw?.modelID);
+  if (!providerID || !modelID) return;
+  const agent = nonEmptyString(input.agent);
+  ctx.calls.confirm(sessionId, { agent, providerID, modelID });
+}
+
 export async function handleEvent(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -1032,6 +1164,10 @@ export async function handleEvent(
         sessionId,
         category,
         fingerprint: failureFingerprint(props.error),
+        // data.providerID is the session.error equivalent of
+        // status.action.provider: a provider token to match against open
+        // call records, never a ModelKey source on its own.
+        providerHint: nonEmptyString(props.error.data?.providerID),
       });
       return;
     }
@@ -1061,11 +1197,45 @@ export async function handleEvent(
           provider: status?.action?.provider ?? null,
           message: bounded(status?.message, 256),
         }),
+        // action.provider is a provider token for attributing the model-less
+        // signal to the unique open call on that provider — never a ModelKey
+        // source on its own.
+        providerHint: nonEmptyString(status?.action?.provider),
       });
       return;
     }
     case "message.updated": {
       const info = props.info;
+      // In-flight call tracking: the host persists the assistant row
+      // (agent + model) before processing the request, so an incomplete
+      // assistant row's arrival marks the call as open; the row's terminal
+      // updates (error persisted or time.completed set) close it.
+      if (info && info.role === "assistant" && info.id) {
+        const trackSessionId =
+          props.sessionID ??
+          props.sessionId ??
+          info.sessionID ??
+          info.sessionId ??
+          "";
+        if (trackSessionId) {
+          const completed = info.time?.completed !== undefined;
+          if (info.error || completed) {
+            ctx.calls.closeMessage(trackSessionId, info.id);
+          } else {
+            const providerID = nonEmptyString(info.providerID);
+            const modelID = nonEmptyString(info.modelID);
+            if (providerID && modelID) {
+              ctx.calls.open({
+                sessionId: trackSessionId,
+                messageId: info.id,
+                agent: nonEmptyString(info.agent) ?? null,
+                providerID,
+                modelID,
+              });
+            }
+          }
+        }
+      }
       if (!info || info.role !== "assistant" || !info.error) return;
       const sessionId =
         props.sessionID ??
@@ -1094,7 +1264,19 @@ export async function handleEvent(
         category,
         fingerprint: failureFingerprint(info.error),
         failedModel,
+        attributedAgent: nonEmptyString(info.agent) ?? null,
       });
+      return;
+    }
+    case "message.removed": {
+      // A removed row's call is over (revert, cleanup): its record closes
+      // so a later model-less signal cannot attribute to a call that no
+      // longer exists.
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      const messageId = props.messageID;
+      if (sessionId && messageId) {
+        ctx.calls.closeMessage(sessionId, messageId);
+      }
       return;
     }
     case "message.part.updated": {
@@ -1118,12 +1300,27 @@ export async function handleEvent(
       return;
     }
     case "session.idle":
-      // Idle is informational; nothing to mutate. Recovery detection lives
-      // here in production but is out of scope for v1 tests.
+      // Idle is informational for recovery, but the session loop drained:
+      // no call can still be in flight. Close the session's open records so
+      // a missed terminal row update cannot poison later attribution.
+      {
+        const sessionId = props.sessionID ?? props.sessionId ?? "";
+        if (sessionId) ctx.calls.completeSession(sessionId);
+      }
       return;
+    case "session.compacted": {
+      // Compaction finished: its agent's open rows close even if the
+      // terminal row update never surfaced.
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      if (sessionId) ctx.calls.completeAgent(sessionId, "compaction");
+      return;
+    }
     case "session.deleted": {
       const sessionId = props.sessionID ?? props.sessionId ?? "";
-      if (sessionId) ctx.store.failures.clearSession(sessionId);
+      if (sessionId) {
+        ctx.store.failures.clearSession(sessionId);
+        ctx.calls.completeSession(sessionId);
+      }
       return;
     }
     default:
@@ -1202,7 +1399,8 @@ export async function createPluginHooks(
     event: async (input: unknown) => {
       await handleEvent(ctx, opts.client, normalizeEventInput(input));
     },
-    "chat.params": async (_input: unknown, output: unknown) => {
+    "chat.params": async (input: unknown, output: unknown) => {
+      confirmOpenCallFromChatParams(ctx, input);
       sanitizeChatParamsOutput(output);
     },
     // OpenCode calls this hook after plugin init and BEFORE bus.subscribeAll(),

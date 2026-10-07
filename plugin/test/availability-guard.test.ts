@@ -18,6 +18,31 @@ function userMsg(id = "msg-1", agent = "scout") {
   return { info: { id, role: "user", agent }, parts: [] };
 }
 
+// The failing request's open assistant row. A model-less session.error
+// attributes through it (agent "scout" = the session agent → the failure is
+// the session's own conversation call → normal recovery).
+function assistantRowEvent(
+  sessionId: string,
+  model: ModelKey,
+  messageId = "assistant-1",
+) {
+  const slash = model.indexOf("/");
+  return {
+    type: "message.updated",
+    properties: {
+      sessionID: sessionId,
+      info: {
+        id: messageId,
+        sessionID: sessionId,
+        role: "assistant" as const,
+        agent: "scout",
+        providerID: model.slice(0, slash),
+        modelID: model.slice(slash + 1),
+      },
+    },
+  };
+}
+
 function freshUnavailableDoc(): Record<string, unknown> {
   const now = Date.now();
   return {
@@ -202,6 +227,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
     expect(ctx.guard.isSuppressed("s1")).toBe(false);
+    await handleEvent(
+      ctx,
+      client,
+      assistantRowEvent("s1", "anthropic/claude-sonnet-4-5"),
+    );
     await handleEvent(ctx, client, rateLimitError());
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -238,6 +268,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     absentSnapshot();
     const ctx = anthropicCtx();
     const client = new MockClient({ messages: [userMsg()] });
+    await handleEvent(
+      ctx,
+      client,
+      assistantRowEvent("s1", "anthropic/claude-sonnet-4-5"),
+    );
     await handleEvent(ctx, client, rateLimitError());
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -257,6 +292,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     });
     const ctx = anthropicCtx();
     const client = new MockClient({ messages: [userMsg()] });
+    await handleEvent(
+      ctx,
+      client,
+      assistantRowEvent("s1", "anthropic/claude-sonnet-4-5"),
+    );
     await handleEvent(ctx, client, rateLimitError());
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(ctx.guard.isSuppressed("s1")).toBe(false);
@@ -269,6 +309,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     process.env.OPENCODE_CLAUDE_MAX_AVAILABILITY = p;
     const ctx = anthropicCtx();
     const client = new MockClient({ messages: [userMsg()] });
+    await handleEvent(
+      ctx,
+      client,
+      assistantRowEvent("s1", "anthropic/claude-sonnet-4-5"),
+    );
     await handleEvent(ctx, client, rateLimitError());
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(ctx.guard.isSuppressed("s1")).toBe(false);
@@ -280,6 +325,7 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     ctx.chains.set("scout", ["z/glm-4.6", "openai/gpt-5"]);
     ctx.store.sessions.get("s1").currentModel = "z/glm-4.6";
     const client = new MockClient({ messages: [userMsg()] });
+    await handleEvent(ctx, client, assistantRowEvent("s1", "z/glm-4.6"));
     await handleEvent(ctx, client, rateLimitError());
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
@@ -315,6 +361,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     absentSnapshot();
     const ctx = anthropicCtx();
     const client = new MockClient({ messages: [userMsg()] });
+    await handleEvent(
+      ctx,
+      client,
+      assistantRowEvent("s1", "anthropic/claude-sonnet-4-5"),
+    );
     await handleEvent(ctx, client, {
       type: "session.error",
       properties: {

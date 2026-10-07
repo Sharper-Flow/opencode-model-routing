@@ -87,6 +87,13 @@ export interface AttemptFallbackArgs {
   // redirected to the next healthy chain entry via chat.message) and
   // return without recovering.
   isSubagent?: boolean;
+  // When true, the failure belongs to a different agent than the session's
+  // tracked agent (the compaction case): cool the failing model under
+  // existing category rules and stop. No chain resolution, no replay tail,
+  // no session state mutation — the parent session keeps its current rung,
+  // lastServedModel, fallbackDepth, and TTFT timer exactly as they were.
+  // Requires failedModel; used by handleFailureSignal's isolation branch.
+  cooldownOnly?: boolean;
   // Model the failure signal itself attributes the request to — the
   // message's own model when the signal carries a message (message.updated
   // info carries providerID/modelID). The cooldown applies to THIS model:
@@ -128,6 +135,33 @@ export interface AttemptFallbackArgs {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Cooldown duration for one failure: the per-category override when
+ * configured, otherwise the default cooldownMs — and, for the
+ * quota/rate-limit classes, a strictly-future provider-reported boundary
+ * replaces the constant when the resolver is wired and returns one.
+ */
+async function resolveCooldownMs(
+  config: PluginConfig,
+  reason: ErrorCategory,
+  cooldownTarget: ModelKey | null,
+  quotaBoundary?: QuotaBoundaryResolver,
+): Promise<number> {
+  let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
+  if (
+    cooldownTarget &&
+    quotaBoundary &&
+    (reason === "quota_exhausted" || reason === "rate_limit")
+  ) {
+    const boundary = await quotaBoundary(cooldownTarget);
+    const now = Date.now();
+    if (boundary !== null && boundary > now) {
+      cooldownMs = boundary - now;
+    }
+  }
+  return cooldownMs;
 }
 
 function errorSummary(err: unknown): string {
@@ -256,11 +290,6 @@ export async function attemptFallback(
       return { success: false, error: "dedup window" };
     }
 
-    if (chain.length === 0) {
-      logger.debug("fallback.skipped.empty_chain", { sessionId });
-      return { success: false, error: "no chain" };
-    }
-
     const state = store.sessions.get(sessionId);
     const current = state.currentModel;
     // Cooldown attribution — cool the model that actually served the
@@ -276,6 +305,36 @@ export async function attemptFallback(
     //      not skip serving it is the last-served model.
     const cooldownTarget = args.failedModel ?? state.lastServedModel ?? current;
 
+    // Cross-agent isolation (the compaction case): cool the failing model
+    // and stop before any chain work — the failing agent's call is not the
+    // session's conversation, so the parent's rung, depth, TTFT timer, and
+    // replay tail must stay untouched. Runs before the chain check on
+    // purpose: the failing agent (compaction) usually has no chain of its
+    // own, and "no chain" must not skip the cooldown.
+    if (args.cooldownOnly) {
+      const cooldownMs = await resolveCooldownMs(
+        config,
+        reason,
+        cooldownTarget ?? null,
+        args.quotaBoundary,
+      );
+      if (cooldownTarget) {
+        await store.health.cooldown(cooldownTarget, cooldownMs, reason);
+      }
+      logger.debug("fallback.isolated_cooldown", {
+        sessionId,
+        model: cooldownTarget,
+        reason,
+        cooldownMs,
+      });
+      return { success: true, isolatedCooldown: true };
+    }
+
+    if (chain.length === 0) {
+      logger.debug("fallback.skipped.empty_chain", { sessionId });
+      return { success: false, error: "no chain" };
+    }
+
     // Category-aware cooldown: prefer per-category override when configured,
     // otherwise fall through to the default cooldownMs. Applied uniformly to
     // the subagent-skip, full-recovery, AND exhausted paths — a quota_exhausted
@@ -285,26 +344,12 @@ export async function attemptFallback(
     // fallback. The exhausted path needs it too: the failed model stays
     // benched for every OTHER session sharing it (the cooldown store is
     // cross-session), so sibling lanes do not each rediscover the death.
-    let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
-    // Provider-reported boundary: for the quota/rate-limit classes the
-    // provider itself reports the exact reset boundary. When the resolver
-    // is wired (classified-failure dispatch only) and returns a fresh
-    // boundary strictly in the future, the cooldown runs until that
-    // boundary instead of the category constant. Null, a past boundary, or
-    // an unwired resolver each keep the constant — the constant remains the
-    // probe interval that re-discovers the death when no boundary is
-    // available.
-    if (
-      cooldownTarget &&
-      args.quotaBoundary &&
-      (reason === "quota_exhausted" || reason === "rate_limit")
-    ) {
-      const boundary = await args.quotaBoundary(cooldownTarget);
-      const now = Date.now();
-      if (boundary !== null && boundary > now) {
-        cooldownMs = boundary - now;
-      }
-    }
+    const cooldownMs = await resolveCooldownMs(
+      config,
+      reason,
+      cooldownTarget,
+      args.quotaBoundary,
+    );
     if (cooldownTarget) {
       // KD8 (validator finding #3): await cooldown persist settle before
       // dispatching the replacement spawn (or returning from any
