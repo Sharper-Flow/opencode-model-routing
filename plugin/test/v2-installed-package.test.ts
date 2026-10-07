@@ -14,7 +14,7 @@
 // no-duplicate-replay are discharged here at the package level; the live
 // binary-level verification lives in scripts/e2e-v2-runtime.sh.
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -28,8 +28,21 @@ interface Installed {
 
 // Pack + install once for the whole suite; the tarball step runs the
 // package's own prepack build, so the tested bytes are the shipped bytes.
+// The stage dir holds the packed tarball plus a full node_modules install
+// (~188 MB) on tmpfs, so every exit path must remove it: a failure inside
+// installPackage removes it before rethrowing, and afterAll removes it on
+// the success path.
 async function installPackage(): Promise<Installed> {
   const stage = mkdtempSync(path.join(tmpdir(), "omr-v2-install-"));
+  try {
+    return await installInto(stage);
+  } catch (err) {
+    rmSync(stage, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+async function installInto(stage: string): Promise<Installed> {
   const pack = Bun.spawnSync(
     ["npm", "pack", "--json", "--pack-destination", stage],
     {
@@ -89,6 +102,10 @@ async function installPackage(): Promise<Installed> {
 }
 
 const installed = await installPackage();
+
+afterAll(() => {
+  installed.cleanup();
+});
 
 describe("installed V2 package", () => {
   test("installs with its runtime dependency and loads the default-export module", async () => {
