@@ -78,6 +78,13 @@ export interface ReplayResult {
   // parent's Task tool will spawn a replacement that hits preemptive
   // redirect instead.
   subagentSkipped?: boolean;
+  // True when the failure belonged to a different agent than the session's
+  // tracked agent (the compaction case): the failing model was cooled under
+  // existing category rules and NOTHING else happened — no chain advance,
+  // no replay tail, no session state mutation. The session keeps serving on
+  // its own model; the next use of the cooled model is handled by the
+  // existing preemptive redirect.
+  isolatedCooldown?: boolean;
 }
 
 // Default config values. PluginConfig type doc lists units; this object

@@ -136,11 +136,28 @@ describe("Production init path wires the provider-reported quota boundary", () =
     if (configHook) await configHook({});
 
     // Production ordering: a chat.message dispatch records the session's
-    // current model, then a classified failure consults the boundary for it.
+    // current model, the request's assistant row opens, then a classified
+    // failure consults the boundary for it.
     await hooks["chat.message"]?.(
       { sessionID: "s1", agent: "scout" },
       { message: { model: { providerID: "a", modelID: "one" } } },
     );
+    await hooks.event?.({
+      event: {
+        type: "message.updated",
+        properties: {
+          sessionID: "s1",
+          info: {
+            id: "assistant-1",
+            sessionID: "s1",
+            role: "assistant",
+            agent: "scout",
+            providerID: "a",
+            modelID: "one",
+          },
+        },
+      },
+    });
     await hooks.event?.({
       event: {
         type: "session.status",
