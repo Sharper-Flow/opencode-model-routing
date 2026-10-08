@@ -1805,6 +1805,7 @@ export async function handleV2RetrySignal(
     category,
     fingerprint,
     failedModel,
+    errorText: bounded(errorRaw?.message, 1024) ?? undefined,
   });
 
   if (!ownsRecovery) return;

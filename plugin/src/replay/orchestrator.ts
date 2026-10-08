@@ -161,7 +161,9 @@ async function resolveCooldownMs(
   let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
   if (reason === "quota_exhausted" || reason === "rate_limit") {
     const boundary =
-      cooldownTarget && quotaBoundary ? await quotaBoundary(cooldownTarget) : null;
+      cooldownTarget && quotaBoundary
+        ? await quotaBoundary(cooldownTarget)
+        : null;
     const now = Date.now();
     if (boundary === null) {
       const messageBoundary = parseMessageResetBoundary(errorText, now);
