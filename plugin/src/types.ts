@@ -63,6 +63,10 @@ export interface PluginConfig {
   // Note: Infinity is the programmatic sentinel only; RFC 8259 §6 forbids
   // Infinity in JSON numbers, so users cannot express it via opencode.jsonc.
   cooldownMsByCategory?: Partial<Record<ErrorCategory, number>>;
+  // Derived from user-supplied category constants that cap message-derived
+  // reset windows. Defaults are not included, so provider boundaries keep the
+  // seven-day parser ceiling unless a user sets a category in config or plugin options.
+  messageBoundaryCapsByCategory?: Partial<Record<ErrorCategory, number>>;
 }
 
 export interface ReplayResult {

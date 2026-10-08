@@ -6,6 +6,7 @@
 // prompt(next). Always releases the lock in `finally`.
 
 import type { QuotaBoundaryResolver } from "../availability/quota-state.ts";
+import { parseMessageResetBoundary } from "../detection/reset-boundary.ts";
 import type { Logger } from "../logging/logger.ts";
 import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { SessionState } from "../state/session-state.ts";
@@ -131,6 +132,12 @@ export interface AttemptFallbackArgs {
   // Host-specific replay tail (see ReplayTail). Undefined → the V1
   // abort → revert → prompt sequence runs unchanged.
   replayTail?: ReplayTail;
+  // Error text carried by the failing signal (bounded provider message plus
+  // responseBody, or the session.status retry text). For quota_exhausted /
+  // rate_limit failures whose provider-cache lookup yields no boundary, a
+  // reset boundary parsed from this text replaces the category constant as
+  // the cooldown expiry. Undefined on every other path.
+  errorText?: string;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -141,23 +148,36 @@ function defaultSleep(ms: number): Promise<void> {
  * Cooldown duration for one failure: the per-category override when
  * configured, otherwise the default cooldownMs — and, for the
  * quota/rate-limit classes, a strictly-future provider-reported boundary
- * replaces the constant when the resolver is wired and returns one.
+ * replaces the constant. Message-derived boundaries respect explicit user
+ * caps; provider-cache boundaries remain uncapped.
  */
 async function resolveCooldownMs(
   config: PluginConfig,
   reason: ErrorCategory,
   cooldownTarget: ModelKey | null,
   quotaBoundary?: QuotaBoundaryResolver,
+  errorText?: string,
 ): Promise<number> {
   let cooldownMs = config.cooldownMsByCategory?.[reason] ?? config.cooldownMs;
-  if (
-    cooldownTarget &&
-    quotaBoundary &&
-    (reason === "quota_exhausted" || reason === "rate_limit")
-  ) {
-    const boundary = await quotaBoundary(cooldownTarget);
+  if (reason === "quota_exhausted" || reason === "rate_limit") {
+    const boundary =
+      cooldownTarget && quotaBoundary
+        ? await quotaBoundary(cooldownTarget)
+        : null;
     const now = Date.now();
-    if (boundary !== null && boundary > now) {
+    if (boundary === null) {
+      const messageBoundary = parseMessageResetBoundary(errorText, now);
+      if (messageBoundary !== null && messageBoundary > now) {
+        const messageCooldownMs = messageBoundary - now;
+        const userCap = config.messageBoundaryCapsByCategory?.[reason];
+        cooldownMs =
+          typeof userCap === "number" &&
+          (Number.isFinite(userCap) || userCap === Number.POSITIVE_INFINITY) &&
+          userCap >= 0
+            ? Math.min(messageCooldownMs, userCap)
+            : messageCooldownMs;
+      }
+    } else if (boundary > now) {
       cooldownMs = boundary - now;
     }
   }
@@ -317,6 +337,7 @@ export async function attemptFallback(
         reason,
         cooldownTarget ?? null,
         args.quotaBoundary,
+        args.errorText,
       );
       if (cooldownTarget) {
         await store.health.cooldown(cooldownTarget, cooldownMs, reason);
@@ -349,6 +370,7 @@ export async function attemptFallback(
       reason,
       cooldownTarget,
       args.quotaBoundary,
+      args.errorText,
     );
     if (cooldownTarget) {
       // KD8 (validator finding #3): await cooldown persist settle before

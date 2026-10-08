@@ -1497,6 +1497,10 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
     expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.auth_error).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(60 * 60_000);
+    expect(ctx.config.messageBoundaryCapsByCategory).toEqual({
+      auth_error: 10 * 60_000,
+      rate_limit: 60 * 60_000,
+    });
   });
 
   test("no overrides supplied — default cooldownMsByCategory intact", () => {
