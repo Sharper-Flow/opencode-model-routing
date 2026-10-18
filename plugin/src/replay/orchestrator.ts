@@ -529,6 +529,12 @@ export async function attemptFallback(
     // prompt, identical to the pre-feature behaviour. Fallback must never block
     // on context enrichment.
     let promptParts: Part[] = convertPartsForPrompt(lastUser.parts);
+    if (lastUser.parts.length > 0 && promptParts.length === 0) {
+      // Reverting a subtask-only turn would discard its result and leave
+      // nothing to replay. Real provider errors still retain their cooldown.
+      logger.warn("fallback.no_replayable_parts", { sessionId, reason });
+      return { success: false, error: "no replayable parts" };
+    }
     if (config.preserveContext === true) {
       const summary = extractContextSummary(messages, lastUser.messageID);
       if (summary.length > 0) {

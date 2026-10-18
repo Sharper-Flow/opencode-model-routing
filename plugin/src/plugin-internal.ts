@@ -87,6 +87,8 @@ export interface PluginHooks {
 export interface PluginContext {
   store: FallbackStore;
   ttft: TtftRegistry;
+  // User rounds whose first conversation request has not dispatched yet.
+  ttftPending: Set<string>;
   guard: ExhaustionGuardRegistry;
   // Per-session in-flight LLM call records, opened by assistant-row
   // message.updated arrivals, closed by the row's terminal updates, and
@@ -249,6 +251,7 @@ export function createPluginContext(
       new CooldownStore(getCooldownPath(), { logger }),
     ),
     ttft: new TtftRegistry(),
+    ttftPending: new Set(),
     guard: new ExhaustionGuardRegistry(),
     calls: new InFlightCallTracker(),
     chains: new Map(),
@@ -500,6 +503,7 @@ export async function handleChatMessage(
   // guard so a next valid user turn can proceed (AC5). Any replay entrance
   // later this turn re-evaluates the snapshot and may re-record it.
   ctx.guard.clearTurn(sessionId);
+  ctx.ttftPending.add(sessionId);
 
   // Populate state.currentModel from the hook output BEFORE agentName-dependent
   // operations. If resolveAgentName fails (e.g. messages not yet committed for a
@@ -612,8 +616,8 @@ function armTtft(
 }
 
 // chat.message admits context-only/noReply and native-subtask messages too;
-// it does not prove a model call will follow. chat.params does. Compaction
-// requests must not replace the conversation's TTFT timer.
+// it does not prove a model call will follow. The first conversation request
+// consumes the pending round; later tool-loop requests never re-arm TTFT.
 export function handleChatParams(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -626,6 +630,7 @@ export function handleChatParams(
   if (!sessionId) return;
   const agentName = ctx.store.sessions.get(sessionId).agentName;
   if (chatInput.agent && agentName && chatInput.agent !== agentName) return;
+  if (!ctx.ttftPending.delete(sessionId)) return;
   armTtft(ctx, client, sessionId, chatInput.agent ?? agentName);
 }
 
@@ -1372,6 +1377,7 @@ export async function handleEvent(
       if (sessionId) {
         ctx.store.failures.clearSession(sessionId);
         ctx.calls.completeSession(sessionId);
+        ctx.ttftPending.delete(sessionId);
       }
       return;
     }
@@ -1736,6 +1742,7 @@ export async function handleV2Context(
       });
     },
   );
+  ctx.ttftPending.delete(event.sessionID);
   armTtft(
     ctx,
     client,

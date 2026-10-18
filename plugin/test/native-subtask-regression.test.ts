@@ -70,7 +70,12 @@ describe("native subtask TTFT and replay", () => {
       expect(arm).toHaveBeenCalledTimes(1);
     } finally {
       await hooks.event?.({
-        event: { type: "session.idle", properties: { sessionID: "parent" } },
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: { type: "text", text: "done", sessionID: "parent" },
+          },
+        },
       });
       arm.mockRestore();
     }
@@ -79,12 +84,41 @@ describe("native subtask TTFT and replay", () => {
   test("compaction params cannot arm a conversation timer", async () => {
     const ctx = createPluginContext({ logger });
     contexts.push(ctx);
-    ctx.store.sessions.get("parent").agentName = "build";
-    handleChatParams(ctx, new MockClient(), {
+    const client = new MockClient();
+    await handleChatMessage(
+      ctx,
+      client,
+      { sessionID: "parent", agent: "build" },
+      { message: { model } },
+    );
+    handleChatParams(ctx, client, {
       sessionID: "parent",
       agent: "compaction",
       model: { providerID: "a", id: "one" },
     });
+    expect(ctx.ttft.has("parent")).toBe(false);
+    handleChatParams(ctx, client, {
+      sessionID: "parent",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    });
+    expect(ctx.ttft.has("parent")).toBe(true);
+  });
+
+  test("a later tool-loop request in the same round does not re-arm TTFT", async () => {
+    const ctx = createPluginContext({ logger });
+    contexts.push(ctx);
+    const client = new MockClient();
+    const params = {
+      sessionID: "parent",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    };
+    await handleChatMessage(ctx, client, params, { message: { model } });
+    handleChatParams(ctx, client, params);
+    expect(ctx.ttft.has("parent")).toBe(true);
+    ctx.ttft.clear("parent");
+    handleChatParams(ctx, client, params);
     expect(ctx.ttft.has("parent")).toBe(false);
   });
 
@@ -173,6 +207,34 @@ describe("native subtask TTFT and replay", () => {
     expect(state.currentModel).toBe("a/one");
     expect(state.fallbackDepth).toBe(0);
     expect(result.success).toBe(false);
+    expect(client.callsTo("session.abort")).toHaveLength(0);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
+    expect(client.callsTo("session.prompt")).toHaveLength(0);
+  });
+
+  test("a real failure on a subtask-only turn never reverts to an empty replay", async () => {
+    const store = new FallbackStore();
+    store.sessions.get("parent").currentModel = "a/one";
+    const client = new MockClient({
+      messages: [
+        {
+          info: { id: "native-user", role: "user", agent: "build" },
+          parts: [subtask],
+        },
+      ],
+    });
+    const result = await attemptFallback({
+      sessionId: "parent",
+      reason: "server_error",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger,
+      sleepMs: async () => {},
+    });
+    expect(result).toEqual({ success: false, error: "no replayable parts" });
+    expect(store.health.isInCooldown("a/one")).toBe(true);
     expect(client.callsTo("session.abort")).toHaveLength(0);
     expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(0);
