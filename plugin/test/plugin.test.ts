@@ -5,6 +5,7 @@ import {
   extractCooldownOverrides,
   failureFingerprint,
   handleChatMessage,
+  handleChatParams,
   handleEvent,
   normalizeEventInput,
 } from "../src/plugin-internal.ts";
@@ -262,7 +263,7 @@ describe("handleChatMessage", () => {
     ctx.ttft.clear("fresh-cooled-agent");
   });
 
-  test("preemptive skip + TTFT arm on cooled current", async () => {
+  test("preemptive skip selects model before chat.params arms TTFT", async () => {
     const ctx = ctxWithChain(["a/one", "b/two"]);
     // Cool current model
     ctx.store.health.cooldown("a/one" as ModelKey, 60_000);
@@ -270,6 +271,12 @@ describe("handleChatMessage", () => {
     const output = { message: { model: { providerID: "a", modelID: "one" } } };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, output);
     expect(output.message.model).toEqual({ providerID: "b", modelID: "two" });
+    expect(ctx.ttft.has("s1")).toBe(false);
+    handleChatParams(ctx, client, {
+      sessionID: "s1",
+      agent: "scout",
+      model: { providerID: "b", id: "two" },
+    });
     expect(ctx.ttft.has("s1")).toBe(true);
     ctx.ttft.clear("s1"); // cleanup
   });

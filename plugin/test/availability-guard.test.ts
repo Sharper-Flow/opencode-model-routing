@@ -6,6 +6,7 @@ import { createLogger } from "../src/logging/logger.ts";
 import {
   createPluginContext,
   handleChatMessage,
+  handleChatParams,
   handleEvent,
   handleTtftTimeout,
 } from "../src/plugin-internal.ts";
@@ -189,6 +190,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
       providerID: "anthropic",
       modelID: "claude-sonnet-4-5",
     });
+    handleChatParams(ctx, client, {
+      sessionID: "s1",
+      agent: "scout",
+      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+    });
     expect(ctx.ttft.has("s1")).toBe(true);
     const baseline = client.calls.length; // agent-resolution messages read only
     await new Promise((r) => setTimeout(r, 80));
@@ -253,6 +259,11 @@ describe("availability exhaustion guard — detached replay entrances", () => {
       },
     };
     await handleChatMessage(ctx, client, { sessionID: "s1" }, out);
+    handleChatParams(ctx, client, {
+      sessionID: "s1",
+      agent: "scout",
+      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+    });
     expect(ctx.ttft.has("s1")).toBe(true);
     const baseline = client.calls.length;
     // Claude Max exhausts mid-task and publishes the unavailable snapshot.

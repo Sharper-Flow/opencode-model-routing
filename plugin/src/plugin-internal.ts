@@ -1,7 +1,8 @@
 // plugin-internal.ts — testable OpenCode plugin implementation helpers.
 //
 // Wires the hooks:
-//   - chat.message: preemptive skip + TTFT arm
+//   - chat.message: preemptive skip
+//   - chat.params: TTFT arm at model-request dispatch
 //   - event: session.error / session.status retry / session.idle / token arrival
 //   - config: receives merged OpenCode Config; rebuilds chains in-place
 //
@@ -86,6 +87,8 @@ export interface PluginHooks {
 export interface PluginContext {
   store: FallbackStore;
   ttft: TtftRegistry;
+  // User rounds whose first conversation request has not dispatched yet.
+  ttftPending: Set<string>;
   guard: ExhaustionGuardRegistry;
   // Per-session in-flight LLM call records, opened by assistant-row
   // message.updated arrivals, closed by the row's terminal updates, and
@@ -248,6 +251,7 @@ export function createPluginContext(
       new CooldownStore(getCooldownPath(), { logger }),
     ),
     ttft: new TtftRegistry(),
+    ttftPending: new Set(),
     guard: new ExhaustionGuardRegistry(),
     calls: new InFlightCallTracker(),
     chains: new Map(),
@@ -499,6 +503,7 @@ export async function handleChatMessage(
   // guard so a next valid user turn can proceed (AC5). Any replay entrance
   // later this turn re-evaluates the snapshot and may re-record it.
   ctx.guard.clearTurn(sessionId);
+  ctx.ttftPending.add(sessionId);
 
   // Populate state.currentModel from the hook output BEFORE agentName-dependent
   // operations. If resolveAgentName fails (e.g. messages not yet committed for a
@@ -597,12 +602,36 @@ export async function handleChatMessage(
         `${finalModel.providerID}/${finalModel.modelID}` as ModelKey;
     }
   }
+}
 
-  // Arm the TTFT timer for this round. Cleared when the first token arrives
-  // via the event hook (message.part.updated).
+function armTtft(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  sessionId: string,
+  agentName: string | null,
+): void {
   ctx.ttft.arm(sessionId, ctx.config.ttftMs, () => {
     void handleTtftTimeout(ctx, client, sessionId, agentName);
   });
+}
+
+// chat.message admits context-only/noReply and native-subtask messages too;
+// it does not prove a model call will follow. The first conversation request
+// consumes the pending round; later tool-loop requests never re-arm TTFT.
+export function handleChatParams(
+  ctx: PluginContext,
+  client: OrchestratorClient,
+  input: unknown,
+): void {
+  confirmOpenCallFromChatParams(ctx, input);
+  const chatInput = normalizeChatMessageInput(input);
+  if (!chatInput) return;
+  const sessionId = chatInput.sessionID ?? chatInput.sessionId ?? "";
+  if (!sessionId) return;
+  const agentName = ctx.store.sessions.get(sessionId).agentName;
+  if (chatInput.agent && agentName && chatInput.agent !== agentName) return;
+  if (!ctx.ttftPending.delete(sessionId)) return;
+  armTtft(ctx, client, sessionId, chatInput.agent ?? agentName);
 }
 
 /**
@@ -1348,6 +1377,7 @@ export async function handleEvent(
       if (sessionId) {
         ctx.store.failures.clearSession(sessionId);
         ctx.calls.completeSession(sessionId);
+        ctx.ttftPending.delete(sessionId);
       }
       return;
     }
@@ -1428,7 +1458,7 @@ export async function createPluginHooks(
       await handleEvent(ctx, opts.client, normalizeEventInput(input));
     },
     "chat.params": async (input: unknown, output: unknown) => {
-      confirmOpenCallFromChatParams(ctx, input);
+      handleChatParams(ctx, opts.client, input);
       sanitizeChatParamsOutput(output);
     },
     // OpenCode calls this hook after plugin init and BEFORE bus.subscribeAll(),
@@ -1466,7 +1496,7 @@ export async function createPluginHooks(
 //     agent.<name>.options.fallback_models migration scan has nothing to
 //     read; the native options path is the only V2 source.
 //   - ctx.session.hook("context") replaces chat.message: same bookkeeping
-//     (turn-guard clear, TTFT arm, preemptive skip) over a synthesized V1
+//     (turn-guard clear, preemptive skip) over a synthesized V1
 //     output envelope. A preemptive redirect cannot mutate the readonly
 //     context-hook model, so the adapter applies it with switchModel().
 //   - ctx.session.hook("retry") is the single classified failure entrance,
@@ -1676,13 +1706,13 @@ export function narrowV2ContextEvent(
 /**
  * handleV2Context adapts the V2 "context" hook (fires immediately before
  * each agent-loop model request) onto the shared chat.message pipeline:
- * turn-guard clear, TTFT arm, availability preflight, preemptive skip, and
+ * turn-guard clear, availability preflight, preemptive skip, and
  * served-model capture all run through handleChatMessage over a synthesized
  * V1 output envelope. The context hook's model is readonly, so a preemptive
  * redirect is applied with switchModel() through the applyRedirect callback —
- * which handleChatMessage invokes BEFORE it records the served model or arms
- * TTFT, and rolls back if the switch fails, so bookkeeping can never name a
- * model the request will not use.
+ * which handleChatMessage invokes BEFORE it records the served model, and
+ * rolls back if the switch fails. The context hook is a model-request
+ * boundary, so it arms TTFT after routing settles.
  */
 export async function handleV2Context(
   ctx: PluginContext,
@@ -1711,6 +1741,13 @@ export async function handleV2Context(
         model: { providerID, id: modelID },
       });
     },
+  );
+  ctx.ttftPending.delete(event.sessionID);
+  armTtft(
+    ctx,
+    client,
+    event.sessionID,
+    event.agent ?? ctx.store.sessions.get(event.sessionID).agentName,
   );
 }
 
