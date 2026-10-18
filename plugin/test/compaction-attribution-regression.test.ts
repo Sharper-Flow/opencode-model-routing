@@ -29,6 +29,7 @@ import {
   createPluginContext,
   handleEvent,
   handleChatMessage,
+  handleChatParams,
   type EventInputShape,
 } from "../src/plugin-internal.ts";
 import { createLogger, type Logger } from "../src/logging/logger.ts";
@@ -187,6 +188,11 @@ async function serveOn(
       message: { model: { providerID, modelID } },
     },
   );
+  handleChatParams(ctx, client, {
+    sessionID: sessionId,
+    agent: SESSION_AGENT,
+    model: { providerID, id: modelID },
+  });
 }
 
 interface ParentStateSnapshot {

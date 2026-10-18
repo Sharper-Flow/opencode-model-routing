@@ -215,6 +215,24 @@ function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
   return null;
 }
 
+async function readReplayMessages(
+  client: OrchestratorClient,
+  sessionId: string,
+  logger: Logger,
+): Promise<unknown[] | undefined> {
+  try {
+    const response = await client.session.messages({ path: { id: sessionId } });
+    const data = unwrapSdkData(response);
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    logger.error("fallback.messages_failed", {
+      sessionId,
+      err: errorSummary(err),
+    });
+    return undefined;
+  }
+}
+
 // Walks messages array AFTER lastUserMessageID and returns the latest
 // assistant message ID with empty parts — i.e., the blank assistant shell
 // OpenCode created before the LLM call failed. Used solely to enrich the
@@ -312,6 +330,24 @@ export async function attemptFallback(
 
     const state = store.sessions.get(sessionId);
     const current = state.currentModel;
+    let messages: unknown[] | undefined;
+    // A queued timeout can outlive the turn it watched. Inspect the current
+    // replay target BEFORE cooling a model or aborting a healthy native task.
+    if (reason === "ttft_timeout" && !args.isSubagent && !args.replayTail) {
+      messages = await readReplayMessages(client, sessionId, logger);
+      if (!messages) return { success: false, error: "messages failed" };
+      const lastUser = findLastUserMessage(messages);
+      if (
+        lastUser &&
+        lastUser.parts.length > 0 &&
+        lastUser.parts.every(
+          (part) => isRecord(part) && part.type === "subtask",
+        )
+      ) {
+        logger.debug("fallback.skipped.native_subtask", { sessionId, reason });
+        return { success: false, error: "native subtask turn" };
+      }
+    }
     // Cooldown attribution — cool the model that actually served the
     // failing request, not whichever model session state currently names:
     //   1. Message-carrying signals name it directly (args.failedModel).
@@ -471,20 +507,8 @@ export async function attemptFallback(
       return { success: true, fallbackModel: next, fromModel: current };
     }
 
-    let messages: unknown[];
-    try {
-      const response = await client.session.messages({
-        path: { id: sessionId },
-      } as never);
-      const data = unwrapSdkData(response);
-      messages = Array.isArray(data) ? data : [];
-    } catch (err) {
-      logger.error("fallback.messages_failed", {
-        sessionId,
-        err: errorSummary(err),
-      });
-      return { success: false, error: "messages failed" };
-    }
+    messages ??= await readReplayMessages(client, sessionId, logger);
+    if (!messages) return { success: false, error: "messages failed" };
     const lastUser = findLastUserMessage(messages);
     if (!lastUser || !lastUser.messageID) {
       logger.warn("fallback.no_user_message", { sessionId });
