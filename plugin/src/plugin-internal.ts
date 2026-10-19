@@ -195,6 +195,69 @@ export function extractCooldownOverrides(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+type ScalarOptionName =
+  | "ttftMs"
+  | "cooldownMs"
+  | "maxDepth"
+  | "dedupWindowMs"
+  | "abortWaitMs"
+  | "preserveContext";
+
+const isPositiveInteger = (value: unknown): boolean =>
+  typeof value === "number" && Number.isInteger(value) && value > 0;
+const isNonNegativeInteger = (value: unknown): boolean =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
+const isNonNegativeFiniteNumber = (value: unknown): boolean =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+// Validation contract per README-documented scalar option. An option not
+// listed here is not a scalar option; cooldownMsByCategory has its own
+// reader (extractCooldownOverrides) because its per-category map and the
+// Infinity programmatic sentinel differ from these scalars.
+const SCALAR_OPTION_VALIDATORS: Record<
+  ScalarOptionName,
+  (value: unknown) => boolean
+> = {
+  ttftMs: isPositiveInteger,
+  cooldownMs: isNonNegativeFiniteNumber,
+  maxDepth: isNonNegativeInteger,
+  dedupWindowMs: isNonNegativeFiniteNumber,
+  abortWaitMs: isNonNegativeFiniteNumber,
+  preserveContext: (value) => typeof value === "boolean",
+};
+
+/**
+ * extractScalarConfigOverrides reads the README-documented scalar tuning
+ * options (ttftMs, cooldownMs, maxDepth, dedupWindowMs, abortWaitMs,
+ * preserveContext) from the plugin options into a Partial<PluginConfig>.
+ * Absent options contribute nothing; a present-but-invalid value is dropped
+ * with a pluginOptions.config.invalid_value warn log and its lower config
+ * layer stays in force; non-object plugin options yield no overrides.
+ * Defensive: never throws. Called only from createPluginContext, which both
+ * production entry points (createPluginHooks, setupV2Plugin) build their
+ * context through — the option layer has exactly one reader.
+ */
+function extractScalarConfigOverrides(
+  pluginOptions: unknown,
+  logger: Logger,
+): Partial<PluginConfig> {
+  if (!isRecord(pluginOptions)) return {};
+  const out: Partial<PluginConfig> = {};
+  const optionNames = Object.keys(
+    SCALAR_OPTION_VALIDATORS,
+  ) as ScalarOptionName[];
+  for (const option of optionNames) {
+    const value = pluginOptions[option];
+    if (value === undefined) continue;
+    if (!SCALAR_OPTION_VALIDATORS[option](value)) {
+      logger.warn("pluginOptions.config.invalid_value", { option, value });
+      continue;
+    }
+    (out as Record<string, unknown>)[option] = value;
+  }
+  return out;
+}
+
 /**
  * createPluginContext — exposed for testing. Production wires this into the
  * default-exported plugin function below.
@@ -212,6 +275,12 @@ export function extractCooldownOverrides(
  * The outer PluginConfig spread below is shallow; without the explicit 3-layer
  * rebuild, supplying cooldownMsByCategory via opts.config would clobber the
  * default inner map.
+ *
+ * Scalar tuning options (ttftMs, cooldownMs, maxDepth, dedupWindowMs,
+ * abortWaitMs, preserveContext) merge in the same 3 layers: defaultConfig,
+ * then opts.config, then the validated plugin-option values extracted by
+ * extractScalarConfigOverrides. An invalid plugin-option scalar is dropped
+ * with a warn log and the lower layer stays.
  */
 export function createPluginContext(
   opts: {
@@ -224,10 +293,21 @@ export function createPluginContext(
 ): PluginContext {
   const logger = opts.logger ?? createLogger();
   const merged: PluginConfig = { ...defaultConfig, ...(opts.config ?? {}) };
+  Object.assign(
+    merged,
+    extractScalarConfigOverrides(opts.pluginOptions, logger),
+  );
+  // Cooldown overrides: the entry points pre-extract them from the plugin
+  // options and pass them here; when the caller does not, derive them from
+  // the same plugin options. extractCooldownOverrides stays the one cooldown
+  // reader either way.
+  const cooldownOverrides =
+    opts.cooldownOverrides ??
+    extractCooldownOverrides(opts.pluginOptions, logger);
   const messageBoundaryCapsByCategory: PluginConfig["messageBoundaryCapsByCategory"] =
     {
       ...(opts.config?.cooldownMsByCategory ?? {}),
-      ...(opts.cooldownOverrides ?? {}),
+      ...(cooldownOverrides ?? {}),
     };
   if (Object.keys(messageBoundaryCapsByCategory).length > 0) {
     merged.messageBoundaryCapsByCategory = messageBoundaryCapsByCategory;
@@ -237,11 +317,11 @@ export function createPluginContext(
   // Only rebuild when at least one override layer is present; otherwise the
   // default from the spread above is correct.
   const layerConfig = opts.config?.cooldownMsByCategory;
-  if (layerConfig !== undefined || opts.cooldownOverrides !== undefined) {
+  if (layerConfig !== undefined || cooldownOverrides !== undefined) {
     merged.cooldownMsByCategory = {
       ...defaultConfig.cooldownMsByCategory,
       ...(layerConfig ?? {}),
-      ...(opts.cooldownOverrides ?? {}),
+      ...(cooldownOverrides ?? {}),
     };
   }
 

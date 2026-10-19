@@ -19,10 +19,14 @@ export type ErrorCategory =
   | "quota_exhausted"
   | "unknown";
 
-// Plugin behaviour configuration. Defaults defined in src/plugin.ts; values
-// may be overridden by the plugin tuple option in opencode.jsonc (canonical
-// path) or — out of scope for this codebase — a per-project
-// `.opencode/model-routing.json` sibling file.
+// Plugin behaviour configuration. Defaults live in `defaultConfig` at the
+// bottom of this file. Plugin options — the V1 tuple option in opencode.jsonc
+// or the V2 native plugin options — override a programmatic config, which
+// overrides the defaults. Scalar options are validated where they are read
+// (createPluginContext): ttftMs a positive integer, maxDepth a non-negative
+// integer, cooldownMs/dedupWindowMs/abortWaitMs non-negative finite numbers,
+// preserveContext a boolean. An invalid value is dropped with a warn log and
+// the lower layer's value stays.
 export interface PluginConfig {
   // Time-to-first-token window in ms. If no token arrives within this window,
   // the active model is aborted and the next chain entry is tried.

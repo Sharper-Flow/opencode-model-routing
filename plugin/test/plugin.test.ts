@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createLogger } from "../src/logging/logger.ts";
 import {
   createPluginContext,
@@ -8,9 +8,12 @@ import {
   handleChatParams,
   handleEvent,
   normalizeEventInput,
+  setupV2Plugin,
+  type V2SessionDomain,
 } from "../src/plugin-internal.ts";
 import pluginModule from "../src/plugin.ts";
-import type { ModelKey } from "../src/types.ts";
+import { TtftRegistry } from "../src/ttft.ts";
+import { defaultConfig, type ModelKey } from "../src/types.ts";
 import { MockClient } from "./helpers/mock-client.ts";
 
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
@@ -1696,5 +1699,120 @@ describe("cooldown attribution to the message's own model", () => {
 
     expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
     expect(ctx.store.sessions.get("s1").lastServedModel).toBe("a/one");
+  });
+});
+
+describe("plugin options arm TTFT through the production entry points", () => {
+  // The armed window is the production-observable of the scalar option
+  // layer: the context is closure-private to the entry points and the
+  // watchdog timer is armed from ctx.config.ttftMs at dispatch time.
+  let arm: ReturnType<typeof spyOn<TtftRegistry, "arm">> | undefined;
+  const armed: number[] = [];
+
+  afterEach(() => {
+    arm?.mockRestore();
+    arm = undefined;
+    armed.length = 0;
+  });
+
+  function spyArm(): void {
+    const original = TtftRegistry.prototype.arm;
+    arm = spyOn(TtftRegistry.prototype, "arm").mockImplementation(function (
+      this: TtftRegistry,
+      sessionId: string,
+      ms: number,
+      onTimeout: () => void,
+    ) {
+      armed.push(ms);
+      // Record the window without leaving a live timer behind.
+      original.call(this, sessionId, ms, onTimeout);
+      this.clear(sessionId);
+    });
+  }
+
+  async function callChatParams(hooks: unknown, input: unknown) {
+    const hook = (hooks as Record<string, unknown>)["chat.params"] as
+      | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+      | undefined;
+    await hook?.(input, { options: {} });
+  }
+
+  test("V1 tuple option ttftMs arms the configured window", async () => {
+    spyArm();
+    const hooks = await createRuntimeHooks(
+      new MockClient({ messages: [userMsg("msg-1", "build")] }),
+      {},
+      {
+        ttftMs: 300_000,
+        agents: { build: { fallback_models: ["a/one", "b/two"] } },
+      },
+    );
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s-ttft", agent: "build" },
+      { message: { model: { providerID: "a", modelID: "one" } } },
+    );
+    await callChatParams(hooks, {
+      sessionID: "s-ttft",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    });
+    expect(armed).toEqual([300_000]);
+  });
+
+  test("V1 invalid ttftMs keeps the default window", async () => {
+    spyArm();
+    const hooks = await createRuntimeHooks(
+      new MockClient({ messages: [userMsg("msg-1", "build")] }),
+      {},
+      {
+        ttftMs: -1,
+        agents: { build: { fallback_models: ["a/one", "b/two"] } },
+      },
+    );
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s-ttft", agent: "build" },
+      { message: { model: { providerID: "a", modelID: "one" } } },
+    );
+    await callChatParams(hooks, {
+      sessionID: "s-ttft",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    });
+    expect(armed).toEqual([defaultConfig.ttftMs]);
+  });
+
+  test("V2 native plugin options ttftMs arms the configured window", async () => {
+    spyArm();
+    const hooks = new Map<string, (event: unknown) => unknown>();
+    const session: V2SessionDomain = {
+      get: async (input) => ({ id: input.sessionID }),
+      context: async () => [],
+      switchModel: async () => {},
+      interrupt: async () => {},
+      prompt: async () => {},
+      hook: async (name, callback) => {
+        hooks.set(name, callback);
+        return { dispose: async () => {} };
+      },
+    };
+    const cleanup = await setupV2Plugin({
+      options: {
+        ttftMs: 300_000,
+        agents: { build: { fallback_models: ["a/one", "b/two"] } },
+      },
+      session,
+    });
+    try {
+      await hooks.get("context")?.({
+        sessionID: "s-ttft-v2",
+        agent: "build",
+        model: { providerID: "a", id: "one" },
+      });
+      expect(armed).toEqual([300_000]);
+    } finally {
+      cleanup?.();
+    }
   });
 });

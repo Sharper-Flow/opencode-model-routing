@@ -277,6 +277,14 @@ are deliberately conservative (`plugin/src/types.ts`):
 | `abortWaitMs` | `150` | Pause between `abort()` and `revert()` in ms. |
 | `preserveContext` | `true` | Summarise completed mid-turn work into the re-prompt on rotation. |
 
+Scalar options merge in three layers, most-specific winning: built-in default,
+then a programmatic config (test seam), then the plugin option. Values are
+validated when read: `ttftMs` a positive integer, `maxDepth` a non-negative
+integer, `cooldownMs`/`dedupWindowMs`/`abortWaitMs` non-negative finite
+numbers (ms), and `preserveContext` a boolean. An invalid value is dropped
+with a `pluginOptions.config.invalid_value` warning and the lower layer's
+value stays; the other options in the same block are unaffected.
+
 ### Cooldown state
 
 Cooldowns are stored in a shared file so all OpenCode processes agree on which
