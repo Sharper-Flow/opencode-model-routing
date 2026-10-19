@@ -1,0 +1,28 @@
+{
+  "kind": "target_runner_v1",
+  "materializer": "none",
+  "runner": "check",
+  "root": ".",
+  "harness_files": [
+    "scripts/oracle/bun-test.sh",
+    "plugin/test/plugin-options.test.ts"
+  ],
+  "support_files": [
+    "plugin/bunfig.toml",
+    "plugin/bun.lock",
+    "plugin/package.json",
+    "plugin/test/setup.ts"
+  ],
+  "cases": {
+    "case:options-reach-config": ["plugin-options"],
+    "case:invalid-values-keep-default": ["plugin-options"],
+    "case:entry-points-arm-configured-ttft": ["plugin-options"]
+  },
+  "checks": [
+    {
+      "witness": "plugin-options",
+      "argv": ["bash", "scripts/oracle/bun-test.sh", "test/plugin-options.test.ts"]
+    }
+  ],
+  "pin": { "shell": "5.3.9" }
+}
