@@ -1840,7 +1840,10 @@ describe("plugin option reader edge cases", () => {
         { sessionID: "s-proto", agent: "build" },
         { message: { model: { providerID: "a", modelID: "one" } } },
       );
-      await hooks["chat.params"]?.(
+      const chatParams = (hooks as Record<string, unknown>)["chat.params"] as
+        | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+        | undefined;
+      await chatParams?.(
         {
           sessionID: "s-proto",
           agent: "build",
