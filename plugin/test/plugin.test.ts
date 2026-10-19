@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createLogger } from "../src/logging/logger.ts";
 import {
   createPluginContext,
@@ -10,7 +10,8 @@ import {
   normalizeEventInput,
 } from "../src/plugin-internal.ts";
 import pluginModule from "../src/plugin.ts";
-import type { ModelKey } from "../src/types.ts";
+import { TtftRegistry } from "../src/ttft.ts";
+import { defaultConfig, type ModelKey } from "../src/types.ts";
 import { MockClient } from "./helpers/mock-client.ts";
 
 const silentLogger = createLogger({ minLevel: "error", write: () => {} });
@@ -1767,5 +1768,163 @@ describe("cooldown attribution to the message's own model", () => {
 
     expect(output.message.model).toEqual({ providerID: "a", modelID: "one" });
     expect(ctx.store.sessions.get("s1").lastServedModel).toBe("a/one");
+  });
+});
+
+describe("plugin options arm TTFT through the production entry points", () => {
+  // The armed window is the production-observable of the scalar option
+  // layer: the context is closure-private to the entry points and the
+  // watchdog timer is armed from ctx.config.ttftMs at dispatch time.
+  let arm: ReturnType<typeof spyOn<TtftRegistry, "arm">> | undefined;
+  const armed: number[] = [];
+
+  afterEach(() => {
+    arm?.mockRestore();
+    arm = undefined;
+    armed.length = 0;
+  });
+
+  function spyArm(): void {
+    const original = TtftRegistry.prototype.arm;
+    arm = spyOn(TtftRegistry.prototype, "arm").mockImplementation(function (
+      this: TtftRegistry,
+      sessionId: string,
+      ms: number,
+      onTimeout: () => void,
+    ) {
+      armed.push(ms);
+      // Record the window without leaving a live timer behind.
+      original.call(this, sessionId, ms, onTimeout);
+      this.clear(sessionId);
+    });
+  }
+
+  async function callChatParams(hooks: unknown, input: unknown) {
+    const hook = (hooks as Record<string, unknown>)["chat.params"] as
+      | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+      | undefined;
+    await hook?.(input, { options: {} });
+  }
+
+  test("V1 tuple option ttftMs arms the configured window", async () => {
+    spyArm();
+    const hooks = await createRuntimeHooks(
+      new MockClient({ messages: [userMsg("msg-1", "build")] }),
+      {},
+      {
+        ttftMs: 300_000,
+        agents: { build: { fallback_models: ["a/one", "b/two"] } },
+      },
+    );
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s-ttft", agent: "build" },
+      { message: { model: { providerID: "a", modelID: "one" } } },
+    );
+    await callChatParams(hooks, {
+      sessionID: "s-ttft",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    });
+    expect(armed).toEqual([300_000]);
+  });
+
+  test("V1 invalid ttftMs keeps the default window", async () => {
+    spyArm();
+    const hooks = await createRuntimeHooks(
+      new MockClient({ messages: [userMsg("msg-1", "build")] }),
+      {},
+      {
+        ttftMs: -1,
+        agents: { build: { fallback_models: ["a/one", "b/two"] } },
+      },
+    );
+    await callRuntimeChatMessage(
+      hooks,
+      { sessionID: "s-ttft", agent: "build" },
+      { message: { model: { providerID: "a", modelID: "one" } } },
+    );
+    await callChatParams(hooks, {
+      sessionID: "s-ttft",
+      agent: "build",
+      model: { providerID: "a", id: "one" },
+    });
+    expect(armed).toEqual([defaultConfig.ttftMs]);
+  });
+});
+
+describe("plugin option reader edge cases", () => {
+  test("an all-invalid cooldownMsByCategory warns once through the module entry", async () => {
+    const lines: string[] = [];
+    const write = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: unknown) => {
+        lines.push(String(chunk));
+        return true;
+      },
+    );
+    try {
+      await createRuntimeHooks(
+        new MockClient(),
+        {},
+        { cooldownMsByCategory: { rate_limit: -1 } },
+      );
+    } finally {
+      write.mockRestore();
+    }
+    const warnings = lines.filter((line) =>
+      line.includes('"event":"pluginOptions.cooldown.invalid_value"'),
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
+  test("a prototype-inherited ttftMs is not read", async () => {
+    const armed: number[] = [];
+    const original = TtftRegistry.prototype.arm;
+    const arm = spyOn(TtftRegistry.prototype, "arm").mockImplementation(
+      function (
+        this: TtftRegistry,
+        sessionId: string,
+        ms: number,
+        onTimeout: () => void,
+      ) {
+        armed.push(ms);
+        original.call(this, sessionId, ms, onTimeout);
+        this.clear(sessionId);
+      },
+    );
+    try {
+      const inherited = Object.create(
+        { ttftMs: 5 },
+        {
+          agents: {
+            value: { build: { fallback_models: ["a/one", "b/two"] } },
+          },
+        },
+      );
+      const hooks = await createRuntimeHooks(
+        new MockClient({ messages: [userMsg("msg-1", "build")] }),
+        {},
+        inherited,
+      );
+      await callRuntimeChatMessage(
+        hooks,
+        { sessionID: "s-proto", agent: "build" },
+        { message: { model: { providerID: "a", modelID: "one" } } },
+      );
+      const chatParams = (hooks as Record<string, unknown>)["chat.params"] as
+        | ((input: unknown, output: unknown) => unknown | Promise<unknown>)
+        | undefined;
+      await chatParams?.(
+        {
+          sessionID: "s-proto",
+          agent: "build",
+          model: { providerID: "a", id: "one" },
+        },
+        { options: {} },
+      );
+      expect(armed).toEqual([defaultConfig.ttftMs]);
+    } finally {
+      arm.mockRestore();
+    }
   });
 });

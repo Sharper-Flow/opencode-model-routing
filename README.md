@@ -22,11 +22,11 @@ side drifts.
 
 Once enabled, the plugin sits in the request path and acts on three triggers:
 
-| Trigger | Action |
-|---|---|
-| Session error (rate limit, server error, auth, quota, unknown model) | Rotate to the next healthy chain entry and replay the turn. |
-| No first token within the TTFT window (default 60 s) | Abort the stuck request and rotate. |
-| Model currently cooling down or blocked | Preemptively redirect to the first healthy, non-blocked chain entry before the request is sent. |
+| Trigger                                                              | Action                                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Session error (rate limit, server error, auth, quota, unknown model) | Rotate to the next healthy chain entry and replay the turn.                                     |
+| No first token within the TTFT window (default 60 s)                 | Abort the stuck request and rotate.                                                             |
+| Model currently cooling down or blocked                              | Preemptively redirect to the first healthy, non-blocked chain entry before the request is sent. |
 
 Recovery details:
 
@@ -58,13 +58,13 @@ omr-cooldown list --json           # machine-readable output
 
 ## Prerequisites
 
-| Tool | Needed for | Version |
-|---|---|---|
-| Go | `omr` build and tests | ≥ 1.24 (`go.mod`) |
-| Bun | plugin build, tests, and runtime-dep install | 1.3+ (`packageManager: bun@1.3.14`) |
-| Node | plugin engine requirement | ≥ 24 (`engines` in `plugin/package.json`) |
-| jq, rsync | `make deploy-local` config validation and deploy | any recent |
-| OpenCode | the thing being routed | — |
+| Tool      | Needed for                                       | Version                                   |
+| --------- | ------------------------------------------------ | ----------------------------------------- |
+| Go        | `omr` build and tests                            | ≥ 1.24 (`go.mod`)                         |
+| Bun       | plugin build, tests, and runtime-dep install     | 1.3+ (`packageManager: bun@1.3.14`)       |
+| Node      | plugin engine requirement                        | ≥ 24 (`engines` in `plugin/package.json`) |
+| jq, rsync | `make deploy-local` config validation and deploy | any recent                                |
+| OpenCode  | the thing being routed                           | —                                         |
 
 `omr` discovers models through the `opencode models` CLI, so keep `opencode`
 on your `PATH`.
@@ -86,17 +86,17 @@ omr
 
 Each OpenCode target is shown as a routing stack. Key bindings:
 
-| Key | Action |
-|---|---|
-| `enter` / `m` | Choose the primary model for the selected target |
-| `d` | Clear the selected target's model |
-| `D` | Clear all sub-agent overrides |
-| `e` | Toggle a provider ADV variant |
-| `f` | Edit the fallback chain |
-| `J` / `K` | Reorder fallback entries (in the chain editor) |
+| Key           | Action                                            |
+| ------------- | ------------------------------------------------- |
+| `enter` / `m` | Choose the primary model for the selected target  |
+| `d`           | Clear the selected target's model                 |
+| `D`           | Clear all sub-agent overrides                     |
+| `e`           | Toggle a provider ADV variant                     |
+| `f`           | Edit the fallback chain                           |
+| `J` / `K`     | Reorder fallback entries (in the chain editor)    |
 | `enter` / `d` | Add or remove a chain entry (in the chain editor) |
-| `a` | Preview config changes, then confirm apply |
-| `q` / `esc` | Quit |
+| `a`           | Preview config changes, then confirm apply        |
+| `q` / `esc`   | Quit                                              |
 
 `make install` never touches `.git/hooks/`. To enable the optional pre-push
 hook that runs `make build && make test` and redeploys the plugin on each
@@ -130,11 +130,8 @@ Add the deployed plugin path to your global `opencode.json` / `opencode.jsonc`
 ```jsonc
 {
   "plugin": [
-    [
-      "/home/you/.local/share/opencode-model-routing/plugin",
-      { "agents": {} }
-    ]
-  ]
+    ["/home/you/.local/share/opencode-model-routing/plugin", { "agents": {} }],
+  ],
 }
 ```
 
@@ -142,7 +139,7 @@ Once published to npm, it can be loaded by name:
 
 ```jsonc
 {
-  "plugin": ["@sharper-flow/opencode-model-routing-plugin"]
+  "plugin": ["@sharper-flow/opencode-model-routing-plugin"],
 }
 ```
 
@@ -164,12 +161,12 @@ entries, blocklists up to 16).
       {
         "agents": {
           "adv-researcher": {
-            "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"]
-          }
-        }
-      }
-    ]
-  ]
+            "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"],
+          },
+        },
+      },
+    ],
+  ],
 }
 ```
 
@@ -204,13 +201,13 @@ the fallback chain, such as a user-selected primary.
             "fallback_models": ["openai/gpt-5", "google/gemini-2.5-pro"],
             "blocked_models": [
               "anthropic/claude-sonnet-4-5",
-              "minimax/token-plan"
-            ]
-          }
-        }
-      }
-    ]
-  ]
+              "minimax/token-plan",
+            ],
+          },
+        },
+      },
+    ],
+  ],
 }
 ```
 
@@ -260,22 +257,37 @@ are deliberately conservative (`plugin/src/types.ts`):
 [
   "/home/you/.local/share/opencode-model-routing/plugin",
   {
-    "agents": { /* ... */ },
+    "agents": {/* ... */},
     "ttftMs": 60000,
-    "cooldownMsByCategory": { "rate_limit": 1800000 }
-  }
+    "cooldownMsByCategory": { "rate_limit": 1800000 },
+  },
 ]
 ```
 
-| Option | Default | Meaning |
-|---|---|---|
-| `ttftMs` | `60000` | Time-to-first-token window in ms; on expiry the request is aborted and rotated. |
-| `cooldownMs` | `300000` | Default cooldown window in ms after a failure. |
+| Option                 | Default   | Meaning                                                                                                                                                                                                                        |
+| ---------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ttftMs`               | `60000`   | Time-to-first-token window in ms; on expiry the request is aborted and rotated.                                                                                                                                                |
+| `cooldownMs`           | `300000`  | Default cooldown window in ms after a failure.                                                                                                                                                                                 |
 | `cooldownMsByCategory` | see below | Per-category overrides; `rate_limit` and `auth_error` get 30 min, `quota_exhausted` 10 min. For `quota_exhausted` and `rate_limit` these are the fallback windows — a fresh provider-reported reset boundary takes precedence. |
-| `maxDepth` | `3` | Max fallback depth per session (prevents infinite cascades). |
-| `dedupWindowMs` | `3000` | Collapses fallback triggers within this window for the same session. |
-| `abortWaitMs` | `150` | Pause between `abort()` and `revert()` in ms. |
-| `preserveContext` | `true` | Summarise completed mid-turn work into the re-prompt on rotation. |
+| `maxDepth`             | `3`       | Max fallback depth per session (prevents infinite cascades).                                                                                                                                                                   |
+| `dedupWindowMs`        | `3000`    | Collapses fallback triggers within this window for the same session.                                                                                                                                                           |
+| `abortWaitMs`          | `150`     | Pause between `abort()` and `revert()` in ms.                                                                                                                                                                                  |
+| `preserveContext`      | `true`    | Summarise completed mid-turn work into the re-prompt on rotation.                                                                                                                                                              |
+
+Scalar options merge in three layers, most-specific winning: built-in default,
+then a programmatic config (test seam), then the plugin option. Values are
+validated when read: `ttftMs` a positive integer, `maxDepth` a non-negative
+integer, `cooldownMs`/`dedupWindowMs`/`abortWaitMs` non-negative finite
+numbers (ms), and `preserveContext` a boolean. An invalid value is dropped
+with a `pluginOptions.config.invalid_value` warning and the lower layer's
+value stays; the other options in the same block are unaffected.
+
+Timer-fed options (`ttftMs`, `abortWaitMs`) cannot exceed the host timer's
+32-bit signed ceiling of 2147483647 ms: Node and Bun shorten a larger delay to
+about 1 ms and log a `TimeoutOverflowWarning` — for `ttftMs` that fires the
+watchdog immediately instead of disabling it, and for `abortWaitMs` it skips
+the pause. A validation cap is tracked separately; until then, do not set
+values above the ceiling.
 
 ### Cooldown state
 
@@ -305,18 +317,18 @@ provider API keys. Writes are guarded at three layers:
 
 ## Make targets
 
-| Target | Action |
-|---|---|
-| `make build` | Builds the `omr` Go binary. |
-| `make build-plugin` | Installs plugin deps (frozen lockfile), typechecks, and builds `plugin/dist`. |
-| `make deploy-local` | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates or patches OpenCode config with `--fix`. |
-| `make install` | Installs `omr` to `~/.local/bin/`. Does NOT touch git hooks. |
-| `make install-hooks` | Installs the optional pre-push hook, which runs build + test + deploy-local on push. |
-| `make test` | Runs both Go and plugin test suites. |
-| `make test-go` | Go tests only. |
-| `make test-plugin` | Plugin tests only (`bun test`). |
-| `make lint` | Go vet, schema-contract-check, plugin typecheck. |
-| `make clean` | Removes the `omr` binary and `plugin/node_modules`, `plugin/dist`. |
+| Target               | Action                                                                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`         | Builds the `omr` Go binary.                                                                                                             |
+| `make build-plugin`  | Installs plugin deps (frozen lockfile), typechecks, and builds `plugin/dist`.                                                           |
+| `make deploy-local`  | Deploys bundled plugin runtime to `~/.local/share/opencode-model-routing/plugin` and validates or patches OpenCode config with `--fix`. |
+| `make install`       | Installs `omr` to `~/.local/bin/`. Does NOT touch git hooks.                                                                            |
+| `make install-hooks` | Installs the optional pre-push hook, which runs build + test + deploy-local on push.                                                    |
+| `make test`          | Runs both Go and plugin test suites.                                                                                                    |
+| `make test-go`       | Go tests only.                                                                                                                          |
+| `make test-plugin`   | Plugin tests only (`bun test`).                                                                                                         |
+| `make lint`          | Go vet, schema-contract-check, plugin typecheck.                                                                                        |
+| `make clean`         | Removes the `omr` binary and `plugin/node_modules`, `plugin/dist`.                                                                      |
 
 `scripts/deploy-local.sh` also accepts `--check` (report config drift without
 writing), `--fix`, and `--dry-run` (preview deploy/patch actions).
