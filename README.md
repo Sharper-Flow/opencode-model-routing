@@ -286,9 +286,10 @@ with a `pluginOptions.config.invalid_value` warning and the lower layer's
 value stays; the other options in the same block are unaffected.
 
 Timer-fed options (`ttftMs`, `abortWaitMs`) cannot exceed the host timer's
-32-bit signed ceiling of 2147483647 ms: Node and Bun silently shorten a larger
-delay to about 1 ms, which would fire the watchdog immediately instead of
-disabling it. A validation cap is tracked separately; until then, do not set
+32-bit signed ceiling of 2147483647 ms: Node and Bun shorten a larger delay to
+about 1 ms and log a `TimeoutOverflowWarning` — for `ttftMs` that fires the
+watchdog immediately instead of disabling it, and for `abortWaitMs` it skips
+the pause. A validation cap is tracked separately; until then, do not set
 values above the ceiling.
 
 ### Cooldown state
