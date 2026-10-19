@@ -595,13 +595,24 @@ describe("V2 classification and event narrowing", () => {
     expect(delta).toEqual({
       type: "message.part.updated",
       properties: {
-        part: { type: "text", text: "PONG", sessionID: "ses_x" },
+        part: {
+          type: "text",
+          text: "PONG",
+          sessionID: "ses_x",
+          assistantVerified: true,
+        },
       },
     });
     // Empty deltas carry no tokens and must not clear TTFT.
     expect(
       normalizeV2Event({
         type: "session.text.delta",
+        data: { sessionID: "ses_x", delta: "" },
+      }),
+    ).toBeUndefined();
+    expect(
+      normalizeV2Event({
+        type: "session.reasoning.delta",
         data: { sessionID: "ses_x", delta: "" },
       }),
     ).toBeUndefined();
@@ -613,11 +624,60 @@ describe("V2 classification and event narrowing", () => {
         data: { sessionID: "ses_x", attempt: 2 },
       }),
     ).toBeUndefined();
+    expect(
+      normalizeV2Event({
+        type: "session.step.started",
+        data: { sessionID: "ses_x" },
+      }),
+    ).toBeUndefined();
     const removed = normalizeV2Event({
       type: "session.deleted",
       data: { sessionID: "ses_x" },
     });
     expect(removed?.type).toBe("session.deleted");
+  });
+
+  test("normalizeV2Event maps reasoning deltas and tool events onto verified assistant parts", () => {
+    const reasoning = normalizeV2Event({
+      type: "session.reasoning.delta",
+      data: {
+        sessionID: "ses_x",
+        assistantMessageID: "msg_1",
+        ordinal: 0,
+        delta: "think",
+      },
+    });
+    expect(reasoning).toEqual({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          type: "reasoning",
+          text: "think",
+          sessionID: "ses_x",
+          assistantVerified: true,
+        },
+      },
+    });
+    const inputStarted = normalizeV2Event({
+      type: "session.tool.input.started",
+      data: { sessionID: "ses_x", id: "call_1", name: "read" },
+    });
+    expect(inputStarted).toEqual({
+      type: "message.part.updated",
+      properties: {
+        part: { type: "tool", sessionID: "ses_x", assistantVerified: true },
+      },
+    });
+    const called = normalizeV2Event({
+      type: "session.tool.called",
+      data: { sessionID: "ses_x", id: "call_1", input: {}, executed: true },
+    });
+    expect(called).toEqual({
+      type: "message.part.updated",
+      properties: {
+        part: { type: "tool", sessionID: "ses_x", assistantVerified: true },
+      },
+    });
   });
 
   test("event stream drives the TTFT clear + cleanup handlers without touching failures", async () => {

@@ -1,0 +1,45 @@
+{
+  "kind": "target_runner_v1",
+  "materializer": "none",
+  "runner": "check",
+  "root": ".",
+  "harness_files": [
+    "scripts/oracle/bun-test.sh",
+    "plugin/test/ttft-assistant-output.test.ts",
+    "plugin/test/native-subtask-regression.test.ts",
+    "plugin/test/ttft-subagent-aware.test.ts"
+  ],
+  "support_files": [
+    "plugin/bunfig.toml",
+    "plugin/bun.lock",
+    "plugin/package.json",
+    "plugin/test/setup.ts",
+    "plugin/test/helpers/mock-client.ts"
+  ],
+  "cases": {
+    "case:v1-assistant-output-clears": ["ttft-assistant-output"],
+    "case:v2-assistant-output-clears": ["ttft-assistant-output"],
+    "case:non-output-does-not-clear": ["ttft-assistant-output"],
+    "case:watchdog-replay-preserved": ["ttft-watchdog-replay-preserved"]
+  },
+  "checks": [
+    {
+      "witness": "ttft-assistant-output",
+      "argv": [
+        "bash",
+        "scripts/oracle/bun-test.sh",
+        "test/ttft-assistant-output.test.ts"
+      ]
+    },
+    {
+      "witness": "ttft-watchdog-replay-preserved",
+      "argv": [
+        "bash",
+        "scripts/oracle/bun-test.sh",
+        "test/native-subtask-regression.test.ts",
+        "test/ttft-subagent-aware.test.ts"
+      ]
+    }
+  ],
+  "pin": { "shell": "5.3.9" }
+}

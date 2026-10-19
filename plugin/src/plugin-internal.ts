@@ -3,7 +3,8 @@
 // Wires the hooks:
 //   - chat.message: preemptive skip
 //   - chat.params: TTFT arm at model-request dispatch
-//   - event: session.error / session.status retry / session.idle / token arrival
+//   - event: session.error / session.status retry / session.idle / first
+//     verified assistant output (TTFT clear)
 //   - config: receives merged OpenCode Config; rebuilds chains in-place
 //
 // Per-process state is held in a closure (FallbackStore + chains map + TTFT
@@ -45,7 +46,7 @@ import { familyVetoFor } from "./resolution/family.ts";
 import { InFlightCallTracker } from "./state/call-tracker.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
 import { FallbackStore } from "./state/store.ts";
-import { TtftRegistry } from "./ttft.ts";
+import { AssistantProvenance, TtftRegistry } from "./ttft.ts";
 import {
   defaultConfig,
   type ErrorCategory,
@@ -89,6 +90,8 @@ export interface PluginContext {
   ttft: TtftRegistry;
   // User rounds whose first conversation request has not dispatched yet.
   ttftPending: Set<string>;
+  // Assistant-row provenance for the TTFT clear; see AssistantProvenance.
+  assistantProvenance: AssistantProvenance;
   guard: ExhaustionGuardRegistry;
   // Per-session in-flight LLM call records, opened by assistant-row
   // message.updated arrivals, closed by the row's terminal updates, and
@@ -333,6 +336,7 @@ export function createPluginContext(
     ),
     ttft: new TtftRegistry(),
     ttftPending: new Set(),
+    assistantProvenance: new AssistantProvenance(),
     guard: new ExhaustionGuardRegistry(),
     calls: new InFlightCallTracker(),
     chains: new Map(),
@@ -793,8 +797,12 @@ export interface EventInputShape {
     sessionID?: string;
     sessionId?: string;
     // message.removed carries the removed row's id — closes the in-flight
-    // call record for a message that no longer exists.
+    // call record for a message that no longer exists. message.part.delta
+    // carries its owning row's id plus the streamed delta text at the
+    // properties level.
     messageID?: string;
+    // Streamed delta text of a message.part.delta event.
+    delta?: string;
     // Real OpenCode session.error payload shape — see classifier.ts
     // SessionErrorLike for the nested {name, data:{...}} contract.
     error?: {
@@ -820,6 +828,15 @@ export interface EventInputShape {
       text?: string;
       sessionID?: string;
       sessionId?: string;
+      // The part's owning message row. The TTFT clear verifies it against
+      // the AssistantProvenance registry before treating the part as
+      // assistant-generated output.
+      messageID?: string;
+      // Internal marker: normalizeV2Event sets it on V2 stream events that
+      // are assistant-generated output by event type (text/reasoning
+      // deltas, tool events). Real V1 hosts never send it; only events this
+      // plugin synthesized from those event types carry it.
+      assistantVerified?: boolean;
     };
     info?: {
       id?: string;
@@ -882,6 +899,7 @@ function isEventInputShape(event: unknown): event is EventInputShape {
   if (!isOptionalString(props.sessionID) || !isOptionalString(props.sessionId))
     return false;
   if (!isOptionalString(props.messageID)) return false;
+  if (!isOptionalString(props.delta)) return false;
   if (props.error !== undefined) {
     if (!isRecord(props.error)) return false;
     const error = props.error;
@@ -908,6 +926,12 @@ function isEventInputShape(event: unknown): event is EventInputShape {
     if (
       !isOptionalString(props.part.sessionID) ||
       !isOptionalString(props.part.sessionId)
+    )
+      return false;
+    if (!isOptionalString(props.part.messageID)) return false;
+    if (
+      props.part.assistantVerified !== undefined &&
+      typeof props.part.assistantVerified !== "boolean"
     )
       return false;
   }
@@ -946,14 +970,36 @@ export function normalizeEventInput(
   return isEventInputShape(input.event) ? input.event : undefined;
 }
 
-function hasStreamingTextContent(part: {
+// Generated assistant content on a part: streamed text or reasoning with a
+// nonempty payload, or a tool part — a call or its output, either of which
+// proves the model did work. step-start/step-finish/snapshot/patch and the
+// other metadata part types carry no generated content and never qualify.
+function isAssistantOutputPart(part: {
   type?: string;
   text?: string;
 }): boolean {
+  if (part.type === "tool") return true;
   return (
-    part.type === "text" &&
+    (part.type === "text" || part.type === "reasoning") &&
     typeof part.text === "string" &&
     part.text.length > 0
+  );
+}
+
+// Provenance gate for the V1 TTFT clear. A part clears the timer only when
+// its message row was identified by an earlier message.updated as an
+// assistant row of the same session — or when the event was synthesized by
+// normalizeV2Event from a V2 stream event type that is assistant-generated
+// by definition (text/reasoning deltas, tool events).
+function isVerifiedAssistantPart(
+  ctx: PluginContext,
+  part: { messageID?: string; assistantVerified?: boolean },
+  sessionId: string,
+): boolean {
+  if (part.assistantVerified === true) return true;
+  return (
+    part.messageID !== undefined &&
+    ctx.assistantProvenance.verified(part.messageID, sessionId)
   );
 }
 
@@ -1355,6 +1401,11 @@ export async function handleEvent(
           info.sessionId ??
           "";
         if (trackSessionId) {
+          // Provenance for the TTFT clear: this row identifies info.id as
+          // an assistant message of this session. Recorded for terminal and
+          // in-flight rows alike — a tool output part can arrive after the
+          // call record closed but still proves generated output.
+          ctx.assistantProvenance.record(info.id, trackSessionId);
           const completed = info.time?.completed !== undefined;
           if (info.error || completed) {
             ctx.calls.closeMessage(trackSessionId, info.id);
@@ -1418,12 +1469,9 @@ export async function handleEvent(
       return;
     }
     case "message.part.updated": {
-      // First streamed text content for this session → clear TTFT timer. Do
-      // not clear on metadata/tool/status parts that have a non-empty type but
-      // no generated text.
+      // First verified assistant output clears TTFT.
       const part = props.part;
       if (!part) return;
-      if (!hasStreamingTextContent(part)) return;
       const sessionId =
         part.sessionID ??
         part.sessionId ??
@@ -1431,9 +1479,30 @@ export async function handleEvent(
         props.sessionId ??
         "";
       if (!sessionId) return;
+      if (!isAssistantOutputPart(part)) return;
+      if (!isVerifiedAssistantPart(ctx, part, sessionId)) return;
       if (ctx.ttft.has(sessionId)) {
         ctx.ttft.clear(sessionId);
         ctx.logger.debug("ttft.cleared_on_token", { sessionId });
+      }
+      return;
+    }
+    case "message.part.delta": {
+      // Streamed form of the same rule: a nonempty delta clears only for a
+      // message row identified as an assistant row of this session. Empty
+      // deltas carry no tokens.
+      const sessionId = props.sessionID ?? props.sessionId ?? "";
+      const messageID = props.messageID;
+      if (!sessionId || !messageID) return;
+      const delta = props.delta;
+      if (typeof delta !== "string" || delta.length === 0) return;
+      if (!ctx.assistantProvenance.verified(messageID, sessionId)) return;
+      if (ctx.ttft.has(sessionId)) {
+        ctx.ttft.clear(sessionId);
+        ctx.logger.debug("ttft.cleared_on_token", {
+          sessionId,
+          messageId: messageID,
+        });
       }
       return;
     }
@@ -1459,6 +1528,7 @@ export async function handleEvent(
         ctx.store.failures.clearSession(sessionId);
         ctx.calls.completeSession(sessionId);
         ctx.ttftPending.delete(sessionId);
+        ctx.assistantProvenance.dropSession(sessionId);
       }
       return;
     }
@@ -1583,8 +1653,9 @@ export async function createPluginHooks(
 //     paths. One failure passes through the shared dedup and chain selection.
 //     After an advance, OMR approves the host retry on the switched model;
 //     subagent handoff vetoes that retry.
-//   - ctx.event.subscribe maps session.text.delta to TTFT clear and handles
-//     session.deleted cleanup. Feeding session.error /
+//   - ctx.event.subscribe maps V2 stream output events (text/reasoning
+//     deltas, tool events) to the TTFT clear and handles session.deleted
+//     cleanup. Feeding session.error /
 //     session.status in as well would create a second fingerprint for the
 //     same failure and bypass dedup.
 //   - A classified failure switches the model and lets the host retry without
@@ -1938,10 +2009,14 @@ export async function handleV2RetrySignal(
  *
  *   1. the V1 envelope ({type, properties}) — pass-through;
  *   2. the live V2 flat envelope ({type, data}) — verified against
- *      opencode v2.0.14, where streaming text is session.text.delta
- *      (data: {sessionID, delta, ...}); V1 names like message.part.updated
- *      do not exist on the V2 stream. Only the events OMR consumes are
- *      mapped: session.text.delta → TTFT clear, session.deleted → cleanup;
+ *      opencode v2.0.14, where generated output streams as session.* deltas
+ *      and tool events (data: {sessionID, delta | id, ...}); V1 names like
+ *      message.part.updated do not exist on the V2 stream. Only the events
+ *      OMR consumes are mapped: session.text.delta /
+ *      session.reasoning.delta / session.tool.input.started /
+ *      session.tool.called → TTFT clear (assistant-generated by event type,
+ *      so the synthesized parts carry the verification marker), and
+ *      session.deleted → cleanup;
  *   3. a flat V1-style encoding ({type, part}) as a defensive fallback.
  *
  * Anything else is dropped — the V2 event stream carries no failure signals
@@ -1954,8 +2029,11 @@ export function normalizeV2Event(raw: unknown): EventInputShape | undefined {
   }
   if (typeof raw.type === "string" && isRecord(raw.data)) {
     const data = raw.data;
+    // Text and reasoning deltas are assistant-generated output by event
+    // type; an empty delta carries no tokens and must not clear TTFT.
     if (
-      raw.type === "session.text.delta" &&
+      (raw.type === "session.text.delta" ||
+        raw.type === "session.reasoning.delta") &&
       typeof data.sessionID === "string" &&
       data.sessionID.length > 0 &&
       typeof data.delta === "string" &&
@@ -1965,9 +2043,29 @@ export function normalizeV2Event(raw: unknown): EventInputShape | undefined {
         type: "message.part.updated",
         properties: {
           part: {
-            type: "text",
+            type: raw.type === "session.text.delta" ? "text" : "reasoning",
             text: data.delta,
             sessionID: data.sessionID,
+            assistantVerified: true,
+          },
+        },
+      };
+    }
+    // Tool events are assistant work by event type: the model started
+    // composing a tool input or invoked a tool.
+    if (
+      (raw.type === "session.tool.input.started" ||
+        raw.type === "session.tool.called") &&
+      typeof data.sessionID === "string" &&
+      data.sessionID.length > 0
+    ) {
+      return {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            sessionID: data.sessionID,
+            assistantVerified: true,
           },
         },
       };
