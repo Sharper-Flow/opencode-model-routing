@@ -247,7 +247,11 @@ function extractScalarConfigOverrides(
     SCALAR_OPTION_VALIDATORS,
   ) as ScalarOptionName[];
   for (const option of optionNames) {
-    const value = pluginOptions[option];
+    // hasOwn: an inherited property (Object.create({ttftMs: 5}), prototype
+    // pollution) is not a configured option — same rule as isErrorCategory.
+    const value = Object.hasOwn(pluginOptions, option)
+      ? pluginOptions[option]
+      : undefined;
     if (value === undefined) continue;
     if (!SCALAR_OPTION_VALIDATORS[option](value)) {
       logger.warn("pluginOptions.config.invalid_value", { option, value });
@@ -271,7 +275,8 @@ function extractScalarConfigOverrides(
  * Cooldown overrides are merged in 3 layers (most-specific wins):
  *   1. defaultConfig.cooldownMsByCategory (lowest)
  *   2. opts.config?.cooldownMsByCategory (middle — programmatic/test injection)
- *   3. opts.cooldownOverrides (highest — user-side via pluginOptions)
+ *   3. opts.cooldownOverrides when given (test seam), else
+ *      pluginOptions.cooldownMsByCategory read by extractCooldownOverrides
  * The outer PluginConfig spread below is shallow; without the explicit 3-layer
  * rebuild, supplying cooldownMsByCategory via opts.config would clobber the
  * default inner map.
@@ -297,10 +302,6 @@ export function createPluginContext(
     merged,
     extractScalarConfigOverrides(opts.pluginOptions, logger),
   );
-  // Cooldown overrides: the entry points pre-extract them from the plugin
-  // options and pass them here; when the caller does not, derive them from
-  // the same plugin options. extractCooldownOverrides stays the one cooldown
-  // reader either way.
   const cooldownOverrides =
     opts.cooldownOverrides ??
     extractCooldownOverrides(opts.pluginOptions, logger);
@@ -1520,10 +1521,8 @@ export async function createPluginHooks(
   deps: PluginHookDeps = {},
 ): Promise<PluginHooks> {
   const logger = createLogger();
-  const cooldownOverrides = extractCooldownOverrides(pluginOptions, logger);
   const ctx = createPluginContext({
     pluginOptions,
-    cooldownOverrides,
     logger,
     quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
   });
@@ -2040,10 +2039,8 @@ export async function setupV2Plugin(
     );
   }
   const logger = createLogger();
-  const cooldownOverrides = extractCooldownOverrides(host.options, logger);
   const ctx = createPluginContext({
     pluginOptions: host.options,
-    cooldownOverrides,
     logger,
     quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
   });

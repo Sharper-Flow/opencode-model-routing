@@ -26,7 +26,9 @@ export type ErrorCategory =
 // (createPluginContext): ttftMs a positive integer, maxDepth a non-negative
 // integer, cooldownMs/dedupWindowMs/abortWaitMs non-negative finite numbers,
 // preserveContext a boolean. An invalid value is dropped with a warn log and
-// the lower layer's value stays.
+// the lower layer's value stays. Timer-fed options (ttftMs, abortWaitMs) are
+// further bounded by the host timer's 2147483647 ms ceiling — a larger delay
+// is silently shortened to ~1 ms, not disabled (README, Tuning).
 export interface PluginConfig {
   // Time-to-first-token window in ms. If no token arrives within this window,
   // the active model is aborted and the next chain entry is tried.
