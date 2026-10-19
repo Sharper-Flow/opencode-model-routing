@@ -90,11 +90,7 @@ export interface PluginContext {
   ttft: TtftRegistry;
   // User rounds whose first conversation request has not dispatched yet.
   ttftPending: Set<string>;
-  // Assistant-row provenance for the TTFT clear (see AssistantProvenance):
-  // a part or delta event clears the first-request timer only when its
-  // message row was identified by an earlier message.updated as an assistant
-  // row of the same session. Bounded; a session's rows drop on
-  // session.deleted.
+  // Assistant-row provenance for the TTFT clear; see AssistantProvenance.
   assistantProvenance: AssistantProvenance;
   guard: ExhaustionGuardRegistry;
   // Per-session in-flight LLM call records, opened by assistant-row
@@ -1001,9 +997,10 @@ function isVerifiedAssistantPart(
   sessionId: string,
 ): boolean {
   if (part.assistantVerified === true) return true;
-  const messageID = part.messageID;
-  if (typeof messageID !== "string" || messageID.length === 0) return false;
-  return ctx.assistantProvenance.verified(messageID, sessionId);
+  return (
+    part.messageID !== undefined &&
+    ctx.assistantProvenance.verified(part.messageID, sessionId)
+  );
 }
 
 type TypedFailureSource =
@@ -1472,14 +1469,7 @@ export async function handleEvent(
       return;
     }
     case "message.part.updated": {
-      // First verified assistant-generated output for this session → clear
-      // the TTFT timer. A part qualifies only when it carries generated
-      // content (nonempty text or reasoning, or a tool part) AND its message
-      // row was identified by an earlier message.updated as an assistant row
-      // of the same session (V2 stream events synthesized by
-      // normalizeV2Event carry the verification marker instead). User parts,
-      // parts with unknown or foreign-session messageIDs, the assistant
-      // shell row itself, metadata parts, and empty output never clear.
+      // First verified assistant output clears TTFT.
       const part = props.part;
       if (!part) return;
       const sessionId =
