@@ -1084,40 +1084,111 @@ describe("handleEvent — session.status retry", () => {
 });
 
 describe("handleEvent — token arrival", () => {
-  test("clears TTFT timer on message.part.updated", async () => {
+  // The TTFT clear is provenance-gated: a part event clears the timer only
+  // when its message row was identified by an earlier message.updated as an
+  // assistant row of the same session. Each test opens that row first.
+  test("clears TTFT timer on an identified assistant text part", async () => {
     const ctx = ctxWithChain(["a/one"]);
     // Arm a timer manually
     ctx.ttft.arm("s1", 5_000, () => {});
     expect(ctx.ttft.has("s1")).toBe(true);
+    await handleEvent(ctx, new MockClient(), assistantRowEvent("s1"));
     await handleEvent(ctx, new MockClient(), {
       type: "message.part.updated",
       properties: {
-        part: { sessionID: "s1", type: "text", text: "hi" },
+        part: {
+          sessionID: "s1",
+          messageID: "assistant-1",
+          type: "text",
+          text: "hi",
+        },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(false);
   });
 
-  test("ignores empty parts", async () => {
+  test("ignores empty output on an identified assistant message", async () => {
     const ctx = ctxWithChain(["a/one"]);
     ctx.ttft.arm("s1", 5_000, () => {});
+    await handleEvent(ctx, new MockClient(), assistantRowEvent("s1"));
     await handleEvent(ctx, new MockClient(), {
       type: "message.part.updated",
       properties: {
-        part: { sessionID: "s1", type: "", text: "" },
+        part: {
+          sessionID: "s1",
+          messageID: "assistant-1",
+          type: "text",
+          text: "",
+        },
       },
     });
     expect(ctx.ttft.has("s1")).toBe(true);
     ctx.ttft.clear("s1");
   });
 
-  test("does not clear TTFT timer on non-text metadata parts", async () => {
+  test("does not clear TTFT timer on assistant metadata parts", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    ctx.ttft.arm("s1", 5_000, () => {});
+    await handleEvent(ctx, new MockClient(), assistantRowEvent("s1"));
+    await handleEvent(ctx, new MockClient(), {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          sessionID: "s1",
+          messageID: "assistant-1",
+          type: "step-start",
+        },
+      },
+    });
+    expect(ctx.ttft.has("s1")).toBe(true);
+    ctx.ttft.clear("s1");
+  });
+
+  test("does not clear TTFT timer on a part whose message was never identified", async () => {
     const ctx = ctxWithChain(["a/one"]);
     ctx.ttft.arm("s1", 5_000, () => {});
     await handleEvent(ctx, new MockClient(), {
       type: "message.part.updated",
       properties: {
-        part: { sessionID: "s1", type: "tool" },
+        part: { sessionID: "s1", type: "text", text: "unverified" },
+      },
+    });
+    expect(ctx.ttft.has("s1")).toBe(true);
+    ctx.ttft.clear("s1");
+  });
+
+  test("clears TTFT timer on an identified assistant text delta", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    ctx.ttft.arm("s1", 5_000, () => {});
+    await handleEvent(ctx, new MockClient(), assistantRowEvent("s1"));
+    await handleEvent(ctx, new MockClient(), {
+      type: "message.part.delta",
+      properties: {
+        sessionID: "s1",
+        messageID: "assistant-1",
+        delta: "hi",
+      },
+    });
+    expect(ctx.ttft.has("s1")).toBe(false);
+  });
+
+  test("does not clear TTFT timer on an unidentified or empty delta", async () => {
+    const ctx = ctxWithChain(["a/one"]);
+    ctx.ttft.arm("s1", 5_000, () => {});
+    await handleEvent(ctx, new MockClient(), {
+      type: "message.part.delta",
+      properties: {
+        sessionID: "s1",
+        messageID: "msg_unknown",
+        delta: "unverified",
+      },
+    });
+    await handleEvent(ctx, new MockClient(), {
+      type: "message.part.delta",
+      properties: {
+        sessionID: "s1",
+        messageID: "assistant-1",
+        delta: "",
       },
     });
     expect(ctx.ttft.has("s1")).toBe(true);
