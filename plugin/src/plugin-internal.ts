@@ -640,6 +640,8 @@ export async function handleChatMessage(
     ctx.chains,
     ctx.logger,
     familyVeto,
+    agentName ? ctx.blocked.get(agentName) : undefined,
+    ctx.config.maxDepth,
   );
 
   applyPreemptiveSkip(

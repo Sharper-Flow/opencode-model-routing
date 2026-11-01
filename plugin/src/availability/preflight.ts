@@ -12,6 +12,7 @@
 import type { Logger } from "../logging/logger.ts";
 import type { FallbackStore } from "../state/store.ts";
 import type { ModelKey } from "../types.ts";
+import { resolveFallbackModel } from "../resolution/fallback-resolver.ts";
 import type { AvailabilitySnapshotV1 } from "./snapshot.ts";
 
 // Canonical OpenCode provider id for Anthropic/Claude models. The Claude Max
@@ -55,6 +56,8 @@ export function applyAvailabilityPreflight(
   chains: Map<string, ModelKey[]>,
   logger: Logger,
   familyVeto?: (key: ModelKey) => boolean,
+  blocked?: ReadonlySet<ModelKey>,
+  maxDepth = Number.POSITIVE_INFINITY,
 ): void {
   const snapshot = input.snapshot;
   if (!snapshot || snapshot.state !== "unavailable") return;
@@ -65,11 +68,15 @@ export function applyAvailabilityPreflight(
   const chain = chains.get(input.agentName);
   if (!chain || chain.length === 0) return;
 
-  const target = chain.find(
-    (key) =>
-      providerOf(key) !== ANTHROPIC_PROVIDER_ID &&
-      !store.health.isInCooldown(key) &&
-      !familyVeto?.(key),
+  const target = resolveFallbackModel(
+    `${current.providerID}/${current.modelID}`,
+    chain,
+    0,
+    store.health,
+    maxDepth,
+    blocked,
+    claudeUnavailableVeto(snapshot) ?? undefined,
+    familyVeto,
   );
   if (!target) {
     logger.debug("availability.preflight_no_fallback", {
