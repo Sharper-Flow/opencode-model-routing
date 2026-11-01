@@ -114,7 +114,7 @@ make install-hooks
 ### Plugin (TypeScript)
 
 The runtime plugin lives in [`plugin/`](./plugin). Local development deploys a
-stable, package-shaped copy (`package.json`, `dist/`, notice files) so
+stable, package-shaped copy (`package.json`, `index.js`, `dist/`, notice files) so
 OpenCode loads the same bundled runtime shape as a packaged install:
 
 ```sh

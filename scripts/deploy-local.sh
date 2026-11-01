@@ -64,6 +64,7 @@ RUNTIME_PLUGIN_PATH="$LOCAL_DEPLOY_ROOT/plugin"
 PLUGIN_CONFIG_PATH="$RUNTIME_PLUGIN_PATH"
 RUNTIME_ENTRY="dist/index.js"
 RUNTIME_TYPES="dist/index.d.ts"
+RUNTIME_DIRECTORY_ENTRY="index.js"
 
 echo "==> opencode-model-routing deploy-local ($MODE)"
 echo "    plugin: $SOURCE_PLUGIN_PATH -> $RUNTIME_PLUGIN_PATH"
@@ -170,7 +171,7 @@ deploy_plugin() {
 	verify_runtime_bundle
 	if [ "$DRY_RUN" = true ]; then
 		echo "    dry-run verify: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY"
-		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
+		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,index.js,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
 		return 0
 	fi
 	if ! command -v rsync >/dev/null 2>&1; then
@@ -182,6 +183,7 @@ deploy_plugin() {
 	rm -rf "$tmp_path"
 	mkdir -p "$tmp_path/dist" "$(dirname "$RUNTIME_PLUGIN_PATH")"
 	cp "$SOURCE_PLUGIN_PATH/package.json" "$tmp_path/package.json"
+	cp "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" "$tmp_path/$RUNTIME_DIRECTORY_ENTRY"
 	if [ -f "$SOURCE_PLUGIN_PATH/NOTICE" ]; then
 		cp "$SOURCE_PLUGIN_PATH/NOTICE" "$tmp_path/NOTICE"
 	fi
@@ -211,6 +213,10 @@ deploy_plugin() {
 }
 
 verify_runtime_bundle() {
+	if [ ! -f "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" ]; then
+		echo "    ✗ runtime directory entry missing: $SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" >&2
+		return 1
+	fi
 	if [ ! -f "$SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY" ]; then
 		echo "    ✗ runtime bundle missing: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY" >&2
 		echo "      Run: cd $SOURCE_PLUGIN_PATH && bun run build" >&2
