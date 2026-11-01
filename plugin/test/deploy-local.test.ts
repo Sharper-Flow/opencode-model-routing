@@ -88,6 +88,8 @@ function fixture(withShim = true) {
     JSON.stringify({ plugin: [deployed] }),
   );
   // Run real bundle verification, but keep dependency installation offline.
+  // interrupt and kill signal the deploy script process, as a run budget
+  // would, then let the installer finish so a late publication is visible.
   writeFileSync(
     join(bin, "bun"),
     `#!/bin/sh
@@ -96,8 +98,14 @@ if [ "$1" = install ]; then
   case "$OMR_TEST_INSTALL_MODE" in
     real) exec "$OMR_TEST_BUN" "$@" ;;
     fail) echo "fixture package-manager failure" >&2; exit 42 ;;
-    interrupt) kill -TERM "$PPID"; exit 143 ;;
-    kill) kill -KILL "$PPID"; exit 137 ;;
+    interrupt|kill)
+      script=$PPID
+      while parent=$(ps -o ppid= -p "$script" | tr -d ' ') && [ "$parent" != "$OMR_TEST_RUNNER_PID" ]; do
+        [ "$parent" -gt 1 ] || exit 99
+        script=$parent
+      done
+      if [ "$OMR_TEST_INSTALL_MODE" = interrupt ]; then kill -TERM "$script"; else kill -KILL "$script"; fi
+      ;;
     incomplete) exit 0 ;;
   esac
   mkdir -p node_modules/omr-runtime-fixture
@@ -125,6 +133,7 @@ function deploy(f: ReturnType<typeof fixture>, installMode = "success") {
         OMR_TEST_BUN: process.execPath,
         OMR_TEST_INSTALL_MODE: installMode,
         OMR_TEST_INSTALL_LOG: join(f.root, "install.log"),
+        OMR_TEST_RUNNER_PID: String(process.pid),
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -184,6 +193,8 @@ for (const mode of ["fail", "interrupt", "kill", "incomplete"]) {
     expect(readFileSync(join(f.root, "install.log"), "utf8")).toBe(
       "install --production\n",
     );
+    if (mode === "interrupt") expect(result.exitCode).toBe(143);
+    if (mode === "kill") expect(result.signalCode).toBe("SIGKILL");
     if (mode === "fail") {
       expect(result.exitCode).toBe(42);
       expect(new TextDecoder().decode(result.stderr)).toContain(

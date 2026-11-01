@@ -163,7 +163,21 @@ patch_config_if_possible() {
 	fi
 }
 
-deploy_plugin() (
+DEPLOY_STAGE=""
+
+cleanup_deploy() {
+	local status=$?
+	if [ -n "$DEPLOY_STAGE" ]; then
+		# Restore a displaced runtime if publication failed or was interrupted.
+		if [ -e "$DEPLOY_STAGE/previous" ] && [ ! -e "$RUNTIME_PLUGIN_PATH" ]; then
+			mv -T "$DEPLOY_STAGE/previous" "$RUNTIME_PLUGIN_PATH" || exit 1
+		fi
+		rm -rf "$DEPLOY_STAGE"
+	fi
+	exit "$status"
+}
+
+deploy_plugin() {
 	if [ ! -d "$SOURCE_PLUGIN_PATH" ]; then
 		echo "    ✗ source plugin missing: $SOURCE_PLUGIN_PATH" >&2
 		return 1
@@ -178,22 +192,15 @@ deploy_plugin() (
 		echo "    ✗ rsync not found — install rsync to deploy bundled plugin runtime" >&2
 		return 1
 	fi
-	local stage tmp_path
-	mkdir -p "$LOCAL_DEPLOY_ROOT"
-	stage="$(mktemp -d "$LOCAL_DEPLOY_ROOT/.plugin.XXXXXX")"
-	tmp_path="$stage/plugin"
-	cleanup_deploy() {
-		local status=$?
-		# Restore a displaced runtime if publication failed or was interrupted.
-		if [ -e "$stage/previous" ] && [ ! -e "$RUNTIME_PLUGIN_PATH" ]; then
-			mv -T "$stage/previous" "$RUNTIME_PLUGIN_PATH" || exit 1
-		fi
-		rm -rf "$stage"
-		exit "$status"
-	}
+	# The traps belong to the script's own shell: a signal sent only to the
+	# script then waits for the running command and exits before publication,
+	# instead of leaving a detached worker that publishes later.
 	trap cleanup_deploy EXIT
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
+	mkdir -p "$LOCAL_DEPLOY_ROOT"
+	DEPLOY_STAGE="$(mktemp -d "$LOCAL_DEPLOY_ROOT/.plugin.XXXXXX")"
+	local tmp_path="$DEPLOY_STAGE/plugin"
 	mkdir -p "$tmp_path/dist"
 	cp "$SOURCE_PLUGIN_PATH/package.json" "$tmp_path/package.json"
 	cp "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" "$tmp_path/$RUNTIME_DIRECTORY_ENTRY"
@@ -211,12 +218,15 @@ deploy_plugin() (
 		bun --no-install -e 'await import("./index.js")'
 	)
 	if [ -e "$RUNTIME_PLUGIN_PATH" ] || [ -L "$RUNTIME_PLUGIN_PATH" ]; then
-		mv -T "$RUNTIME_PLUGIN_PATH" "$stage/previous"
+		mv -T "$RUNTIME_PLUGIN_PATH" "$DEPLOY_STAGE/previous"
 	fi
 	mv -T "$tmp_path" "$RUNTIME_PLUGIN_PATH"
+	rm -rf "$DEPLOY_STAGE"
+	DEPLOY_STAGE=""
+	trap - EXIT INT TERM
 	echo "    ✓ dependencies installed"
 	echo "    ✓ deployed plugin: $RUNTIME_PLUGIN_PATH"
-)
+}
 
 verify_runtime_bundle() {
 	if [ ! -f "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" ]; then
