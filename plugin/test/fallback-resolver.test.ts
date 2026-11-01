@@ -6,7 +6,7 @@ import type { ModelKey } from "../src/types.ts";
 const chain: ModelKey[] = ["a/one", "b/two", "c/three"];
 
 describe("resolveFallbackModel", () => {
-  test("picks first model after current", () => {
+  test("picks highest eligible model excluding current", () => {
     const health = new ModelHealthMap();
     expect(resolveFallbackModel("a/one", chain, 0, health, 3)).toBe("b/two");
   });
@@ -18,9 +18,9 @@ describe("resolveFallbackModel", () => {
     expect(resolveFallbackModel("a/one", chain, 0, health, 3)).toBe("c/three");
   });
 
-  test("returns null when chain exhausted", () => {
+  test("considers higher-priority models when current is the last rung", () => {
     const health = new ModelHealthMap();
-    expect(resolveFallbackModel("c/three", chain, 0, health, 3)).toBeNull();
+    expect(resolveFallbackModel("c/three", chain, 0, health, 3)).toBe("a/one");
   });
 
   test("returns null when all remaining models are cooled", () => {

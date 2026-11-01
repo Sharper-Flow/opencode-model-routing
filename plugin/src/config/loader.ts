@@ -41,6 +41,7 @@ export const maxBlocklistLength = 16;
 export const maxFamilyMapEntries = 64;
 
 export interface AgentConfigShape {
+  model?: unknown;
   // What OpenCode's parsed AgentConfig actually looks like at runtime is
   // permissive — we read defensively via `any`.
   options?: { fallback_models?: unknown };
@@ -109,6 +110,16 @@ function validateModelKeyEntries(
     if (out.length >= maxItems) break;
   }
   return { keys: out, dropped };
+}
+
+export function withConfiguredPrimary(
+  fallbacks: ModelKey[],
+  primary: unknown,
+): ModelKey[] {
+  if (fallbacks.length === 0) return fallbacks;
+  const { keys } = validateModelKeyEntries([primary], 1);
+  const head = keys[0];
+  return head ? [...new Set([head, ...fallbacks])] : fallbacks;
 }
 
 /**
@@ -292,5 +303,8 @@ export function loadFallbackChains(
     }
   }
 
+  for (const [name, chain] of chains) {
+    chains.set(name, withConfiguredPrimary(chain, agents[name]?.model));
+  }
   return { chains, blocked, families, familyDisjoint, warnings };
 }

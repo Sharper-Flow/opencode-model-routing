@@ -10,7 +10,7 @@ The repository ships two artifacts that share one schema contract:
   plus an ordered fallback chain per OpenCode target (agent, sub-agent, or
   provider ADV variant).
 - **`plugin/`** — a TypeScript OpenCode plugin that reads that config at
-  runtime and rotates to the next healthy model on errors, 429/quota
+  runtime and selects the highest eligible model on errors, 429/quota
   exhaustion, or a conservative time-to-first-token timeout. It also
   preemptively skips models that are cooling down or explicitly blocked.
 
@@ -24,12 +24,17 @@ Once enabled, the plugin sits in the request path and acts on three triggers:
 
 | Trigger                                                              | Action                                                                                          |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Session error (rate limit, server error, auth, quota, unknown model) | Rotate to the next healthy chain entry and replay the turn.                                     |
-| No first token within the TTFT window (default 60 s)                 | Abort the stuck request and rotate.                                                             |
+| Session error (rate limit, server error, auth, quota, unknown model) | Select the highest eligible ladder entry and replay the turn.                                  |
+| No first token within the TTFT window (default 60 s)                 | Abort the stuck request and select the highest eligible ladder entry.                           |
 | Model currently cooling down or blocked                              | Preemptively redirect to the first healthy, non-blocked chain entry before the request is sent. |
 
 Recovery details:
 
+- **Priority ladder**: for agents with a nonempty fallback list, the configured
+  primary followed by ordered fallbacks forms one deduplicated ladder. Recovery
+  cools the failed model before scanning from the top and excludes it explicitly.
+  A manually selected lower rung can recover to the primary; a healthy manual
+  selection stays unchanged. Empty fallback lists do not enable routing.
 - **Context preservation** (default on): work the failing model already
   completed mid-turn is summarised and prepended to the re-prompt, so the next
   model continues instead of restarting from the bare user message.

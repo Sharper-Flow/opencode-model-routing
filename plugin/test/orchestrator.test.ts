@@ -971,8 +971,8 @@ describe("attemptFallback — cooldown attribution", () => {
     expect(store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
     // ...the advanced-but-never-served currentModel is NOT...
     expect(store.health.isInCooldown("b/two" as ModelKey)).toBe(false);
-    // ...and rotation still advances from currentModel (design unchanged).
-    expect(store.sessions.get("s1").currentModel).toBe("c/three");
+    // The highest eligible rung remains usable even if bookkeeping named it.
+    expect(store.sessions.get("s1").currentModel).toBe("b/two");
   });
 
   test("model-less signal cools lastServedModel when currentModel was advanced without serving", async () => {

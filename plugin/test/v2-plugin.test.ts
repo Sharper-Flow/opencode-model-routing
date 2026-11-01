@@ -191,6 +191,33 @@ describe("setupV2Plugin — lifecycle", () => {
 });
 
 describe("V2 retry hook — fallback once, no duplicate replay", () => {
+  test("manual last fallback failure recovers to the configured primary", async () => {
+    const fixture = createMockV2Host({
+      agents: { general: { fallback_models: ["anthropic/claude-opus-4-1"] } },
+    });
+    const reads: unknown[] = [];
+    const host = {
+      ...fixture.host,
+      agent: {
+        get: async (input: unknown) => {
+          reads.push(input);
+          return {
+            location: {},
+            data: { model: { providerID: "openai", id: "sol" } },
+          };
+        },
+      },
+    };
+    const cleanup = await setupV2Plugin(host);
+    expect(reads).toEqual([]);
+    await fixture.mock.registeredHooks.get("retry")?.(retryEvent());
+    expect(fixture.mock.callsTo("session.switchModel")).toEqual([
+      { sessionID: "s1", model: { providerID: "openai", id: "sol" } },
+    ]);
+    expect(reads).toEqual([{ agentID: "general" }]);
+    cleanup?.();
+  });
+
   test("classified failure advances the chain and approves exactly one switched host retry", async () => {
     const fixture = createMockV2Host({
       agents: { general: { fallback_models: CHAIN } },
@@ -288,6 +315,125 @@ describe("V2 retry hook — fallback once, no duplicate replay", () => {
       resume: false,
     });
     expect((lastEvent.decision as { retry: boolean }).retry).toBe(false);
+  });
+});
+
+describe("V2 configured primary at routing boundaries", () => {
+  const fallback = "anthropic/claude-opus-4-1";
+  const event = (sessionID: string) => ({
+    sessionID,
+    agent: "general",
+    model: { providerID: "anthropic", id: "claude-opus-4-1" },
+  });
+
+  test("cooled last fallback redirects but a healthy manual choice stays", async () => {
+    const fixture = createMockV2Host({
+      agents: { general: { fallback_models: [fallback] } },
+    });
+    const host = {
+      ...fixture.host,
+      agent: {
+        get: async () => ({
+          location: {},
+          data: { model: { providerID: "openai", id: "sol" } },
+        }),
+      },
+    };
+    const cleanup = await setupV2Plugin(host);
+    const context = fixture.mock.registeredHooks.get("context")!;
+    await context(event("healthy"));
+    expect(fixture.mock.callsTo("session.switchModel")).toEqual([]);
+    await fixture.mock.registeredHooks.get("retry")?.(
+      retryEvent({ sessionID: "failed" }),
+    );
+    await context(event("cooled"));
+    expect(fixture.mock.callsTo("session.switchModel")).toEqual([
+      { sessionID: "failed", model: { providerID: "openai", id: "sol" } },
+      { sessionID: "cooled", model: { providerID: "openai", id: "sol" } },
+    ]);
+    cleanup?.();
+  });
+
+  test("changed and removed primary never retains a stale head", async () => {
+    const fixture = createMockV2Host({
+      agents: { general: { fallback_models: [fallback] } },
+    });
+    let response: unknown = {
+      location: {},
+      data: { model: { providerID: "openai", id: "sol" } },
+    };
+    const host = { ...fixture.host, agent: { get: async () => response } };
+    const cleanup = await setupV2Plugin(host);
+    const retry = fixture.mock.registeredHooks.get("retry")!;
+    const context = fixture.mock.registeredHooks.get("context")!;
+    await retry(retryEvent({ sessionID: "failed" }));
+    response = {
+      location: {},
+      data: { model: { providerID: "google", id: "new" } },
+    };
+    await context(event("changed"));
+    response = { location: {}, data: {} };
+    await context(event("removed"));
+    expect(fixture.mock.callsTo("session.switchModel")).toEqual([
+      { sessionID: "failed", model: { providerID: "openai", id: "sol" } },
+      { sessionID: "changed", model: { providerID: "google", id: "new" } },
+    ]);
+    cleanup?.();
+  });
+
+  test("missing, malformed and failed agent reads keep fallback-only routing", async () => {
+    for (const kind of ["missing", "malformed", "failed"] as const) {
+      const fixture = createMockV2Host({
+        agents: { general: { fallback_models: [fallback, "openai/gpt-5.2"] } },
+      });
+      const host =
+        kind === "missing"
+          ? fixture.host
+          : {
+              ...fixture.host,
+              agent: {
+                get: async () => {
+                  if (kind === "failed") throw new Error("unavailable");
+                  return {
+                    location: {},
+                    data: {
+                      model: { providerID: "bad provider", id: "broken" },
+                    },
+                  };
+                },
+              },
+            };
+      const cleanup = await setupV2Plugin(host);
+      await fixture.mock.registeredHooks.get("retry")?.(retryEvent());
+      expect(fixture.mock.callsTo("session.switchModel")).toEqual([
+        { sessionID: "s1", model: { providerID: "openai", id: "gpt-5.2" } },
+      ]);
+      cleanup?.();
+    }
+  });
+
+  test("an empty fallback list does not enable routing from the primary", async () => {
+    const fixture = createMockV2Host({
+      agents: { general: { fallback_models: [] } },
+    });
+    let reads = 0;
+    const host = {
+      ...fixture.host,
+      agent: {
+        get: async () => {
+          reads++;
+          return {
+            location: {},
+            data: { model: { providerID: "openai", id: "sol" } },
+          };
+        },
+      },
+    };
+    const cleanup = await setupV2Plugin(host);
+    await fixture.mock.registeredHooks.get("retry")?.(retryEvent());
+    expect(fixture.mock.callsTo("session.switchModel")).toEqual([]);
+    expect(reads).toBe(0);
+    cleanup?.();
   });
 });
 

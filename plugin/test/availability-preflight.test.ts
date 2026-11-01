@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { applyAvailabilityPreflight } from "../src/availability/preflight.ts";
 import type { AvailabilitySnapshotV1 } from "../src/availability/snapshot.ts";
 import { createLogger, type Logger } from "../src/logging/logger.ts";
+import { loadFallbackChains } from "../src/config/loader.ts";
 import {
+  applyLoadedChains,
   createPluginContext,
   handleChatMessage,
 } from "../src/plugin-internal.ts";
@@ -372,6 +374,57 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     expect(client.callsTo("session.abort")).toHaveLength(0);
     expect(client.callsTo("session.revert")).toHaveLength(0);
     ctx.ttft.clear("s1");
+  });
+
+  test("unavailable fallback never redirects onto a blocked configured primary", async () => {
+    writeSnapshot(freshUnavailable());
+    const ctx = createPluginContext({ logger: silentLogger });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains(
+        { agent: { scout: { model: "openai/gpt-5" } } },
+        silentLogger,
+        {
+          agents: {
+            scout: {
+              fallback_models: ["anthropic/claude-sonnet-4-5"],
+              blocked_models: ["openai/gpt-5"],
+            },
+          },
+        },
+      ),
+    );
+    const out = output("anthropic", "claude-sonnet-4-5");
+    await handleChatMessage(
+      ctx,
+      new MockClient(),
+      { sessionID: "blocked-primary", agent: "scout" },
+      out,
+    );
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
+  });
+
+  test("availability preflight respects routing disabled by maxDepth zero", async () => {
+    writeSnapshot(freshUnavailable());
+    const ctx = createPluginContext({
+      logger: silentLogger,
+      config: { maxDepth: 0 },
+    });
+    ctx.chains.set("scout", ["openai/gpt-5", "anthropic/claude-sonnet-4-5"]);
+    const out = output("anthropic", "claude-sonnet-4-5");
+    await handleChatMessage(
+      ctx,
+      new MockClient(),
+      { sessionID: "disabled", agent: "scout" },
+      out,
+    );
+    expect(out.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet-4-5",
+    });
   });
 
   test("fresh hook agent redirects unavailable Anthropic selection with empty history", async () => {

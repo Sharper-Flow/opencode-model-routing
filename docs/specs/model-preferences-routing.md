@@ -117,6 +117,12 @@ it as `{id, setup}` and ignores `server()`. Both halves share one routing
 policy (chains, cooldowns, failure dedup, chain resolution, replay
 orchestration); only the integration boundary differs.
 
+For agents with nonempty fallback lists, the configured primary and ordered
+fallbacks form one deduplicated priority ladder. After cooling the attributed
+failed model, recovery selects the highest eligible rung and excludes that
+failed model. Preemptive routing uses the same eligibility policy, while healthy
+manual selections and empty fallback lists remain unchanged.
+
 The TypeScript runtime targets the OpenCode plugin server API, which passes a
 main `@opencode-ai/sdk` client in `PluginInput.client`.
 
@@ -127,9 +133,11 @@ main `@opencode-ai/sdk` client in `PluginInput.client`.
 
 Under OpenCode 2 the plugin context replaces the client argument:
 
-- Chains load once from `ctx.options` (the native plugins object options).
+- Fallback lists load once from `ctx.options` (the native plugins object options).
   The legacy `agent.<name>.options` migration scan has no config hook to read
-  under V2, so options are the only V2 chain source.
+  under V2, so options are the only V2 fallback-list source. The configured
+  primary is read through `ctx.agent.get` at context/retry boundaries, after
+  host activation has applied agent configuration.
 - `ctx.session.hook("context")` replaces `chat.message`: turn-guard clear,
   TTFT arm, availability preflight, and preemptive skip run unchanged. The
   context hook's model is readonly, so a preemptive redirect is applied to
