@@ -163,6 +163,20 @@ patch_config_if_possible() {
 	fi
 }
 
+DEPLOY_STAGE=""
+
+cleanup_deploy() {
+	local status=$?
+	if [ -n "$DEPLOY_STAGE" ]; then
+		# Restore a displaced runtime if publication failed or was interrupted.
+		if [ -e "$DEPLOY_STAGE/previous" ] && [ ! -e "$RUNTIME_PLUGIN_PATH" ]; then
+			mv -T "$DEPLOY_STAGE/previous" "$RUNTIME_PLUGIN_PATH" || exit 1
+		fi
+		rm -rf "$DEPLOY_STAGE"
+	fi
+	exit "$status"
+}
+
 deploy_plugin() {
 	if [ ! -d "$SOURCE_PLUGIN_PATH" ]; then
 		echo "    ✗ source plugin missing: $SOURCE_PLUGIN_PATH" >&2
@@ -178,38 +192,40 @@ deploy_plugin() {
 		echo "    ✗ rsync not found — install rsync to deploy bundled plugin runtime" >&2
 		return 1
 	fi
-	local tmp_path
-	tmp_path="$RUNTIME_PLUGIN_PATH.tmp.$$"
-	rm -rf "$tmp_path"
-	mkdir -p "$tmp_path/dist" "$(dirname "$RUNTIME_PLUGIN_PATH")"
+	# The traps belong to the script's own shell: a signal sent only to the
+	# script then waits for the running command and exits before publication,
+	# instead of leaving a detached worker that publishes later.
+	trap cleanup_deploy EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	mkdir -p "$LOCAL_DEPLOY_ROOT"
+	DEPLOY_STAGE="$(mktemp -d "$LOCAL_DEPLOY_ROOT/.plugin.XXXXXX")"
+	local tmp_path="$DEPLOY_STAGE/plugin"
+	mkdir -p "$tmp_path/dist"
 	cp "$SOURCE_PLUGIN_PATH/package.json" "$tmp_path/package.json"
 	cp "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" "$tmp_path/$RUNTIME_DIRECTORY_ENTRY"
 	if [ -f "$SOURCE_PLUGIN_PATH/NOTICE" ]; then
 		cp "$SOURCE_PLUGIN_PATH/NOTICE" "$tmp_path/NOTICE"
 	fi
 	rsync -a --delete "$SOURCE_PLUGIN_PATH/dist/" "$tmp_path/dist/"
-	rm -rf "$RUNTIME_PLUGIN_PATH"
-	mv "$tmp_path" "$RUNTIME_PLUGIN_PATH"
-	echo "    ✓ deployed plugin: $RUNTIME_PLUGIN_PATH"
 
-	# Install runtime dependencies at the deployed path. The bundled dist uses
-	# external imports for runtime deps (tsup marks dependencies as external).
-	# Without node_modules at the deploy target, the plugin module fails to
-	# import silently — OpenCode logs no error but the plugin never loads.
-	# This was the root cause of the OMR plugin silently not loading after
-	# addPersistentCrossProcess added proper-lockfile as a runtime dep.
-	if command -v bun >/dev/null 2>&1; then
-		echo "    installing runtime dependencies..."
-		(
-			cd "$RUNTIME_PLUGIN_PATH"
-			bun install --production 2>/dev/null || bun install 2>/dev/null || \
-				echo "    ⚠ bun install failed — plugin may not load if it has external deps"
-		)
-		echo "    ✓ dependencies installed"
-	else
-		echo "    ⚠ bun not found — skipping dependency install" >&2
-		echo "      If the plugin has runtime deps, run: cd $RUNTIME_PLUGIN_PATH && bun install" >&2
+	# The bundle has external imports. Keep the active copy intact until the
+	# staged directory can load without the checkout's node_modules.
+	echo "    installing runtime dependencies..."
+	(
+		cd "$tmp_path"
+		bun install --production
+		bun --no-install -e 'await import("./index.js")'
+	)
+	if [ -e "$RUNTIME_PLUGIN_PATH" ] || [ -L "$RUNTIME_PLUGIN_PATH" ]; then
+		mv -T "$RUNTIME_PLUGIN_PATH" "$DEPLOY_STAGE/previous"
 	fi
+	mv -T "$tmp_path" "$RUNTIME_PLUGIN_PATH"
+	rm -rf "$DEPLOY_STAGE"
+	DEPLOY_STAGE=""
+	trap - EXIT INT TERM
+	echo "    ✓ dependencies installed"
+	echo "    ✓ deployed plugin: $RUNTIME_PLUGIN_PATH"
 }
 
 verify_runtime_bundle() {
