@@ -421,7 +421,7 @@ export async function attemptFallback(
     }
 
     const next = resolveFallbackModel(
-      current,
+      cooldownTarget,
       chain,
       state.fallbackDepth,
       store.health,

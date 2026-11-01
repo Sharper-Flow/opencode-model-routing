@@ -2,7 +2,7 @@
 //
 // Before each user round starts, check whether the model OpenCode is about to
 // use is currently in cooldown or blocked for this agent. If cooled, mutate
-// `output.message.model` to the next healthy entry in the agent's chain. If
+// `output.message.model` to the highest eligible entry in the agent's ladder. If
 // blocked (agents.<name>.blocked_models), redirect to the first chain entry
 // that is healthy and not blocked, regardless of the current model's cooldown
 // state. If the agent opted into family_disjoint_from_parent and the current
@@ -188,7 +188,7 @@ export function applyPreemptiveSkip(
     return;
   }
 
-  // Pick next healthy entry in the chain. The blocklist still applies to the
+  // Pick the highest eligible entry. The blocklist still applies to the
   // scan: a blocked entry inside the chain is never rotated onto.
   const next = resolveFallbackModel(
     key,

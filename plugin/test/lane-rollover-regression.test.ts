@@ -219,12 +219,9 @@ describe("lane rollover regression (2026-09-18 incident)", () => {
       quotaErrorEvent(sessionId, "anthropic", "claude-opus-5"),
     );
 
-    // Pre-fix: the replay guard suppressed this failure signal entirely —
-    // state pinned to opus, no abort, session wedged (live: kQhzi3Iy,
-    // x6TAiVIC, yETu7FFz). Post-fix: bookkeeping advances to M3 and the
-    // subagent is handed back to its parent.
+    // The highest eligible rung is Sol; abort hands the child back to its parent.
     const state = ctx.store.sessions.get(sessionId);
-    expect(state.currentModel).toBe(M3);
+    expect(state.currentModel).toBe(SOL);
     expect(client.callsTo("session.abort")).toHaveLength(1);
     expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(0);

@@ -25,7 +25,7 @@ import {
   resolveProviderReportedBoundary,
   type QuotaBoundaryResolver,
 } from "./availability/quota-state.ts";
-import { loadFallbackChains } from "./config/loader.ts";
+import { loadFallbackChains, withConfiguredPrimary } from "./config/loader.ts";
 import {
   classifyRetryStatusText,
   classifySessionError,
@@ -1702,6 +1702,7 @@ export interface V2SessionDomain {
 export interface V2PluginHost {
   options?: unknown;
   session: V2SessionDomain;
+  agent?: { get(input: { agentID: string }): Promise<unknown> };
   event?: {
     subscribe(options?: Record<string, unknown>): AsyncIterable<unknown>;
   };
@@ -2144,13 +2145,52 @@ export async function setupV2Plugin(
   });
   applyLoadedChains(ctx, loadFallbackChains(undefined, logger, host.options));
   const client = createV2OrchestratorClient(host.session);
+  const agentDomain = host.agent;
   ctx.replayTail = createV2ReplayTail(host.session);
 
-  await host.session.hook("context", (event: unknown) =>
-    handleV2Context(ctx, client, host.session, event),
+  async function contextForEvent(event: unknown): Promise<PluginContext> {
+    if (!isRecord(event)) return ctx;
+    const sessionId = nonEmptyString(event.sessionID);
+    let agent =
+      nonEmptyString(event.agent) ??
+      (sessionId ? ctx.store.sessions.get(sessionId).agentName : undefined);
+    if (!agent && sessionId && ctx.chains.size > 0) {
+      await readSessionIdentity(sessionId, client, ctx.store);
+      agent = await resolveAgentName(sessionId, client, ctx.store);
+    }
+    if (!agent) return ctx;
+    const fallbacks = ctx.chains.get(agent);
+    if (!fallbacks?.length) return ctx;
+
+    let primary: unknown;
+    if (typeof agentDomain?.get === "function") {
+      try {
+        const response = await agentDomain.get({ agentID: agent });
+        const data =
+          isRecord(response) && isRecord(response.data)
+            ? response.data
+            : undefined;
+        const model = data && isRecord(data.model) ? data.model : undefined;
+        if (
+          typeof model?.providerID === "string" &&
+          typeof model.id === "string"
+        ) {
+          primary = `${model.providerID}/${model.id}`;
+        }
+      } catch (err) {
+        logger.warn("v2.agent_read_failed", { agent, err: errorSummary(err) });
+      }
+    }
+    const chains = new Map(ctx.chains);
+    chains.set(agent, withConfiguredPrimary(fallbacks, primary));
+    return { ...ctx, chains };
+  }
+
+  await host.session.hook("context", async (event: unknown) =>
+    handleV2Context(await contextForEvent(event), client, host.session, event),
   );
-  await host.session.hook("retry", (event: unknown) =>
-    handleV2RetrySignal(ctx, client, event),
+  await host.session.hook("retry", async (event: unknown) =>
+    handleV2RetrySignal(await contextForEvent(event), client, event),
   );
 
   const controller = new AbortController();
