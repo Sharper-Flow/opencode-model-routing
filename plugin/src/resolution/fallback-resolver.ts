@@ -7,6 +7,27 @@ import type { ModelHealthMap } from "../state/model-health.ts";
 import type { ModelKey } from "../types.ts";
 
 /**
+ * The one admission test every selection shares: a model is admissible when
+ * it is not blocked for the agent, not in cooldown, not vetoed by the
+ * availability snapshot, and not vetoed by the family constraint. The
+ * resolver scan and the resume return both call this predicate, so a
+ * resumed session can never land on a model any redirect would refuse.
+ */
+export function isModelAdmissible(
+  model: ModelKey,
+  health: ModelHealthMap,
+  blocked?: ReadonlySet<ModelKey>,
+  unavailable?: (key: ModelKey) => boolean,
+  familyVeto?: (key: ModelKey) => boolean,
+): boolean {
+  if (blocked?.has(model)) return false;
+  if (health.isInCooldown(model)) return false;
+  if (unavailable?.(model)) return false;
+  if (familyVeto?.(model)) return false;
+  return true;
+}
+
+/**
  * Given:
  *   - currentModel: the model that just failed (or was preemptively skipped)
  *   - chain: the fallback chain configured for this agent (full chain
@@ -50,10 +71,9 @@ export function resolveFallbackModel(
 
   for (const m of chain) {
     if (!m || m === currentModel) continue;
-    if (blocked?.has(m)) continue;
-    if (health.isInCooldown(m)) continue;
-    if (unavailable?.(m)) continue;
-    if (familyVeto?.(m)) continue;
+    if (!isModelAdmissible(m, health, blocked, unavailable, familyVeto)) {
+      continue;
+    }
     return m;
   }
   return null;

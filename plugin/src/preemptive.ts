@@ -11,7 +11,11 @@
 // — the user's first attempt simply starts on the allowed model.
 
 import type { Logger } from "./logging/logger.ts";
-import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
+import {
+  isModelAdmissible,
+  resolveFallbackModel,
+} from "./resolution/fallback-resolver.ts";
+import type { RoutingMarkerEntry } from "./state/routing-marker-store.ts";
 import type { FallbackStore } from "./state/store.ts";
 import type { ModelKey, PluginConfig } from "./types.ts";
 import { claudeUnavailableVeto } from "./availability/preflight.ts";
@@ -33,6 +37,83 @@ export interface PreemptiveInput {
   // candidates in the rotation scan below, so a cooldown-driven redirect
   // cannot land the session on a provider the snapshot already knows is dead.
   snapshot?: AvailabilitySnapshotV1 | null;
+}
+
+// What applyResumeReturn needs beyond PreemptiveInput: the persisted marker
+// read by the caller (handleChatMessage), so this step stays pure — no file
+// IO inside the routing decision.
+export interface ResumeReturnInput extends PreemptiveInput {
+  marker: RoutingMarkerEntry | null;
+}
+
+/**
+ * Resume return (CON-1686). After a restart the in-memory session state is
+ * empty and the TUI re-imports the persisted last user message's model, so a
+ * session whose last turn was served on a fallback rung arrives pinned to
+ * that rung. When the persisted routing marker says exactly that — the
+ * arriving model is the one OMR last served on behalf of an original that
+ * differs — and the original is still admissible (healthy, not blocked, not
+ * vetoed, and still a rung of the agent's configured chain), serve this turn
+ * on the original again instead.
+ *
+ * Every guard is fail-open: no marker, a marker that does not match the
+ * arriving model, an original outside the current chain, an unresolved
+ * agent, or an inadmissible original all leave the selection untouched —
+ * the fallback rung keeps serving while the primary is actually unavailable.
+ * A deliberate user selection is never captured by this rule: markers are
+ * written on every routed turn, so a model the user picked themselves is
+ * recorded with original === served and the rule does not fire.
+ */
+export function applyResumeReturn(
+  input: ResumeReturnInput,
+  store: FallbackStore,
+  chains: Map<string, ModelKey[]>,
+  logger: Logger,
+  blocked?: ReadonlyMap<string, ReadonlySet<ModelKey>>,
+  familyVeto?: (key: ModelKey) => boolean,
+): boolean {
+  const current = input.output.message.model;
+  if (!current || !input.marker) return false;
+  const key = `${current.providerID}/${current.modelID}` as ModelKey;
+  const { marker } = input;
+  if (marker.served !== key || marker.original === key) return false;
+
+  if (!input.agentName) return false;
+  const chain = chains.get(input.agentName);
+  if (!chain || !chain.includes(marker.original)) return false;
+
+  if (
+    !isModelAdmissible(
+      marker.original,
+      store.health,
+      blocked?.get(input.agentName),
+      claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+      familyVeto,
+    )
+  ) {
+    return false;
+  }
+
+  const original = marker.original;
+  const parsed = original.split("/");
+  if (parsed.length < 2) return false;
+  input.output.message.model = {
+    providerID: parsed[0]!,
+    modelID: parsed.slice(1).join("/"),
+  };
+  const state = store.sessions.get(input.sessionId);
+  state.currentModel = original;
+  state.originalModel = original;
+  state.fallbackDepth = 0;
+  state.lastFallbackAt = 0;
+  logger.info("fallback.recovered", {
+    sessionId: input.sessionId,
+    agent: input.agentName,
+    from: key,
+    to: original,
+    via: "resume",
+  });
+  return true;
 }
 
 export function applyPreemptiveSkip(

@@ -293,17 +293,27 @@ export function parseModelKey(key: ModelKey): {
  * so it becomes the model serving this session; later model-less failure
  * signals must attribute to it. originalModel records the pre-fallback model
  * only when one was known — an unknown current model leaves it null.
+ * Also persists the routing marker ({served: next, original}) so a process
+ * restarted after this turn can tell the persisted fallback pin from a
+ * deliberate selection and return the session to its original (CON-1686).
+ * The write is fail-open: a lost marker costs one resumed turn on the
+ * fallback rung, never a wrong redirect.
  */
 function commitFallbackSuccess(
   state: SessionState,
   next: ModelKey,
   current: ModelKey | null,
+  routing?: FallbackStore["routing"],
+  sessionId?: string,
 ): void {
   state.currentModel = next;
   state.lastServedModel = next;
   state.fallbackDepth += 1;
   state.lastFallbackAt = Date.now();
   if (!state.originalModel && current) state.originalModel = current;
+  if (routing && sessionId) {
+    void routing.writeMarker(sessionId, next, state.originalModel ?? next);
+  }
 }
 
 /**
@@ -495,7 +505,7 @@ export async function attemptFallback(
         });
         return { success: false, error: "replay failed" };
       }
-      commitFallbackSuccess(state, next, current);
+      commitFallbackSuccess(state, next, current, store.routing, sessionId);
       logger.info("fallback.success", {
         sessionId,
         from: current,
@@ -597,7 +607,7 @@ export async function attemptFallback(
     }
 
     // Success — update session state (shared with the replay-tail path).
-    commitFallbackSuccess(state, next, current);
+    commitFallbackSuccess(state, next, current, store.routing, sessionId);
 
     // `agent` is a correlation dimension, not an anomaly marker, so it is
     // ALWAYS present — `?? null` normalizes the `undefined` that agentName

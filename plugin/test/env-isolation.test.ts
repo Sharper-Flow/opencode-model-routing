@@ -23,6 +23,14 @@ describe("test environment isolation", () => {
     );
   });
 
+  test("routing marker store points at the unwritable isolation sentinel", () => {
+    // Same principle as the cooldown sentinel: marker writes fail, so no
+    // cross-restart routing marker leaks between tests or into production.
+    expect(process.env.OPENCODE_MODEL_ROUTING_SESSION_ROUTING).toBe(
+      "/dev/null/omr-test-isolation",
+    );
+  });
+
   test("a default logger writes nothing to disk under the preload", () => {
     // Exercises the real default `write` path — the one the leaking test hit
     // via pluginModule.server(). Warn reaches the default console sink; a

@@ -123,6 +123,33 @@ failed model, recovery selects the highest eligible rung and excludes that
 failed model. Preemptive routing uses the same eligibility policy, while healthy
 manual selections and empty fallback lists remain unchanged.
 
+A fallback-served turn persists the fallback model on the session's last user
+message, and the OpenCode TUI re-imports that message's model whenever the
+session is resumed — so a restarted process receives the fallback rung as the
+selection with no in-memory state left to recognize it. The plugin counters
+this with a persisted per-session routing marker
+(`~/.local/share/opencode-model-routing/session-routing.json`; `{served,
+original}` per session under the cooldown file's protocol: owner-only,
+fail-open, TTL-pruned, cooperatively locked atomic writes):
+
+- Every routed turn records `served` = the model its dispatch persists on the
+  user message, and `original` = the session's pre-fallback model (`=== served`
+  on ordinary turns, which is what keeps a deliberate user selection safe).
+  A successful fallback commit (replay tail or re-prompt) records the fallback
+  rung as `served` and the pre-fallback model as `original`. `session.deleted`
+  clears the marker.
+- On the first message a restarted process sees for a session, when the
+  arriving model equals the marker's `served` and differs from an `original`
+  that is still a rung of the agent's chain, the resume return serves that turn
+  on the `original` instead, shares the common admission predicate (cooldown,
+  blocklist, availability veto, family veto), resets the fallback bookkeeping,
+  and logs one `fallback.recovered` event. Under V2 the returned model reaches
+  the host through the same `switchModel` apply as every redirect.
+- While the original is cooling, blocked, vetoed, or no longer on the chain,
+  the arriving selection stands and the marker keeps naming the original, so a
+  later resume can still return. A mismatched marker (deliberate selection,
+  `--model` launch honored by the host) also stands.
+
 The TypeScript runtime targets the OpenCode plugin server API, which passes a
 main `@opencode-ai/sdk` client in `PluginInput.client`.
 

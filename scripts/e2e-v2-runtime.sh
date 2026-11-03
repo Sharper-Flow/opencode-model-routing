@@ -338,6 +338,7 @@ export XDG_CACHE_HOME="$FIXTURE/cache"
 export XDG_STATE_HOME="$FIXTURE/state"
 export OMR_LOG_FILE="$FIXTURE/omr.log"
 export OPENCODE_MODEL_ROUTING_COOLDOWN="$FIXTURE/cooldown.json"
+export OPENCODE_MODEL_ROUTING_SESSION_ROUTING="$FIXTURE/session-routing.json"
 export OPENCODE_CLAUDE_MAX_AVAILABILITY="$FIXTURE/no-such-snapshot.json"
 export OMR_PROBE_EVENTS="$FIXTURE/events.jsonl"
 
