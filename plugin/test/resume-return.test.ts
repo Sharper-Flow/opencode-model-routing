@@ -1,4 +1,4 @@
-// resume-return.test.ts — CON-1686 regression coverage.
+// resume-return.test.ts — resume-return regression coverage.
 //
 // End state under test: a session whose last turn was served on a fallback
 // resumes (after a process restart, with empty in-memory state) on its
@@ -77,7 +77,7 @@ const chain: ModelKey[] = ["a/one", "b/two", "c/three"];
 // The end-state chain: a fallback-served turn, a restart, a resumed turn.
 // ---------------------------------------------------------------------------
 
-describe("CON-1686 end state: fallback-served turn then resume", () => {
+describe("end state: fallback-served turn then resume", () => {
   test("restart after a fallback-served turn resumes on the healthy original", async () => {
     const dir = tempStoreDir();
     const markerFile = join(dir, "session-routing.json");
@@ -338,15 +338,12 @@ describe("routing marker writes on the orchestrator fallback commit", () => {
     expect(new RoutingMarkerStore(markerFile).readMarker("s1")).toBeNull();
   });
 
-  // The live-log regression this guards: on 2026-10-09 the production log
-  // shows fallback.success to=glm-5.3-flash followed 4.6s later by
-  // manual_model_change.reset_depth model=glm-5.3-flash — the V1 host
-  // dispatches the re-prompt's own chat.message inside session.prompt,
-  // while the orchestrator still holds the session lock, and the healthy
-  // branch used to reclassify that OMR-driven prompt as a manual change,
-  // overwriting originalModel with the fallback rung (destroying the
-  // marker's return information). The prompt here fires the hook exactly
-  // like the host does.
+  // The V1 host dispatches the re-prompt's own chat.message inside
+  // session.prompt, while the orchestrator still holds the session lock.
+  // That OMR-driven prompt must not be reclassified as a manual change:
+  // doing so would overwrite originalModel with the fallback rung and
+  // destroy the marker's return information. The prompt mock here fires
+  // the hook the way the host does.
   test("re-prompt's own chat.message (fired inside session.prompt) does not reclassify the fallback as manual", async () => {
     const dir = tempStoreDir();
     const markerFile = join(dir, "session-routing.json");

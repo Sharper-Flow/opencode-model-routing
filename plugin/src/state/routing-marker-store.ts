@@ -7,7 +7,7 @@
 // in-memory FallbackStore, and the TUI re-imports the persisted user
 // message's model as the session's selection — without this marker a resumed
 // session arrives pinned to a fallback rung with no in-process state left to
-// know it was a fallback (CON-1686).
+// know it was a fallback.
 //
 // Protocol mirrors cooldown-store.ts (same contract family):
 //   - fail-open — missing/stale/malformed/wrong-perm file never blocks

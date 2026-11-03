@@ -295,7 +295,7 @@ export function parseModelKey(key: ModelKey): {
  * only when one was known — an unknown current model leaves it null.
  * Also persists the routing marker ({served: next, original}) so a process
  * restarted after this turn can tell the persisted fallback pin from a
- * deliberate selection and return the session to its original (CON-1686).
+ * deliberate selection and return the session to its original.
  * The write is fail-open: a lost marker costs one resumed turn on the
  * fallback rung, never a wrong redirect.
  */

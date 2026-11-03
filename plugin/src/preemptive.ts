@@ -47,7 +47,7 @@ export interface ResumeReturnInput extends PreemptiveInput {
 }
 
 /**
- * Resume return (CON-1686). After a restart the in-memory session state is
+ * Resume return. After a restart the in-memory session state is
  * empty and the TUI re-imports the persisted last user message's model, so a
  * session whose last turn was served on a fallback rung arrives pinned to
  * that rung. When the persisted routing marker says exactly that — the
@@ -256,11 +256,11 @@ export function applyPreemptiveSkip(
     if (state.currentModel !== key) {
       // A replay currently holds this session's lock: the arriving model is
       // OMR's own re-prompt (the V1 host dispatches the re-prompt's
-      // chat.message inside session.prompt, before/while commitFallbackSuccess
-      // settles), not a user selection. Reclassifying it as a manual change
+      // chat.message inside session.prompt, before commitFallbackSuccess
+      // runs), not a user selection. Reclassifying it as a manual change
       // would overwrite originalModel with the fallback rung and destroy the
-      // routing marker's return information (CON-1686). Leave the state for
-      // the orchestrator's commit to settle.
+      // routing marker's return information. Leave the state for the
+      // orchestrator's commit to settle.
       if (store.isInFlight(input.sessionId)) return;
       state.currentModel = key;
       state.originalModel = key;

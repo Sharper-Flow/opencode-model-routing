@@ -662,7 +662,7 @@ export async function handleChatMessage(
   // snapshot → null → no-op; non-Anthropic selections are never touched.
   const snapshot = readAvailabilitySnapshot();
 
-  // Resume return (CON-1686): a fresh session state plus a persisted routing
+  // Resume return: a fresh session state plus a persisted routing
   // marker whose served model matches the arriving selection means the TUI
   // re-imported the last user message's fallback model. Return the session to
   // its recorded original when that original is still admissible; otherwise
@@ -741,7 +741,7 @@ export async function handleChatMessage(
       state.lastServedModel =
         `${finalModel.providerID}/${finalModel.modelID}` as ModelKey;
       // Persist the routing marker so a restarted process can tell a stale
-      // fallback pin from a deliberate selection (CON-1686). `served` is the
+      // fallback pin from a deliberate selection. `served` is the
       // model this dispatch will persist on the user message; `original` is
       // the session's recorded pre-fallback model (equal on ordinary turns,
       // which keeps a deliberate user pick safe from the resume return).

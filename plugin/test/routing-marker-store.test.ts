@@ -15,7 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  MAX_ROUTING_MARKER_BYTES,
   MAX_ROUTING_MARKER_ENTRIES,
+  ROUTING_MARKER_SCHEMA,
+  ROUTING_MARKER_VERSION,
   RoutingMarkerStore,
 } from "../src/state/routing-marker-store.ts";
 
@@ -270,6 +273,48 @@ describe("RoutingMarkerStore.writeMarker — happy path + merge", () => {
     const fresh = storeAt(file, () => Date.now() + 5000);
     expect(fresh.readMarker("s1")).toMatchObject({ served: "a/one" });
     expect(fresh.readMarker("s2")).toMatchObject({ served: "b/two" });
+  });
+
+  test("a write that would cross the byte cap drops the oldest entries instead of failing", async () => {
+    const dir = tempDir();
+    const file = join(dir, "session-routing.json");
+    const now = Date.now();
+    // Seed a valid file just under the byte cap (and under the entry cap),
+    // so the next write can only fit by dropping the oldest entries.
+    const entries: Record<
+      string,
+      { served: string; original: string; at: number }
+    > = {};
+    const idFor = (i: number) => `s${i}-${"x".repeat(400)}`;
+    const serialize = () =>
+      JSON.stringify({
+        schema: ROUTING_MARKER_SCHEMA,
+        version: ROUTING_MARKER_VERSION,
+        entries,
+      });
+    let i = 0;
+    for (;;) {
+      entries[idFor(i)] = { served: "a/one", original: "a/one", at: now + i };
+      if (serialize().length > MAX_ROUTING_MARKER_BYTES - 200) {
+        delete entries[idFor(i)];
+        break;
+      }
+      i++;
+    }
+    expect(i).toBeLessThan(MAX_ROUTING_MARKER_ENTRIES);
+    writeRaw(file, serialize());
+
+    // Larger than the seed's remaining headroom (< 200 B + one seed entry).
+    const newId = `new-${"y".repeat(1000)}`;
+    await storeAt(file, () => now + i + 1).writeMarker(newId, "b/two", "a/one");
+
+    const fresh = storeAt(file, () => now + i + 2);
+    expect(fresh.readMarker(newId)).toMatchObject({
+      served: "b/two",
+      original: "a/one",
+    });
+    expect(fresh.readMarker(idFor(0))).toBeNull(); // oldest dropped
+    expect(fresh.readMarker(idFor(i - 1))).toMatchObject({ served: "a/one" });
   });
 
   test("an oversized single entry is abandoned (byte-cap terminal branch)", async () => {
