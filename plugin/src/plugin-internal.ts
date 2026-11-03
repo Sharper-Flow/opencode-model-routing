@@ -169,8 +169,12 @@ export function extractCooldownOverrides(
   logger: Logger,
 ): Partial<Record<ErrorCategory, number>> | undefined {
   if (!isRecord(pluginOptions)) return undefined;
-  const raw = (pluginOptions as { cooldownMsByCategory?: unknown })
-    .cooldownMsByCategory;
+  // hasOwn: an inherited property (Object.create({cooldownMsByCategory}),
+  // prototype pollution) is not a configured option — same rule as the
+  // scalar reader and isErrorCategory.
+  const raw = Object.hasOwn(pluginOptions, "cooldownMsByCategory")
+    ? pluginOptions.cooldownMsByCategory
+    : undefined;
   if (!isRecord(raw)) return undefined;
   const out: Partial<Record<ErrorCategory, number>> = {};
   for (const [k, v] of Object.entries(raw)) {
@@ -278,8 +282,7 @@ function extractScalarConfigOverrides(
  * Cooldown overrides are merged in 3 layers (most-specific wins):
  *   1. defaultConfig.cooldownMsByCategory (lowest)
  *   2. opts.config?.cooldownMsByCategory (middle — programmatic/test injection)
- *   3. opts.cooldownOverrides when given (test seam), else
- *      pluginOptions.cooldownMsByCategory read by extractCooldownOverrides
+ *   3. pluginOptions.cooldownMsByCategory read by extractCooldownOverrides
  * The outer PluginConfig spread below is shallow; without the explicit 3-layer
  * rebuild, supplying cooldownMsByCategory via opts.config would clobber the
  * default inner map.
@@ -293,7 +296,6 @@ function extractScalarConfigOverrides(
 export function createPluginContext(
   opts: {
     config?: Partial<PluginConfig>;
-    cooldownOverrides?: Partial<Record<ErrorCategory, number>>;
     logger?: Logger;
     pluginOptions?: unknown;
     quotaBoundary?: QuotaBoundaryResolver;
@@ -305,9 +307,10 @@ export function createPluginContext(
     merged,
     extractScalarConfigOverrides(opts.pluginOptions, logger),
   );
-  const cooldownOverrides =
-    opts.cooldownOverrides ??
-    extractCooldownOverrides(opts.pluginOptions, logger);
+  const cooldownOverrides = extractCooldownOverrides(
+    opts.pluginOptions,
+    logger,
+  );
   const messageBoundaryCapsByCategory: PluginConfig["messageBoundaryCapsByCategory"] =
     {
       ...(opts.config?.cooldownMsByCategory ?? {}),
