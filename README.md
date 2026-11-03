@@ -48,6 +48,20 @@ Recovery details:
   immediately re-probe a dead model.
 - **Sub-agent aware**: a failing sub-agent is marked unhealthy and the parent's
   replacement hits the preemptive redirect path instead of a mid-turn replay.
+- **Resume returns to the original**: a fallback-served turn persists the
+  fallback model on the session's last user message, and OpenCode's TUI
+  re-imports that model when the session resumes — without a countermeasure
+  every restart would re-pin the session to the fallback rung. The plugin
+  persists a per-session routing marker (`~/.local/share/opencode-model-routing/session-routing.json`,
+  `{served, original}` per session, owner-only, TTL-pruned) on every routed
+  turn and consults it on the first message a restarted process sees: when
+  the arriving model is exactly the served fallback of a different,
+  still-admissible original on the agent's chain, the resumed turn serves on
+  the original again (one `fallback.recovered` event). While the original is
+  still cooling, blocked, vetoed, or no longer on the chain, the fallback rung
+  keeps serving and the marker retains the original for a later resume. A
+  model you selected yourself is recorded with `original === served`, so a
+  deliberate selection is never "returned" from.
 - **Fail-soft**: when every alternative is blocked or cooling, the plugin logs
   `preemptive.no_allowed_model` and leaves the selection unchanged rather than
   killing the session.

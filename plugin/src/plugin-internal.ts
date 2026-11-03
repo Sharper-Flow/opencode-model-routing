@@ -33,7 +33,7 @@ import {
   type SessionErrorLike,
 } from "./detection/classifier.ts";
 import { createLogger, type Logger } from "./logging/logger.ts";
-import { applyPreemptiveSkip } from "./preemptive.ts";
+import { applyPreemptiveSkip, applyResumeReturn } from "./preemptive.ts";
 import {
   attemptFallback,
   type OrchestratorClient,
@@ -45,6 +45,11 @@ import { resolveFallbackModel } from "./resolution/fallback-resolver.ts";
 import { familyVetoFor } from "./resolution/family.ts";
 import { InFlightCallTracker } from "./state/call-tracker.ts";
 import { CooldownStore, getCooldownPath } from "./state/cooldown-store.ts";
+import {
+  getRoutingMarkerPath,
+  type RoutingMarkerEntry,
+  RoutingMarkerStore,
+} from "./state/routing-marker-store.ts";
 import { FallbackStore } from "./state/store.ts";
 import { AssistantProvenance, TtftRegistry } from "./ttft.ts";
 import {
@@ -336,6 +341,7 @@ export function createPluginContext(
     store: new FallbackStore(
       () => Date.now(),
       new CooldownStore(getCooldownPath(), { logger }),
+      new RoutingMarkerStore(getRoutingMarkerPath(), { logger }),
     ),
     ttft: new TtftRegistry(),
     ttftPending: new Set(),
@@ -604,12 +610,30 @@ export async function handleChatMessage(
   const hookModelKey = hookModel
     ? (`${hookModel.providerID}/${hookModel.modelID}` as ModelKey)
     : undefined;
+  // Fresh-state signature: no chat.message in this process has named a model
+  // for the session yet. This is the post-restart resume case the persisted
+  // routing marker exists for — captured BEFORE the pre-set below adopts the
+  // arriving model as the session's original.
+  const wasFresh = !ctx.store.sessions.get(sessionId).currentModel;
+  let freshMarker: RoutingMarkerEntry | null = null;
   if (hookModel) {
     const state = ctx.store.sessions.get(sessionId);
     if (!state.currentModel) {
       state.currentModel =
         `${hookModel.providerID}/${hookModel.modelID}` as ModelKey;
       state.originalModel = state.currentModel;
+      // Seed the original from the persisted marker when it names this
+      // arriving model: the restart re-imported the last user message's
+      // model, and the marker records what OMR was routing on the user's
+      // behalf before the process died. Without this, a fallback rung that
+      // keeps serving (original still cooling) would overwrite the marker
+      // with original === served and the return information would be lost.
+      if (ctx.store.routing) {
+        freshMarker = ctx.store.routing.readMarker(sessionId);
+        if (freshMarker && freshMarker.served === state.currentModel) {
+          state.originalModel = freshMarker.original;
+        }
+      }
     }
   }
 
@@ -637,6 +661,32 @@ export async function handleChatMessage(
   // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
   // snapshot → null → no-op; non-Anthropic selections are never touched.
   const snapshot = readAvailabilitySnapshot();
+
+  // Resume return: a fresh session state plus a persisted routing
+  // marker whose served model matches the arriving selection means the TUI
+  // re-imported the last user message's fallback model. Return the session to
+  // its recorded original when that original is still admissible; otherwise
+  // (no marker, mismatch, original cooling/blocked/vetoed/off-chain) leave
+  // the selection exactly as it arrived. Runs before the preflight and the
+  // preemptive skip so both re-validate the returned model under the same
+  // admission rules.
+  if (wasFresh && hookModelKey) {
+    applyResumeReturn(
+      {
+        sessionId,
+        agentName,
+        output,
+        snapshot,
+        marker: freshMarker,
+      },
+      ctx.store,
+      ctx.chains,
+      ctx.logger,
+      ctx.blocked,
+      familyVeto,
+    );
+  }
+
   applyAvailabilityPreflight(
     { sessionId, agentName, output, snapshot },
     ctx.store,
@@ -690,6 +740,21 @@ export async function handleChatMessage(
     if (finalModel) {
       state.lastServedModel =
         `${finalModel.providerID}/${finalModel.modelID}` as ModelKey;
+      // Persist the routing marker so a restarted process can tell a stale
+      // fallback pin from a deliberate selection. `served` is the
+      // model this dispatch will persist on the user message; `original` is
+      // the session's recorded pre-fallback model (equal on ordinary turns,
+      // which keeps a deliberate user pick safe from the resume return).
+      // Fire-and-forget with internal fail-open logging: writeMarker never
+      // throws, and a lost write only costs one resumed turn on the fallback
+      // rung — never a wrong redirect.
+      if (state.originalModel && ctx.store.routing) {
+        void ctx.store.routing.writeMarker(
+          sessionId,
+          state.lastServedModel,
+          state.originalModel,
+        );
+      }
     }
   }
 }
@@ -1534,6 +1599,11 @@ export async function handleEvent(
         ctx.calls.completeSession(sessionId);
         ctx.ttftPending.delete(sessionId);
         ctx.assistantProvenance.dropSession(sessionId);
+        // The session cannot be resumed; drop its routing marker so it ages
+        // out immediately instead of at the TTL prune. Fail-open.
+        if (ctx.store.routing) {
+          void ctx.store.routing.clearMarker(sessionId);
+        }
       }
       return;
     }

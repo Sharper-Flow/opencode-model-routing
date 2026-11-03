@@ -33,6 +33,13 @@ process.env.OMR_LOG_FILE = "";
 // tests that assume a cold store.
 process.env.OPENCODE_MODEL_ROUTING_COOLDOWN = "/dev/null/omr-test-isolation";
 
+// Same isolation for the cross-restart routing marker store. Unset, it falls
+// back to the REAL ~/.local/share/opencode-model-routing/session-routing.json
+// and test fixtures would both read and persist production routing markers.
+// Unwritable path → every write fails → no marker state crosses tests.
+process.env.OPENCODE_MODEL_ROUTING_SESSION_ROUTING =
+  "/dev/null/omr-test-isolation";
+
 // Same isolation principle for the Claude Max availability snapshot. Unset,
 // it falls back to the REAL ~/.config/opencode-claude-max/availability.json,
 // whose live state (e.g. `unavailable` during a real exhaustion window)

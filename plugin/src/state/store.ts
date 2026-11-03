@@ -14,23 +14,31 @@ import {
   type NowFn,
 } from "./model-health.ts";
 import { FailureDeduplicator } from "./failure-dedup.ts";
+import type { RoutingMarkerStore } from "./routing-marker-store.ts";
 import { newSessionState, type SessionState } from "./session-state.ts";
 
 export class FallbackStore {
   readonly sessions: SessionsAccessor;
   readonly health: ModelHealthMap;
   readonly failures: FailureDeduplicator;
+  // Cross-restart routing markers ({served, original} per session). Optional:
+  // unit tests construct a plain store and routing proceeds exactly as
+  // before — the resume return simply has no marker to consult. Production
+  // wires a RoutingMarkerStore from createPluginContext.
+  readonly routing?: RoutingMarkerStore;
   private inFlight = new Set<string>();
   private now: NowFn;
 
   constructor(
     now: NowFn = () => Date.now(),
     cooldownStore?: CooldownStoreLike,
+    routing?: RoutingMarkerStore,
   ) {
     this.now = now;
     this.health = new ModelHealthMap(now, cooldownStore);
     this.failures = new FailureDeduplicator({ now });
     this.sessions = new SessionsAccessor(this.now);
+    this.routing = routing;
   }
 
   // acquireLock returns true if the session was not already in flight (and
@@ -39,6 +47,15 @@ export class FallbackStore {
     if (this.inFlight.has(sessionId)) return false;
     this.inFlight.add(sessionId);
     return true;
+  }
+
+  // Whether an attemptFallback replay currently holds this session's lock.
+  // chat.message hooks that fire inside that window (most importantly the
+  // V1 re-prompt's own hook, which the host dispatches before the prompt
+  // call resolves) are OMR-driven, not user selections — the manual-change
+  // reset must not reclassify them.
+  isInFlight(sessionId: string): boolean {
+    return this.inFlight.has(sessionId);
   }
 
   releaseLock(sessionId: string): void {
