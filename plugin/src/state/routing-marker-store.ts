@@ -130,40 +130,70 @@ function validateRoutingMarkerFile(v: unknown): RoutingMarkerFile | null {
   };
 }
 
-// Bounded, owner-only, no-symlink read. Every failure returns an empty file
-// (fail-open). Modeled on readCooldownFileFromDisk.
+// Bounded, owner-only, no-symlink read following the cooldown store's
+// descriptor-bound pattern: open with O_NOFOLLOW, verify the open file
+// (not the path) via fstat, read with a size cap, never re-resolve the
+// path. Every failure returns an empty record (fail-open).
 function readRoutingMarkerFile(
   filePath: string,
   now: number,
 ): Record<string, RoutingMarkerEntry> {
-  let text: string;
+  const { O_RDONLY, O_NONBLOCK, O_NOFOLLOW } = fs.constants;
+  let fd: number;
   try {
-    const stat = fs.statSync(filePath);
+    fd = fs.openSync(filePath, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+  } catch {
+    return {}; // missing, symlink (ELOOP), permission, not-a-file, etc.
+  }
+
+  try {
+    let stat: fs.Stats;
+    try {
+      stat = fs.fstatSync(fd);
+    } catch {
+      return {};
+    }
     if (!stat.isFile()) return {};
     if (typeof process.getuid !== "function") return {};
     if (stat.uid !== process.getuid()) return {};
-    if (stat.mode & 0o077) return {};
+    if (stat.mode & 0o077) return {}; // no group/world perms
     if (stat.size > MAX_ROUTING_MARKER_BYTES) return {};
-    text = fs.readFileSync(filePath, "utf-8");
-    if (text.length > MAX_ROUTING_MARKER_BYTES) return {};
-  } catch {
-    return {};
-  }
 
-  let parsed: unknown;
-  try {
-    parsed = parseStrictJson(text);
-  } catch {
-    return {};
-  }
+    const buffer = Buffer.alloc(MAX_ROUTING_MARKER_BYTES + 1);
+    let total = 0;
+    while (total < buffer.length) {
+      let n: number;
+      try {
+        n = fs.readSync(fd, buffer, total, buffer.length - total, null);
+      } catch {
+        return {};
+      }
+      if (n <= 0) break;
+      total += n;
+    }
+    if (total > MAX_ROUTING_MARKER_BYTES) return {}; // grew past cap mid-read
 
-  const validated = validateRoutingMarkerFile(parsed);
-  if (!validated) return {};
-  const live: Record<string, RoutingMarkerEntry> = {};
-  for (const [sessionId, entry] of Object.entries(validated.entries)) {
-    if (entry.at > now - ROUTING_MARKER_TTL_MS) live[sessionId] = entry;
+    let parsed: unknown;
+    try {
+      parsed = parseStrictJson(buffer.toString("utf-8", 0, total));
+    } catch {
+      return {};
+    }
+
+    const validated = validateRoutingMarkerFile(parsed);
+    if (!validated) return {};
+    const live: Record<string, RoutingMarkerEntry> = {};
+    for (const [sessionId, entry] of Object.entries(validated.entries)) {
+      if (entry.at > now - ROUTING_MARKER_TTL_MS) live[sessionId] = entry;
+    }
+    return live;
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Close failure leaves nothing actionable; read result stands.
+    }
   }
-  return live;
 }
 
 export class RoutingMarkerStore {
@@ -296,17 +326,36 @@ export class RoutingMarkerStore {
           for (const id of sessionIds.slice(0, drop)) delete entries[id];
         }
 
-        const file: RoutingMarkerFile = {
+        // Serialize; when the file outgrows the byte cap, keep dropping the
+        // oldest entries until it fits — abandoning the write instead would
+        // wedge the file at the cap until the TTL prune frees space, failing
+        // every marker write in between. A lone oversized entry (absurd ids)
+        // is abandoned with a warn.
+        let file: RoutingMarkerFile = {
           schema: ROUTING_MARKER_SCHEMA,
           version: ROUTING_MARKER_VERSION,
           entries,
         };
-        const bytes = new TextEncoder().encode(JSON.stringify(file));
-        if (bytes.length > MAX_ROUTING_MARKER_BYTES) {
-          this.logger.warn(
-            `routing marker write: serialized size ${bytes.length} exceeds cap ${MAX_ROUTING_MARKER_BYTES}`,
+        let bytes = new TextEncoder().encode(JSON.stringify(file));
+        while (bytes.length > MAX_ROUTING_MARKER_BYTES) {
+          const ids = Object.keys(file.entries).filter(
+            (id) => id !== sessionId,
           );
-          return;
+          if (ids.length === 0) {
+            this.logger.warn(
+              `routing marker write: single entry ${bytes.length}B exceeds cap ${MAX_ROUTING_MARKER_BYTES}`,
+            );
+            return;
+          }
+          ids.sort((a, b) => file.entries[a]!.at - file.entries[b]!.at);
+          const trimmed = { ...file.entries };
+          delete trimmed[ids[0]!];
+          file = {
+            schema: ROUTING_MARKER_SCHEMA,
+            version: ROUTING_MARKER_VERSION,
+            entries: trimmed,
+          };
+          bytes = new TextEncoder().encode(JSON.stringify(file));
         }
 
         const tmpPath = `${this.filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 10)}`;

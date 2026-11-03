@@ -272,6 +272,22 @@ describe("RoutingMarkerStore.writeMarker — happy path + merge", () => {
     expect(fresh.readMarker("s2")).toMatchObject({ served: "b/two" });
   });
 
+  test("an oversized single entry is abandoned (byte-cap terminal branch)", async () => {
+    const dir = tempDir();
+    const file = join(dir, "session-routing.json");
+    const store = storeAt(file);
+    // One entry whose serialization alone exceeds the byte cap: nothing to
+    // drop, so the write resolves fail-open and records nothing.
+    const giantId = "s".repeat(70_000);
+    await expect(
+      store.writeMarker(giantId, "a/one", "a/one"),
+    ).resolves.toBeUndefined();
+    await store.flush();
+    expect(
+      storeAt(file, () => Date.now() + 5000).readMarker(giantId),
+    ).toBeNull();
+  });
+
   test("fail-open: unwritable directory logs and resolves", async () => {
     const store = storeAt("/dev/null/omr-marker-unwritable");
     await expect(

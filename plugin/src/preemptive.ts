@@ -254,6 +254,14 @@ export function applyPreemptiveSkip(
       return;
     }
     if (state.currentModel !== key) {
+      // A replay currently holds this session's lock: the arriving model is
+      // OMR's own re-prompt (the V1 host dispatches the re-prompt's
+      // chat.message inside session.prompt, before/while commitFallbackSuccess
+      // settles), not a user selection. Reclassifying it as a manual change
+      // would overwrite originalModel with the fallback rung and destroy the
+      // routing marker's return information (CON-1686). Leave the state for
+      // the orchestrator's commit to settle.
+      if (store.isInFlight(input.sessionId)) return;
       state.currentModel = key;
       state.originalModel = key;
       state.fallbackDepth = 0;

@@ -49,6 +49,15 @@ export class FallbackStore {
     return true;
   }
 
+  // Whether an attemptFallback replay currently holds this session's lock.
+  // chat.message hooks that fire inside that window (most importantly the
+  // V1 re-prompt's own hook, which the host dispatches before the prompt
+  // call resolves) are OMR-driven, not user selections — the manual-change
+  // reset must not reclassify them.
+  isInFlight(sessionId: string): boolean {
+    return this.inFlight.has(sessionId);
+  }
+
   releaseLock(sessionId: string): void {
     this.inFlight.delete(sessionId);
   }

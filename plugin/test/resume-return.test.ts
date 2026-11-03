@@ -337,6 +337,91 @@ describe("routing marker writes on the orchestrator fallback commit", () => {
     await store.routing!.flush();
     expect(new RoutingMarkerStore(markerFile).readMarker("s1")).toBeNull();
   });
+
+  // The live-log regression this guards: on 2026-10-09 the production log
+  // shows fallback.success to=glm-5.3-flash followed 4.6s later by
+  // manual_model_change.reset_depth model=glm-5.3-flash — the V1 host
+  // dispatches the re-prompt's own chat.message inside session.prompt,
+  // while the orchestrator still holds the session lock, and the healthy
+  // branch used to reclassify that OMR-driven prompt as a manual change,
+  // overwriting originalModel with the fallback rung (destroying the
+  // marker's return information). The prompt here fires the hook exactly
+  // like the host does.
+  test("re-prompt's own chat.message (fired inside session.prompt) does not reclassify the fallback as manual", async () => {
+    const dir = tempStoreDir();
+    const markerFile = join(dir, "session-routing.json");
+    const { ctx, store } = ctxWithMarkers(markerFile);
+    // The failing turn's earlier hook established the session on a/one.
+    const first = output("a", "one");
+    await handleChatMessage(
+      ctx,
+      new MockClient({ messages: [userMsg()] }),
+      { sessionID: "s1", agent: "scout" },
+      first,
+    );
+    ctx.ttft.clear("s1");
+
+    // Host-realistic client: session.prompt dispatches chat.message for the
+    // re-prompt body's model BEFORE resolving, inside the orchestrator's
+    // lock window.
+    const inner = new MockClient({ messages: [userMsg()] });
+    const client = {
+      session: {
+        ...inner.session,
+        prompt: async (args: unknown) => {
+          const body = (
+            args as {
+              body: { model?: { providerID: string; modelID: string } };
+            }
+          ).body;
+          if (body.model) {
+            await handleChatMessage(
+              ctx,
+              inner,
+              { sessionID: "s1", agent: "scout" },
+              { message: { model: body.model } },
+            );
+            ctx.ttft.clear("s1");
+          }
+          return inner.session.prompt(args);
+        },
+      },
+    } as unknown as MockClient;
+
+    const result = await attemptFallback({
+      sessionId: "s1",
+      reason: "rate_limit",
+      chain,
+      client,
+      store,
+      config: defaultConfig,
+      logger: silentLogger,
+      sleepMs: async () => {},
+    });
+    expect(result.success).toBe(true);
+
+    const state = store.sessions.get("s1");
+    expect(state.originalModel).toBe("a/one");
+    expect(state.currentModel).toBe("b/two");
+
+    await store.routing!.flush();
+    expect(new RoutingMarkerStore(markerFile).readMarker("s1")).toMatchObject({
+      served: "b/two",
+      original: "a/one",
+    });
+
+    // And a restarted process returns the session to the primary.
+    const resumed = ctxWithMarkers(markerFile);
+    const out = output("b", "two");
+    await handleChatMessage(
+      resumed.ctx,
+      new MockClient({ messages: [userMsg("msg-2")] }),
+      { sessionID: "s1", agent: "scout" },
+      out,
+    );
+    expect(out.message.model).toEqual({ providerID: "a", modelID: "one" });
+    resumed.ctx.ttft.clear("s1");
+  });
 });
 
 describe("routing marker writes on the chat.message hook", () => {
