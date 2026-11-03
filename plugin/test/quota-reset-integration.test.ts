@@ -58,8 +58,10 @@ describe("quota reset integration with in-flight attribution", () => {
         const clock = spyOn(Date, "now").mockReturnValue(NOW);
         const ctx = createPluginContext({
           logger: silentLogger,
-          cooldownOverrides:
-            mode !== "message" ? { quota_exhausted: 60_000 } : undefined,
+          pluginOptions:
+            mode !== "message"
+              ? { cooldownMsByCategory: { quota_exhausted: 60_000 } }
+              : undefined,
         });
         ctx.store = new FallbackStore(() => NOW);
         const resolvedModels: ModelKey[] = [];

@@ -1521,6 +1521,14 @@ describe("extractCooldownOverrides — direct unit tests", () => {
     expect(result).toBeUndefined();
   });
 
+  test("inherited cooldownMsByCategory key is not read (Object.create prototype)", () => {
+    const result = extractCooldownOverrides(
+      Object.create({ cooldownMsByCategory: { rate_limit: 60 * 60_000 } }),
+      silentLogger,
+    );
+    expect(result).toBeUndefined();
+  });
+
   test("mixed valid and invalid entries — only valid applied", () => {
     const result = extractCooldownOverrides(
       {
@@ -1546,9 +1554,9 @@ describe("extractCooldownOverrides — direct unit tests", () => {
 });
 
 describe("createPluginContext — cooldown override merge (3-layer)", () => {
-  test("cooldownOverrides applied via opts.cooldownOverrides param", () => {
+  test("cooldown override applied via pluginOptions", () => {
     const ctx = createPluginContext({
-      cooldownOverrides: { rate_limit: 60 * 60_000 },
+      pluginOptions: { cooldownMsByCategory: { rate_limit: 60 * 60_000 } },
       logger: silentLogger,
     });
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(60 * 60_000);
@@ -1556,7 +1564,7 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
 
   test("unmentioned categories preserve default (additive merge)", () => {
     const ctx = createPluginContext({
-      cooldownOverrides: { rate_limit: 60 * 60_000 },
+      pluginOptions: { cooldownMsByCategory: { rate_limit: 60 * 60_000 } },
       logger: silentLogger,
     });
     // Override rate_limit; default quota_exhausted + auth_error + rate_limit(30min) preserved
@@ -1565,10 +1573,10 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(60 * 60_000); // override wins
   });
 
-  test("opts.config.cooldownMsByCategory + cooldownOverrides layered together", () => {
+  test("opts.config.cooldownMsByCategory + pluginOptions layered together", () => {
     const ctx = createPluginContext({
       config: { cooldownMsByCategory: { auth_error: 10 * 60_000 } },
-      cooldownOverrides: { rate_limit: 60 * 60_000 },
+      pluginOptions: { cooldownMsByCategory: { rate_limit: 60 * 60_000 } },
       logger: silentLogger,
     });
     // 3 layers: default quota_exhausted(10min) preserved; auth_error overridden by config(10min);
@@ -1587,6 +1595,17 @@ describe("createPluginContext — cooldown override merge (3-layer)", () => {
     expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(30 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.quota_exhausted).toBe(10 * 60_000);
     expect(ctx.config.cooldownMsByCategory?.auth_error).toBe(30 * 60_000);
+  });
+
+  test("inherited cooldownMsByCategory key is not configured (Object.create)", () => {
+    const ctx = createPluginContext({
+      pluginOptions: Object.create({
+        cooldownMsByCategory: { rate_limit: 60 * 60_000 },
+      }),
+      logger: silentLogger,
+    });
+    // The inherited key must not be read: the 30-minute default stays.
+    expect(ctx.config.cooldownMsByCategory?.rate_limit).toBe(30 * 60_000);
   });
 });
 
