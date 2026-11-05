@@ -154,7 +154,12 @@ The TypeScript runtime targets the OpenCode plugin server API, which passes a
 main `@opencode-ai/sdk` client in `PluginInput.client`.
 
 - `session.messages({ path: { id } })` returns `{ info: Message, parts: Part[] }[]`.
-- `session.prompt({ path: { id }, body })`, `session.abort({ path: { id } })`, and `session.revert({ path: { id }, body })` use the documented main SDK request envelope.
+- `session.prompt({ path: { id }, body })` and `session.abort({ path: { id } })` use the documented main SDK request envelope.
+- V1 recovery aborts, waits, and appends a recovery prompt. It must not call
+  `session.revert`: snapshot rollback restores working files without restoring
+  git HEAD, the index, or external effects. Committed and uncommitted work must
+  survive recovery. The failed turn remains visible in conversation history;
+  the replacement model must verify current state before continuing.
 - Streaming token arrival is `message.part.updated`; the session id is read from `event.properties.part.sessionID`.
 - `chat.params.output.options.fallback_models` is deleted before OpenCode calls provider-specific option transforms.
 
@@ -188,7 +193,7 @@ Under OpenCode 2 the plugin context replaces the client argument:
   opencode v2.0.14, `interrupt({resume: true})` does not re-drive a settled
   turn, and the approved host retry re-drives the loop. V2 has no revert, and
   re-prompting would duplicate the user turn, so the V1
-  abort → revert → prompt sequence never runs under V2.
+  abort → wait → prompt sequence never runs under V2.
   `interrupt({resume: false})` is used only to abort a subagent child for its
   terminal handoff.
 - A TTFT timeout is the one entrance whose failed request stays IN FLIGHT —

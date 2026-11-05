@@ -1,9 +1,5 @@
-// orchestrator.ts — runs the canonical abort → wait → revert → prompt
-// replay sequence when a fallback is triggered.
-//
-// Acquire lock → dedup check → resolve chain → pick next healthy model →
-// mark previous unhealthy → abort → sleep abortWaitMs → revert →
-// prompt(next). Always releases the lock in `finally`.
+// Recovery preserves the failed turn's repository effects and conversation.
+// V1 aborts the failed request, waits, then appends a recovery prompt.
 
 import type { QuotaBoundaryResolver } from "../availability/quota-state.ts";
 import { parseMessageResetBoundary } from "../detection/reset-boundary.ts";
@@ -57,7 +53,7 @@ export interface ReplayTailArgs {
 
 /**
  * Host-specific replay tail. When provided, it replaces the V1
- * abort → revert → prompt sequence after the shared policy (lock, dedup,
+ * abort → wait → prompt sequence after the shared policy (lock, dedup,
  * cooldown, chain resolution, subagent short-circuit) has selected `next`.
  * OpenCode 2 has no revert and re-prompting would duplicate the user turn,
  * so its adapter supplies switchModel(next). On TTFT timeout it also calls
@@ -81,7 +77,7 @@ export interface AttemptFallbackArgs {
   // When true, the session is a subagent (child of another session via
   // parentID). Subagent sessions are observed by the parent's Task tool,
   // which treats any cancel event (including the auto-cancel OpenCode
-  // emits on stream error) as terminal — so the abort→revert→prompt
+  // emits on stream error) as terminal — so the abort→prompt
   // recovery sequence is wasted work: the parent will already have
   // declared the task failed and spawned a replacement. Instead, just
   // mark the model unhealthy (so the replacement spawn gets preemptively
@@ -130,7 +126,7 @@ export interface AttemptFallbackArgs {
   // refresh subprocess can never enter routing decisions or TTFT handling.
   quotaBoundary?: QuotaBoundaryResolver;
   // Host-specific replay tail (see ReplayTail). Undefined → the V1
-  // abort → revert → prompt sequence runs unchanged.
+  // abort → wait → prompt sequence runs.
   replayTail?: ReplayTail;
   // Error text carried by the failing signal (bounded provider message plus
   // responseBody, or the session.status retry text). For quota_exhausted /
@@ -195,8 +191,8 @@ interface LastUserMessage {
   agent: string | null;
 }
 
-// Walk messages newest-first; the most recent role=user message is the one
-// we need to revert past and re-prompt. Returns null if not found.
+// Walk messages newest-first; the most recent role=user message supplies
+// the parts and agent for the recovery prompt. Returns null if not found.
 function findLastUserMessage(messages: unknown[]): LastUserMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const info = messageInfo(messages[i]);
@@ -317,7 +313,7 @@ function commitFallbackSuccess(
 }
 
 /**
- * attemptFallback executes the abort→revert→prompt sequence. Returns
+ * attemptFallback executes the abort→wait→prompt sequence. Returns
  * structured ReplayResult — never throws. All error paths log + release
  * the lock + return success:false with an error message.
  */
@@ -459,7 +455,7 @@ export async function attemptFallback(
 
     // Subagent short-circuit: mark unhealthy and exit without recovering.
     // The parent Task tool observes the stream-error cancel as terminal
-    // regardless of what OMR does here, so abort→revert→prompt would be
+    // regardless of what OMR does here, so abort→prompt would be
     // orphaned work. Marking the model unhealthy with the category-aware
     // cooldown ensures the parent's replacement spawn hits preemptive
     // redirect on chat.message and starts cleanly on the fallback model.
@@ -489,10 +485,9 @@ export async function attemptFallback(
     }
 
     // Host-specific replay: when a replay tail is wired (OpenCode 2), it
-    // moves the session onto `next` instead of the V1 abort → revert →
-    // prompt sequence below. No messages fetch and no revert — V2 has no
-    // revert, and re-prompting the last user message would duplicate the
-    // user turn. A tail failure leaves bookkeeping unadvanced so a later
+    // moves the session onto `next` instead of the V1 abort → wait → prompt
+    // sequence below. Re-prompting would duplicate V2's user turn.
+    // A tail failure leaves bookkeeping unadvanced so a later
     // failure signal can retry the chain.
     if (args.replayTail) {
       try {
@@ -525,23 +520,21 @@ export async function attemptFallback(
       return { success: false, error: "no user message" };
     }
 
-    // Capture orphan candidate BEFORE abort/revert — the messages snapshot
-    // we already have reflects pre-revert state; subsequent fetches may show
-    // different visibility/ordering after revert sets its pointer.
+    // Capture the blank assistant shell from the failed request for log correlation.
     const orphanMessageId = findOrphanCandidate(messages, lastUser.messageID);
 
     // Build the prompt parts. When preserveContext is enabled and the failed
     // turn left assistant work (tool calls / text) after the last user message,
     // prepend a recovery summary so the next model continues from where the
     // previous one stopped instead of restarting from the bare user prompt.
-    // Computed from the same pre-revert snapshot as the orphan capture.
+    // Computed from the same messages snapshot as the orphan capture.
     // Graceful: empty summary (no work, or any extraction failure) → bare
     // prompt, identical to the pre-feature behaviour. Fallback must never block
     // on context enrichment.
     let promptParts: Part[] = convertPartsForPrompt(lastUser.parts);
     if (lastUser.parts.length > 0 && promptParts.length === 0) {
-      // Reverting a subtask-only turn would discard its result and leave
-      // nothing to replay. Real provider errors still retain their cooldown.
+      // A subtask-only turn has no replayable prompt. Real provider errors
+      // still retain their cooldown.
       logger.warn("fallback.no_replayable_parts", { sessionId, reason });
       return { success: false, error: "no replayable parts" };
     }
@@ -573,19 +566,9 @@ export async function attemptFallback(
 
     await sleep(config.abortWaitMs);
 
-    try {
-      await client.session.revert({
-        path: { id: sessionId },
-        body: { messageID: lastUser.messageID },
-      } as never);
-    } catch (err) {
-      logger.error("fallback.revert_failed", {
-        sessionId,
-        err: errorSummary(err),
-      });
-      return { success: false, error: "revert failed" };
-    }
-
+    // Never revert snapshots during recovery: they roll back working files,
+    // but not git HEAD/index or external effects. Keep the failed turn visible
+    // and append the recovery prompt so the next model can reconcile its work.
     const { providerID, modelID } = parseModelKey(next);
     const agentName = lastUser.agent ?? state.agentName ?? undefined;
 

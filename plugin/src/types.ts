@@ -42,9 +42,7 @@ export interface PluginConfig {
   // Dedup window in ms. Two fallback triggers within this window for the
   // same session are collapsed into one.
   dedupWindowMs: number;
-  // Pause between abort() and revert() in ms. Empirically chosen by the
-  // canonical reference plugin to avoid a race where revert is rejected
-  // mid-abort.
+  // Pause between abort() and the recovery prompt in ms so cancellation settles.
   abortWaitMs: number;
   // When true, a model that fails mid-turn has its completed assistant work
   // (tool calls + text) summarised and prepended to the re-prompt so the next
@@ -84,7 +82,7 @@ export interface ReplayResult {
   // True when the recovery was short-circuited because the session is a
   // subagent. The model was still marked unhealthy (with category-aware
   // cooldown) and `fallbackModel` reflects the next healthy chain entry,
-  // but no abort/revert/prompt was issued. Consumers observing this flag
+  // but no abort/prompt was issued. Consumers observing this flag
   // should not expect the session to resume on `fallbackModel` — the
   // parent's Task tool will spawn a replacement that hits preemptive
   // redirect instead.

@@ -30,6 +30,11 @@ Once enabled, the plugin sits in the request path and acts on three triggers:
 
 Recovery details:
 
+- **Repository effects survive recovery**: V1 aborts the failed request and
+  appends a recovery prompt without calling `session.revert`. Snapshot rollback
+  changes working files but not git HEAD, the index, or external effects.
+  The failed turn's messages remain visible, including attempted tool calls;
+  the replacement model must verify current state before continuing.
 - **Priority ladder**: for agents with a nonempty fallback list, the configured
   primary followed by ordered fallbacks forms one deduplicated ladder. Recovery
   cools the failed model before scanning from the top and excludes it explicitly.

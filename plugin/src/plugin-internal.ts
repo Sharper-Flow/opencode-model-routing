@@ -126,7 +126,7 @@ export interface PluginContext {
   // failures only.
   quotaBoundary?: QuotaBoundaryResolver;
   // Host-specific replay tail (orchestrator.ReplayTail). Undefined on the
-  // V1 path — attemptFallback keeps its abort → revert → prompt sequence.
+  // V1 path — attemptFallback uses its abort → wait → prompt sequence.
   // The OpenCode 2 setup wires switchModel, plus interrupt({resume:true})
   // on the TTFT entrance: classified failures replay through the approved
   // host retry, TTFT timeouts through interrupt+resume on the switched
@@ -428,7 +428,7 @@ function errorSummary(err: unknown): string {
  * checking for a non-empty parentID. Used by the session.error and
  * session.status handlers to short-circuit recovery: OpenCode's parent
  * Task tool observes stream-error cancels as terminal regardless of what
- * OMR does, so abort→revert→prompt would be orphaned work. Instead, the
+ * OMR does, so abort→prompt would be orphaned work. Instead, the
  * orchestrator marks the model unhealthy (so the parent's replacement
  * spawn hits preemptive redirect on chat.message) and skips recovery.
  *
@@ -1280,7 +1280,7 @@ async function handleFailureSignal(
   // to a different agent inside this session than the tracked conversation
   // agent. Cool the failing model under existing category rules and leave
   // everything else untouched — no chain resolution, no replay tail
-  // (abort/revert/prompt), no parent state mutation, and the TTFT timer
+  // (abort/prompt), no parent state mutation, and the TTFT timer
   // keeps running for the conversation's own call. The next use of the
   // cooled model is handled by the existing preemptive redirect.
   if (attributedAgent && agentName && attributedAgent !== agentName) {

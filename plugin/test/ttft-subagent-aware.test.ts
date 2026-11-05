@@ -57,7 +57,7 @@ describe("handleTtftTimeout — subagent-aware (Part 2, AC5)", () => {
     expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
 
-  test("primary session (no parentID) → full recovery: messages/abort/revert/prompt", async () => {
+  test("primary session (no parentID) → full recovery: messages/abort/prompt", async () => {
     const ctx = createPluginContext({ logger: silentLogger });
     ctx.chains.set("scout", ["a/one", "b/two"]);
     ctx.store.sessions.get("s1").currentModel = "a/one";
@@ -74,7 +74,7 @@ describe("handleTtftTimeout — subagent-aware (Part 2, AC5)", () => {
     // Full recovery path.
     expect(client.callsTo("session.messages")).toHaveLength(1);
     expect(client.callsTo("session.abort")).toHaveLength(1);
-    expect(client.callsTo("session.revert")).toHaveLength(1);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
     // Cooldown set on failing model.
     expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
@@ -95,7 +95,7 @@ describe("handleTtftTimeout — subagent-aware (Part 2, AC5)", () => {
     expect(client.callsTo("session.get")).toHaveLength(1);
     expect(client.callsTo("session.messages")).toHaveLength(1);
     expect(client.callsTo("session.abort")).toHaveLength(1);
-    expect(client.callsTo("session.revert")).toHaveLength(1);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
     expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });
@@ -265,7 +265,7 @@ describe("handleTtftTimeout — regression (no cooldownStore, DONT2)", () => {
 
     expect(client.callsTo("session.messages")).toHaveLength(1);
     expect(client.callsTo("session.abort")).toHaveLength(1);
-    expect(client.callsTo("session.revert")).toHaveLength(1);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
     expect(ctx.store.health.isInCooldown("a/one" as ModelKey)).toBe(true);
   });

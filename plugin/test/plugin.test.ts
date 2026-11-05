@@ -391,7 +391,7 @@ describe("handleEvent — session.error", () => {
         },
       },
     });
-    // Orchestrator should have been called → at least messages + abort + revert + prompt.
+    // Orchestrator should have been called → at least messages + abort + prompt.
     expect(client.callsTo("session.abort").length).toBe(1);
     expect(client.callsTo("session.prompt").length).toBe(1);
     expect(ctx.store.sessions.get("s1").currentModel).toBe("b/two");
@@ -527,7 +527,7 @@ describe("handleEvent — session.error", () => {
 
     expect(client.callsTo("session.get").length).toBe(1);
     expect(client.callsTo("session.abort").length).toBe(1);
-    expect(client.callsTo("session.revert").length).toBe(1);
+    expect(client.callsTo("session.revert").length).toBe(0);
     expect(client.callsTo("session.prompt").length).toBe(1);
     expect(ctx.store.sessions.get("s1").isSubagent).toBe(false);
   });
@@ -551,7 +551,7 @@ describe("handleEvent — session.error", () => {
 
     // Detection failed → fall through to full recovery.
     expect(client.callsTo("session.abort").length).toBe(1);
-    expect(client.callsTo("session.revert").length).toBe(1);
+    expect(client.callsTo("session.revert").length).toBe(0);
     expect(client.callsTo("session.prompt").length).toBe(1);
     // isSubagent left undefined (cache miss) — retryable on next event.
     expect(ctx.store.sessions.get("s1").isSubagent).toBeUndefined();
