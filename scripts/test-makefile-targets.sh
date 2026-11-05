@@ -102,6 +102,10 @@ ok "deploy-local uses stable local-share plugin path"
 
 # 5. `make build-plugin` must typecheck and produce the bundled runtime.
 build_plugin_dryrun="$(make -n build-plugin 2>&1)"
+if ! echo "$build_plugin_dryrun" | grep -q 'bash scripts/install-plugin-deps.sh plugin'; then
+	echo "$build_plugin_dryrun" >&2
+	fail "make build-plugin must bound the locked dependency install"
+fi
 if ! echo "$build_plugin_dryrun" | grep -q 'bun run typecheck'; then
 	echo "$build_plugin_dryrun" >&2
 	fail "make build-plugin must run plugin typecheck"

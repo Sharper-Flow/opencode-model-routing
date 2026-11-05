@@ -9,5 +9,8 @@ plugin/dist/
 plugin/pnpm-lock.yaml
 plugin/pnpm-workspace.yaml
 
+# OpenCode owns this generated lockfile, alongside its ignored package.json.
+/.opencode/package-lock.json
+
 # Per-run backups created by ApplyPreferences
 *.omr-backup.*

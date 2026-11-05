@@ -7,8 +7,7 @@
 //   - Walk only messages that follow `lastUserMessageID`.
 //   - For each assistant message part:
 //       * text parts (`type === "text"`): first ~TEXT_EXCERPT_CHARS chars.
-//       * any other part with a string `type`: treated as a tool call; the
-//         tool name is the part's `type` field (per task contract).
+//       * tool parts (`type === "tool"`): the name in their `tool` field.
 //   - Build a markdown bulleted list, capped at ~MAX_CHARS (truncation marker
 //     appended when the cap is hit).
 //   - Return "" when there is no assistant work after the last user message.
@@ -69,9 +68,12 @@ export function extractContextSummary(
               ? `${text.slice(0, TEXT_EXCERPT_CHARS)}…`
               : text;
           lines.push(`- ${excerpt}`);
-        } else if (typeof type === "string" && type.length > 0) {
-          // Tool-call part: the `type` field IS the tool name.
-          lines.push(`- Tool: ${type}`);
+        } else if (
+          type === "tool" &&
+          typeof part.tool === "string" &&
+          part.tool.length > 0
+        ) {
+          lines.push(`- Tool: ${part.tool}`);
         }
       }
     }
