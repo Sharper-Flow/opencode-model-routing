@@ -34,9 +34,7 @@ Usage: ./scripts/deploy-local.sh [--check | --fix] [--dry-run]
   --fix      Deploy plugin and patch plain JSON opencode config when possible
   --dry-run  Preview deploy/patch actions without writing
 
-  Runtime dependency installation requires GNU timeout and plugin/bun.lock.
-  OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS sets its deadline (1-3600, default 60).
-  A timed-out install receives TERM, then KILL after 5 seconds; it is not retried.
+  For dependency install options, run: bash scripts/install-plugin-deps.sh --help
 USAGE
 		exit 0
 		;;
@@ -191,11 +189,6 @@ deploy_plugin() {
 		echo "    ✗ runtime lockfile missing: $SOURCE_PLUGIN_PATH/bun.lock" >&2
 		return 1
 	fi
-	local install_timeout="${OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS-60}"
-	if [[ ! "$install_timeout" =~ ^[1-9][0-9]{0,3}$ ]] || [ "$install_timeout" -gt 3600 ]; then
-		echo "    ✗ OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS must be an integer from 1 to 3600" >&2
-		return 1
-	fi
 	if [ "$DRY_RUN" = true ]; then
 		echo "    dry-run verify: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY"
 		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,bun.lock,index.js,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
@@ -226,15 +219,9 @@ deploy_plugin() {
 	# The bundle has external imports. Keep the active copy intact until the
 	# staged directory can load without the checkout's node_modules.
 	echo "    installing runtime dependencies..."
+	bash "$SCRIPT_DIR/install-plugin-deps.sh" "$tmp_path" --production
 	(
 		cd "$tmp_path"
-		if timeout --kill-after=5s "${install_timeout}s" bun install --production --frozen-lockfile; then
-			:
-		else
-			status=$?
-			echo "    ✗ runtime dependency install failed (budget: ${install_timeout} seconds, status: $status)" >&2
-			exit "$status"
-		fi
 		bun --no-install -e 'await import("./index.js")'
 	)
 	if [ -e "$RUNTIME_PLUGIN_PATH" ] || [ -L "$RUNTIME_PLUGIN_PATH" ]; then

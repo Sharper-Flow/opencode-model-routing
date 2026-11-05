@@ -42,6 +42,14 @@ function fixture(withShim = true) {
     new URL("../../scripts/deploy-local.sh", import.meta.url),
     join(root, "repo/scripts/deploy-local.sh"),
   );
+  copyFileSync(
+    new URL("../../scripts/install-plugin-deps.sh", import.meta.url),
+    join(root, "repo/scripts/install-plugin-deps.sh"),
+  );
+  copyFileSync(
+    new URL("../../Makefile", import.meta.url),
+    join(root, "repo/Makefile"),
+  );
   const entry = "./dist/index.js";
   const types = "./dist/index.d.ts";
   writeFileSync(
@@ -101,6 +109,8 @@ if [ "$1" = install ]; then
   case "$OMR_TEST_INSTALL_MODE" in
     real) exec "$OMR_TEST_BUN" "$@" ;;
     stall) echo "fixture install started" >&2; exec sleep 3 ;;
+    groupstall) (sleep 2; echo leaked > "$OMR_TEST_READY.late") & echo ready > "$OMR_TEST_READY"; wait ;;
+    lifecycle) (sleep 2; echo leaked > "$OMR_TEST_READY") & wait ;;
     fail) echo "fixture package-manager failure" >&2; exit 42 ;;
     interrupt|kill)
       script=$PPID
@@ -143,6 +153,7 @@ function deploy(
         OMR_TEST_INSTALL_MODE: installMode,
         OMR_TEST_INSTALL_LOG: join(f.root, "install.log"),
         OMR_TEST_RUNNER_PID: String(process.pid),
+        OMR_TEST_READY: join(f.root, "ready"),
         OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS: budget,
       },
       stdout: "pipe",
@@ -151,6 +162,51 @@ function deploy(
     },
   );
 }
+
+test("Ctrl-C to the caller group promptly stops install and preserves the runtime", async () => {
+  const f = fixture();
+  expect(deploy(f).exitCode).toBe(0);
+  const previous = readFileSync(join(f.deployed, "dist/index.js"));
+  const child = Bun.spawn(
+    ["setsid", "bash", join(f.root, "repo/scripts/deploy-local.sh"), "--fix"],
+    {
+      cwd: f.root,
+      env: {
+        ...process.env,
+        HOME: f.home,
+        BUN_INSTALL_CACHE_DIR: join(f.root, "bun-cache"),
+        OMR_LOCAL_DEPLOY_ROOT: join(f.root, "runtime"),
+        PATH: `${f.bin}:${process.env.PATH}`,
+        OMR_TEST_BUN: process.execPath,
+        OMR_TEST_INSTALL_MODE: "groupstall",
+        OMR_TEST_INSTALL_LOG: join(f.root, "install.log"),
+        OMR_TEST_RUNNER_PID: String(process.pid),
+        OMR_TEST_READY: join(f.root, "ready"),
+        OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS: "10",
+      },
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+  );
+  for (let i = 0; i < 100 && !existsSync(join(f.root, "ready")); i++)
+    await Bun.sleep(20);
+  expect(existsSync(join(f.root, "ready"))).toBe(true);
+  const start = Date.now();
+  process.kill(-child.pid, "SIGINT");
+  expect(await child.exited).toBe(130);
+  expect(Date.now() - start).toBeLessThan(2000);
+  expect(readFileSync(join(f.deployed, "dist/index.js"))).toEqual(previous);
+  const load = Bun.spawnSync([
+    process.execPath,
+    "-e",
+    'const mod = await import(process.argv[1] + "/index.js"); if (mod.default.id !== "omr-fixture") process.exit(1);',
+    f.deployed,
+  ]);
+  expect(load.exitCode).toBe(0);
+  await Bun.sleep(2100);
+  expect(existsSync(join(f.root, "ready.late"))).toBe(false);
+  expect(readdirSync(join(f.root, "runtime"))).toEqual(["plugin"]);
+}, 6000);
 
 test("stalled install stops within its budget and preserves the prior runtime", () => {
   const f = fixture();
@@ -179,6 +235,46 @@ test("stalled install stops within its budget and preserves the prior runtime", 
   ]);
   expect(load.exitCode).toBe(0);
   expect(readdirSync(join(f.root, "runtime"))).toEqual(["plugin"]);
+});
+
+test("deadline stops an install lifecycle grandchild", async () => {
+  const f = fixture();
+  expect(deploy(f).exitCode).toBe(0);
+  const result = deploy(f, "lifecycle");
+  expect(result.exitCode).toBe(124);
+  await Bun.sleep(1500);
+  expect(existsSync(join(f.root, "ready"))).toBe(false);
+  expect(readdirSync(join(f.root, "runtime"))).toEqual(["plugin"]);
+}, 6000);
+
+test("build-plugin uses the same validated install budget", () => {
+  const f = fixture();
+  const result = Bun.spawnSync(["make", "build-plugin"], {
+    cwd: join(f.root, "repo"),
+    env: {
+      ...process.env,
+      HOME: f.home,
+      BUN_INSTALL_CACHE_DIR: join(f.root, "bun-cache"),
+      PATH: `${f.bin}:${process.env.PATH}`,
+      OMR_TEST_BUN: process.execPath,
+      OMR_TEST_INSTALL_MODE: "stall",
+      OMR_TEST_INSTALL_LOG: join(f.root, "install.log"),
+      OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS: "1",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 5000,
+  });
+  expect(result.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(result.stderr)).toContain(
+    "budget: 1 seconds, status: 124",
+  );
+  expect(readFileSync(join(f.root, "install.log"), "utf8")).toBe(
+    "install --frozen-lockfile\n",
+  );
+  expect(new TextDecoder().decode(result.stdout)).not.toContain(
+    "bun run typecheck",
+  );
 });
 
 test("local deploy includes the V2 directory entry and bundled runtime, not raw source", () => {

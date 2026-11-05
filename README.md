@@ -87,7 +87,8 @@ omr-cooldown list --json           # machine-readable output
 | Go        | `omr` build and tests                            | ≥ 1.24 (`go.mod`)                         |
 | Bun       | plugin build, tests, and runtime-dep install     | 1.3+ (`packageManager: bun@1.3.14`)       |
 | Node      | plugin engine requirement                        | ≥ 24 (`engines` in `plugin/package.json`) |
-| jq, rsync, GNU timeout | `make deploy-local` config validation and deploy | any recent                        |
+| jq, rsync | `make deploy-local` config validation and deploy | any recent                                |
+| timeout   | Plugin build and deploy dependency installs      | GNU coreutils or uutils coreutils         |
 | OpenCode  | the thing being routed                           | —                                         |
 
 `omr` discovers models through the `opencode models` CLI, so keep `opencode`
@@ -146,13 +147,12 @@ Restart OpenCode after deploy; running sessions keep the plugin code loaded at
 startup. Set `OMR_LOCAL_DEPLOY_ROOT` to override the default local deploy
 root.
 
-The build dependency install has a 60-second deadline. Deployment installs the
-production dependencies from `plugin/bun.lock` before
-importing and publishing the staged package. The runtime install has a 60-second
-deadline and a five-second termination grace; it fails without retrying and
-leaves the active runtime intact. Set `OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS` to an
-integer from 1 to 3600 to change the runtime-install deadline. Bun's native
-diagnostics remain visible.
+Both the build and staged runtime dependency installs use the frozen
+`plugin/bun.lock`, a 60-second deadline, and a five-second termination grace.
+Set `OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS` to an integer from 1 to 3600 to change
+the deadline for each install. A failed install is not retried, and Bun's native
+diagnostics remain visible. Deployment imports the staged package before
+publication, leaving the active runtime intact if installation fails.
 
 OpenCode owns `.opencode/package.json` and its generated
 `.opencode/package-lock.json`; neither is source. Startup may update these ignored

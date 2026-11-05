@@ -102,7 +102,7 @@ ok "deploy-local uses stable local-share plugin path"
 
 # 5. `make build-plugin` must typecheck and produce the bundled runtime.
 build_plugin_dryrun="$(make -n build-plugin 2>&1)"
-if ! echo "$build_plugin_dryrun" | grep -q 'timeout --verbose --kill-after=5s 60s bun install --frozen-lockfile'; then
+if ! echo "$build_plugin_dryrun" | grep -q 'bash scripts/install-plugin-deps.sh plugin'; then
 	echo "$build_plugin_dryrun" >&2
 	fail "make build-plugin must bound the locked dependency install"
 fi
