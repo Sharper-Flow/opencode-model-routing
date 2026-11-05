@@ -568,12 +568,16 @@ describe("V2 context hook — preemptive redirect via switchModel", () => {
 });
 
 describe("V2 adapters", () => {
-  test("revert throws — the V2 tail owns recovery, the V1 tail must not run", async () => {
+  test("rejects a V1 recovery prompt instead of duplicating the V2 user turn", async () => {
     const mock = createMockV2Session();
     const client = createV2OrchestratorClient(mock.session);
     await expect(
-      client.session.revert({ path: { id: "s1" }, body: { messageID: "m1" } }),
+      client.session.prompt({
+        path: { id: "s1" },
+        body: { parts: [{ type: "text", text: "replayed user prompt" }] },
+      }),
     ).rejects.toThrow("V2 replay tail owns recovery");
+    expect(mock.callsTo("session.prompt")).toHaveLength(0);
   });
 
   test("wraps V2 reads in the { data } envelope the shared code unwraps", async () => {

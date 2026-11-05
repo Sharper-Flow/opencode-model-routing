@@ -6,7 +6,7 @@
 // plus a confirmed Anthropic/Claude current selection, it clears the TTFT
 // timer, records a per-turn suppression guard, and suppresses the replay —
 // confirmed mid-task exhaustion starts zero `session.messages`,
-// `session.abort`, `session.revert`, or fallback `session.prompt` calls
+// `session.abort`, or fallback `session.prompt` calls
 // (SC2/AC4, DONT1).
 //
 // Authority rules:

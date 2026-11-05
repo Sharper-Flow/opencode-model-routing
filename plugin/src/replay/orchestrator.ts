@@ -27,7 +27,6 @@ export interface OrchestratorClient {
   session: {
     messages(args: unknown): Promise<unknown>;
     abort(args: unknown): Promise<unknown>;
-    revert(args: unknown): Promise<unknown>;
     prompt(args: unknown): Promise<unknown>;
     // session.get is used to detect subagent sessions (presence of
     // parentID) so the orchestrator can short-circuit recovery for

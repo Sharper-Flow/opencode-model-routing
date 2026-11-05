@@ -155,7 +155,9 @@ main `@opencode-ai/sdk` client in `PluginInput.client`.
 
 - `session.messages({ path: { id } })` returns `{ info: Message, parts: Part[] }[]`.
 - `session.prompt({ path: { id }, body })` and `session.abort({ path: { id } })` use the documented main SDK request envelope.
-- V1 recovery aborts, waits, and appends a recovery prompt. It must not call
+- V1 recovery aborts, waits, and appends a recovery prompt that repeats the
+  last user message's parts, prefixed by the context summary when
+  `preserveContext` is on. It must not call
   `session.revert`: snapshot rollback restores working files without restoring
   git HEAD, the index, or external effects. Committed and uncommitted work must
   survive recovery. The failed turn remains visible in conversation history;

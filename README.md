@@ -295,7 +295,7 @@ are deliberately conservative (`plugin/src/types.ts`):
 | `cooldownMsByCategory` | see below | Per-category overrides; `rate_limit` and `auth_error` get 30 min, `quota_exhausted` 10 min. For `quota_exhausted` and `rate_limit` these are the fallback windows — a fresh provider-reported reset boundary takes precedence. |
 | `maxDepth`             | `3`       | Max fallback depth per session (prevents infinite cascades).                                                                                                                                                                   |
 | `dedupWindowMs`        | `3000`    | Collapses fallback triggers within this window for the same session.                                                                                                                                                           |
-| `abortWaitMs`          | `150`     | Pause between `abort()` and `revert()` in ms.                                                                                                                                                                                  |
+| `abortWaitMs`          | `150`     | Pause between `abort()` and the recovery `prompt()` in ms.                                                                                                                                                                     |
 | `preserveContext`      | `true`    | Summarise completed mid-turn work into the re-prompt on rotation.                                                                                                                                                              |
 
 Scalar options merge in three layers, most-specific winning: built-in default,

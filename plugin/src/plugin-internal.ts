@@ -383,7 +383,7 @@ export function isPluginInput(input: unknown): input is PluginInput {
   const client = input.client;
   if (!isRecord(client)) return false;
   if (!isRecord(client.session)) return false;
-  return ["messages", "abort", "revert", "prompt", "get"].every((key) =>
+  return ["messages", "abort", "prompt", "get"].every((key) =>
     hasFunction(client.session as Record<string, unknown>, key),
   );
 }
@@ -1811,11 +1811,6 @@ function v2SessionId(args: unknown): string {
  * OrchestratorClient envelope. The V2 ctx methods take flat parameters and
  * return bare domain objects, so reads are wrapped in the `{ data }`
  * envelope unwrapSdkData expects.
- *
- * revert() throws deliberately: the V2 replay tail owns recovery and never
- * reverts (no V2 API), and the default V1 tail must not run against this
- * adapter — a silent no-op would hide a wiring bug behind a duplicated user
- * turn.
  */
 export function createV2OrchestratorClient(
   session: V2SessionDomain,
@@ -1827,25 +1822,9 @@ export function createV2OrchestratorClient(
       }),
       abort: async (args) =>
         session.interrupt({ sessionID: v2SessionId(args), resume: false }),
-      revert: async () => {
-        throw new Error(
-          "omr: session.revert is not part of the OpenCode 2 runtime; the V2 replay tail owns recovery",
-        );
-      },
-      prompt: async (args) => {
-        // Defensive total mapping. The V2 tail never prompts (no revert →
-        // a re-prompt would duplicate the user turn), but the shared client
-        // surface must stay total for the subagent and abort paths above.
-        const body = isRecord(args) && isRecord(args.body) ? args.body : {};
-        const parts = Array.isArray(body.parts) ? body.parts : [];
-        const text = parts
-          .map((p) => (isRecord(p) && typeof p.text === "string" ? p.text : ""))
-          .filter((t) => t.length > 0)
-          .join("\n");
-        const sessionID = v2SessionId(args);
-        return typeof body.agent === "string" && body.agent.length > 0
-          ? session.prompt({ sessionID, text, agent: body.agent })
-          : session.prompt({ sessionID, text });
+      prompt: async () => {
+        // V2 retries the existing turn; a V1 recovery prompt would duplicate it.
+        throw new Error("omr: V2 replay tail owns recovery; cannot re-prompt");
       },
       get: async (args) => ({
         data: await session.get({ sessionID: v2SessionId(args) }),
