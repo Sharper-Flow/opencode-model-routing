@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -77,6 +78,7 @@ function fixture(withShim = true) {
   writeFileSync(join(source, "dist/index.d.ts"), "export default {};\n");
   writeFileSync(join(source, "dist/cli.js"), 'console.log("fixture");\n');
   writeFileSync(join(source, "NOTICE"), "fixture notice\n");
+  writeFileSync(join(source, "bun.lock"), "fixture lock\n");
   writeFileSync(join(source, "src/private.ts"), "not deployed\n");
   if (withShim)
     writeFileSync(
@@ -95,8 +97,10 @@ function fixture(withShim = true) {
     `#!/bin/sh
 if [ "$1" = install ]; then
   echo "$*" >> "$OMR_TEST_INSTALL_LOG"
+  [ -f bun.lock ] || { echo "fixture lock missing" >&2; exit 97; }
   case "$OMR_TEST_INSTALL_MODE" in
     real) exec "$OMR_TEST_BUN" "$@" ;;
+    stall) echo "fixture install started" >&2; exec sleep 3 ;;
     fail) echo "fixture package-manager failure" >&2; exit 42 ;;
     interrupt|kill)
       script=$PPID
@@ -120,7 +124,11 @@ exec "$OMR_TEST_BUN" "$@"
   return { root, source, home, deployed, bin };
 }
 
-function deploy(f: ReturnType<typeof fixture>, installMode = "success") {
+function deploy(
+  f: ReturnType<typeof fixture>,
+  installMode = "success",
+  budget = "1",
+) {
   return Bun.spawnSync(
     ["bash", join(f.root, "repo/scripts/deploy-local.sh"), "--fix"],
     {
@@ -128,12 +136,14 @@ function deploy(f: ReturnType<typeof fixture>, installMode = "success") {
       env: {
         ...process.env,
         HOME: f.home,
+        BUN_INSTALL_CACHE_DIR: join(f.root, "bun-cache"),
         OMR_LOCAL_DEPLOY_ROOT: join(f.root, "runtime"),
         PATH: `${f.bin}:${process.env.PATH}`,
         OMR_TEST_BUN: process.execPath,
         OMR_TEST_INSTALL_MODE: installMode,
         OMR_TEST_INSTALL_LOG: join(f.root, "install.log"),
         OMR_TEST_RUNNER_PID: String(process.pid),
+        OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS: budget,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -141,6 +151,35 @@ function deploy(f: ReturnType<typeof fixture>, installMode = "success") {
     },
   );
 }
+
+test("stalled install stops within its budget and preserves the prior runtime", () => {
+  const f = fixture();
+  expect(deploy(f).exitCode).toBe(0);
+  const previousEntry = readFileSync(join(f.deployed, "dist/index.js"));
+  writeFileSync(join(f.root, "install.log"), "");
+  const start = Date.now();
+  const result = deploy(f, "stall");
+  expect(result.exitCode).toBe(124);
+  expect(Date.now() - start).toBeLessThan(2500);
+  expect(new TextDecoder().decode(result.stderr)).toContain(
+    "fixture install started",
+  );
+  expect(new TextDecoder().decode(result.stderr)).toContain("1 seconds");
+  expect(readFileSync(join(f.root, "install.log"), "utf8")).toBe(
+    "install --production --frozen-lockfile\n",
+  );
+  expect(readFileSync(join(f.deployed, "dist/index.js"))).toEqual(
+    previousEntry,
+  );
+  const load = Bun.spawnSync([
+    process.execPath,
+    "-e",
+    'const mod = await import(process.argv[1] + "/index.js"); if (mod.default.id !== "omr-fixture") process.exit(1);',
+    f.deployed,
+  ]);
+  expect(load.exitCode).toBe(0);
+  expect(readdirSync(join(f.root, "runtime"))).toEqual(["plugin"]);
+});
 
 test("local deploy includes the V2 directory entry and bundled runtime, not raw source", () => {
   const f = fixture();
@@ -150,6 +189,7 @@ test("local deploy includes the V2 directory entry and bundled runtime, not raw 
   expect(existsSync(join(f.deployed, "index.js"))).toBe(true);
   for (const file of [
     "package.json",
+    "bun.lock",
     "index.js",
     "dist/index.js",
     "dist/index.d.ts",
@@ -191,7 +231,7 @@ for (const mode of ["fail", "interrupt", "kill", "incomplete"]) {
     expect(stdout).not.toContain("✓ dependencies installed");
     expect(stdout).not.toContain("==> Done");
     expect(readFileSync(join(f.root, "install.log"), "utf8")).toBe(
-      "install --production\n",
+      "install --production --frozen-lockfile\n",
     );
     if (mode === "interrupt") expect(result.exitCode).toBe(143);
     if (mode === "kill") expect(result.signalCode).toBe("SIGKILL");
@@ -273,7 +313,27 @@ exec "${mv}" "$@"
 
 test("real production install publishes an importable runtime with an offline local dependency", () => {
   const f = fixture();
+  mkdirSync(join(f.root, "runtime"));
+  symlinkSync(join(f.root, "dependency"), join(f.root, "runtime/dependency"));
+  rmSync(join(f.source, "bun.lock"));
+  const lock = Bun.spawnSync(
+    [process.execPath, "install", "--lockfile-only", "--ignore-scripts"],
+    {
+      cwd: f.source,
+      env: {
+        ...process.env,
+        HOME: f.home,
+        BUN_INSTALL_CACHE_DIR: join(f.root, "bun-cache"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    },
+  );
+  expect(new TextDecoder().decode(lock.stderr)).not.toContain("error:");
+  expect(lock.exitCode).toBe(0);
   const result = deploy(f, "real");
+  expect(new TextDecoder().decode(result.stderr)).toBe("");
   expect(result.exitCode).toBe(0);
   expect(
     existsSync(join(f.deployed, "node_modules/omr-runtime-fixture/index.js")),
@@ -281,6 +341,29 @@ test("real production install publishes an importable runtime with an offline lo
   expect(new TextDecoder().decode(result.stdout)).toContain(
     "✓ deployed plugin",
   );
+});
+
+test("missing lockfile and invalid budgets refuse before touching the runtime", () => {
+  const f = fixture();
+  expect(deploy(f).exitCode).toBe(0);
+  const previousEntry = readFileSync(join(f.deployed, "dist/index.js"));
+  for (const budget of ["", "0", "01", "1s", "3601", "999999999999999999"]) {
+    const result = deploy(f, "success", budget);
+    expect(result.exitCode).not.toBe(0);
+    expect(new TextDecoder().decode(result.stderr)).toContain(
+      "must be an integer from 1 to 3600",
+    );
+  }
+  rmSync(join(f.source, "bun.lock"));
+  const result = deploy(f);
+  expect(result.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(result.stderr)).toContain(
+    "runtime lockfile missing",
+  );
+  expect(readFileSync(join(f.deployed, "dist/index.js"))).toEqual(
+    previousEntry,
+  );
+  expect(readdirSync(join(f.root, "runtime"))).toEqual(["plugin"]);
 });
 
 test("missing V2 entry refuses before replacing an existing deployment", () => {

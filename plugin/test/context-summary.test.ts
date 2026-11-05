@@ -35,7 +35,7 @@ describe("extractContextSummary — empty / no-work cases", () => {
 
   test("assistant BEFORE lastUser is ignored (only walk after)", () => {
     const messages = [
-      assistantMsg("a-pre", [{ type: "bash" }]), // before user — must be ignored
+      assistantMsg("a-pre", [{ type: "tool", tool: "bash" }]), // before user — must be ignored
       userMsg("u1"),
     ];
     expect(extractContextSummary(messages, "u1")).toBe("");
@@ -43,8 +43,39 @@ describe("extractContextSummary — empty / no-work cases", () => {
 });
 
 describe("extractContextSummary — tool-call extraction", () => {
-  test("captures tool name from part type field", () => {
-    const messages = [userMsg("u1"), assistantMsg("a1", [{ type: "bash" }])];
+  test("uses host tool names and excludes step and patch metadata", () => {
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [
+        { type: "step-start", id: "p1", sessionID: "s1", messageID: "a1" },
+        {
+          type: "tool",
+          id: "p2",
+          sessionID: "s1",
+          messageID: "a1",
+          callID: "c1",
+          tool: "bash",
+          state: { status: "pending", input: {}, raw: "" },
+        },
+        { type: "step-finish", id: "p3", sessionID: "s1", messageID: "a1" },
+        {
+          type: "patch",
+          id: "p4",
+          sessionID: "s1",
+          messageID: "a1",
+          hash: "h",
+          files: [],
+        },
+      ]),
+    ];
+    expect(extractContextSummary(messages, "u1")).toBe("- Tool: bash");
+  });
+
+  test("captures tool name from tool field", () => {
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [{ type: "tool", tool: "bash" }]),
+    ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("bash");
   });
@@ -52,8 +83,11 @@ describe("extractContextSummary — tool-call extraction", () => {
   test("captures multiple tool names across assistant messages", () => {
     const messages = [
       userMsg("u1"),
-      assistantMsg("a1", [{ type: "bash" }, { type: "edit" }]),
-      assistantMsg("a2", [{ type: "write" }]),
+      assistantMsg("a1", [
+        { type: "tool", tool: "bash" },
+        { type: "tool", tool: "edit" },
+      ]),
+      assistantMsg("a2", [{ type: "tool", tool: "write" }]),
     ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("bash");
@@ -107,7 +141,7 @@ describe("extractContextSummary — graceful degradation", () => {
       null,
       "string-not-record",
       42,
-      assistantMsg("a1", [{ type: "bash" }]),
+      assistantMsg("a1", [{ type: "tool", tool: "bash" }]),
     ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("bash");
@@ -124,7 +158,7 @@ describe("extractContextSummary — graceful degradation", () => {
       userMsg("u1"),
       {
         info: { id: "a-nested", role: "assistant" },
-        parts: [{ type: "read" }],
+        parts: [{ type: "tool", tool: "read" }],
       },
     ];
     const summary = extractContextSummary(messages, "u1");
@@ -137,6 +171,19 @@ describe("extractContextSummary — graceful degradation", () => {
 });
 
 describe("extractContextSummary — malformed parts", () => {
+  test("skips metadata and tool parts without a valid tool name", () => {
+    const messages = [
+      userMsg("u1"),
+      assistantMsg("a1", [
+        { type: "step-start", tool: "not-a-tool" },
+        { type: "tool" },
+        { type: "tool", tool: "" },
+        { type: "tool", tool: 42 },
+      ]),
+    ];
+    expect(extractContextSummary(messages, "u1")).toBe("");
+  });
+
   test("{ type: 'text' } with no text field → empty string (no throw)", () => {
     const messages = [userMsg("u1"), assistantMsg("a1", [{ type: "text" }])];
     expect(() => extractContextSummary(messages, "u1")).not.toThrow();
@@ -159,7 +206,7 @@ describe("extractContextSummary — malformed parts", () => {
   test("null part mixed with valid tool → null skipped, valid still extracted", () => {
     const messages = [
       userMsg("u1"),
-      assistantMsg("a1", [null, { type: "bash" }]),
+      assistantMsg("a1", [null, { type: "tool", tool: "bash" }]),
     ];
     const summary = extractContextSummary(messages, "u1");
     expect(summary).toContain("bash");

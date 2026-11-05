@@ -489,7 +489,10 @@ describe("attemptFallback — preserve_context", () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
-      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "bash" }])],
+      messages: [
+        userMsg("user-1"),
+        assistantMsg("a1", [{ type: "tool", tool: "bash" }]),
+      ],
     });
 
     const result = await attemptFallback({
@@ -546,7 +549,10 @@ describe("attemptFallback — preserve_context", () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
-      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "bash" }])],
+      messages: [
+        userMsg("user-1"),
+        assistantMsg("a1", [{ type: "tool", tool: "bash" }]),
+      ],
     });
 
     const result = await attemptFallback({
@@ -572,7 +578,10 @@ describe("attemptFallback — preserve_context", () => {
     const store = new FallbackStore();
     // currentModel left null (no prior model known)
     const client = new MockClient({
-      messages: [userMsg("user-1"), assistantMsg("a1", [{ type: "edit" }])],
+      messages: [
+        userMsg("user-1"),
+        assistantMsg("a1", [{ type: "tool", tool: "edit" }]),
+      ],
     });
 
     const result = await attemptFallback({

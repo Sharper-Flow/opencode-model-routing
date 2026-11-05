@@ -33,6 +33,10 @@ Usage: ./scripts/deploy-local.sh [--check | --fix] [--dry-run]
   --check    Check config only; do not deploy or patch
   --fix      Deploy plugin and patch plain JSON opencode config when possible
   --dry-run  Preview deploy/patch actions without writing
+
+  Runtime dependency installation requires GNU timeout and plugin/bun.lock.
+  OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS sets its deadline (1-3600, default 60).
+  A timed-out install receives TERM, then KILL after 5 seconds; it is not retried.
 USAGE
 		exit 0
 		;;
@@ -183,9 +187,18 @@ deploy_plugin() {
 		return 1
 	fi
 	verify_runtime_bundle
+	if [ ! -f "$SOURCE_PLUGIN_PATH/bun.lock" ]; then
+		echo "    ✗ runtime lockfile missing: $SOURCE_PLUGIN_PATH/bun.lock" >&2
+		return 1
+	fi
+	local install_timeout="${OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS-60}"
+	if [[ ! "$install_timeout" =~ ^[1-9][0-9]{0,3}$ ]] || [ "$install_timeout" -gt 3600 ]; then
+		echo "    ✗ OMR_DEPLOY_INSTALL_TIMEOUT_SECONDS must be an integer from 1 to 3600" >&2
+		return 1
+	fi
 	if [ "$DRY_RUN" = true ]; then
 		echo "    dry-run verify: $SOURCE_PLUGIN_PATH/$RUNTIME_ENTRY"
-		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,index.js,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
+		echo "    dry-run sync bundled runtime: $SOURCE_PLUGIN_PATH/{package.json,bun.lock,index.js,dist,NOTICE} -> $RUNTIME_PLUGIN_PATH/"
 		return 0
 	fi
 	if ! command -v rsync >/dev/null 2>&1; then
@@ -203,6 +216,7 @@ deploy_plugin() {
 	local tmp_path="$DEPLOY_STAGE/plugin"
 	mkdir -p "$tmp_path/dist"
 	cp "$SOURCE_PLUGIN_PATH/package.json" "$tmp_path/package.json"
+	cp "$SOURCE_PLUGIN_PATH/bun.lock" "$tmp_path/bun.lock"
 	cp "$SOURCE_PLUGIN_PATH/$RUNTIME_DIRECTORY_ENTRY" "$tmp_path/$RUNTIME_DIRECTORY_ENTRY"
 	if [ -f "$SOURCE_PLUGIN_PATH/NOTICE" ]; then
 		cp "$SOURCE_PLUGIN_PATH/NOTICE" "$tmp_path/NOTICE"
@@ -214,7 +228,13 @@ deploy_plugin() {
 	echo "    installing runtime dependencies..."
 	(
 		cd "$tmp_path"
-		bun install --production
+		if timeout --kill-after=5s "${install_timeout}s" bun install --production --frozen-lockfile; then
+			:
+		else
+			status=$?
+			echo "    ✗ runtime dependency install failed (budget: ${install_timeout} seconds, status: $status)" >&2
+			exit "$status"
+		fi
 		bun --no-install -e 'await import("./index.js")'
 	)
 	if [ -e "$RUNTIME_PLUGIN_PATH" ] || [ -L "$RUNTIME_PLUGIN_PATH" ]; then
