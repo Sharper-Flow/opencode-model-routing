@@ -126,7 +126,7 @@ export interface PluginContext {
   // failures only.
   quotaBoundary?: QuotaBoundaryResolver;
   // Host-specific replay tail (orchestrator.ReplayTail). Undefined on the
-  // V1 path — attemptFallback keeps its abort → revert → prompt sequence.
+  // V1 path — attemptFallback uses its abort → wait → prompt sequence.
   // The OpenCode 2 setup wires switchModel, plus interrupt({resume:true})
   // on the TTFT entrance: classified failures replay through the approved
   // host retry, TTFT timeouts through interrupt+resume on the switched
@@ -383,7 +383,7 @@ export function isPluginInput(input: unknown): input is PluginInput {
   const client = input.client;
   if (!isRecord(client)) return false;
   if (!isRecord(client.session)) return false;
-  return ["messages", "abort", "revert", "prompt", "get"].every((key) =>
+  return ["messages", "abort", "prompt", "get"].every((key) =>
     hasFunction(client.session as Record<string, unknown>, key),
   );
 }
@@ -428,7 +428,7 @@ function errorSummary(err: unknown): string {
  * checking for a non-empty parentID. Used by the session.error and
  * session.status handlers to short-circuit recovery: OpenCode's parent
  * Task tool observes stream-error cancels as terminal regardless of what
- * OMR does, so abort→revert→prompt would be orphaned work. Instead, the
+ * OMR does, so abort→prompt would be orphaned work. Instead, the
  * orchestrator marks the model unhealthy (so the parent's replacement
  * spawn hits preemptive redirect on chat.message) and skips recovery.
  *
@@ -1280,7 +1280,7 @@ async function handleFailureSignal(
   // to a different agent inside this session than the tracked conversation
   // agent. Cool the failing model under existing category rules and leave
   // everything else untouched — no chain resolution, no replay tail
-  // (abort/revert/prompt), no parent state mutation, and the TTFT timer
+  // (abort/prompt), no parent state mutation, and the TTFT timer
   // keeps running for the conversation's own call. The next use of the
   // cooled model is handled by the existing preemptive redirect.
   if (attributedAgent && agentName && attributedAgent !== agentName) {
@@ -1811,11 +1811,6 @@ function v2SessionId(args: unknown): string {
  * OrchestratorClient envelope. The V2 ctx methods take flat parameters and
  * return bare domain objects, so reads are wrapped in the `{ data }`
  * envelope unwrapSdkData expects.
- *
- * revert() throws deliberately: the V2 replay tail owns recovery and never
- * reverts (no V2 API), and the default V1 tail must not run against this
- * adapter — a silent no-op would hide a wiring bug behind a duplicated user
- * turn.
  */
 export function createV2OrchestratorClient(
   session: V2SessionDomain,
@@ -1827,25 +1822,9 @@ export function createV2OrchestratorClient(
       }),
       abort: async (args) =>
         session.interrupt({ sessionID: v2SessionId(args), resume: false }),
-      revert: async () => {
-        throw new Error(
-          "omr: session.revert is not part of the OpenCode 2 runtime; the V2 replay tail owns recovery",
-        );
-      },
-      prompt: async (args) => {
-        // Defensive total mapping. The V2 tail never prompts (no revert →
-        // a re-prompt would duplicate the user turn), but the shared client
-        // surface must stay total for the subagent and abort paths above.
-        const body = isRecord(args) && isRecord(args.body) ? args.body : {};
-        const parts = Array.isArray(body.parts) ? body.parts : [];
-        const text = parts
-          .map((p) => (isRecord(p) && typeof p.text === "string" ? p.text : ""))
-          .filter((t) => t.length > 0)
-          .join("\n");
-        const sessionID = v2SessionId(args);
-        return typeof body.agent === "string" && body.agent.length > 0
-          ? session.prompt({ sessionID, text, agent: body.agent })
-          : session.prompt({ sessionID, text });
+      prompt: async () => {
+        // V2 retries the existing turn; a V1 recovery prompt would duplicate it.
+        throw new Error("omr: V2 replay tail owns recovery; cannot re-prompt");
       },
       get: async (args) => ({
         data: await session.get({ sessionID: v2SessionId(args) }),

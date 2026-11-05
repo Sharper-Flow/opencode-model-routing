@@ -121,7 +121,6 @@ OpenCode plugin runtime constructs `createOpencodeClient` from `@opencode-ai/sdk
 ```ts
 client.session.messages({ path: { id: sessionId } })
 client.session.abort({ path: { id: sessionId } })
-client.session.revert({ path: { id: sessionId }, body: { messageID } })
 client.session.prompt({ path: { id: sessionId }, body: { model, parts, agent } })
 ```
 

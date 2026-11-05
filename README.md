@@ -30,6 +30,11 @@ Once enabled, the plugin sits in the request path and acts on three triggers:
 
 Recovery details:
 
+- **Repository effects survive recovery**: V1 aborts the failed request and
+  appends a recovery prompt without calling `session.revert`. Snapshot rollback
+  changes working files but not git HEAD, the index, or external effects.
+  The failed turn's messages remain visible, including attempted tool calls;
+  the replacement model must verify current state before continuing.
 - **Priority ladder**: for agents with a nonempty fallback list, the configured
   primary followed by ordered fallbacks forms one deduplicated ladder. Recovery
   cools the failed model before scanning from the top and excludes it explicitly.
@@ -290,7 +295,7 @@ are deliberately conservative (`plugin/src/types.ts`):
 | `cooldownMsByCategory` | see below | Per-category overrides; `rate_limit` and `auth_error` get 30 min, `quota_exhausted` 10 min. For `quota_exhausted` and `rate_limit` these are the fallback windows — a fresh provider-reported reset boundary takes precedence. |
 | `maxDepth`             | `3`       | Max fallback depth per session (prevents infinite cascades).                                                                                                                                                                   |
 | `dedupWindowMs`        | `3000`    | Collapses fallback triggers within this window for the same session.                                                                                                                                                           |
-| `abortWaitMs`          | `150`     | Pause between `abort()` and `revert()` in ms.                                                                                                                                                                                  |
+| `abortWaitMs`          | `150`     | Pause between `abort()` and the recovery `prompt()` in ms.                                                                                                                                                                     |
 | `preserveContext`      | `true`    | Summarise completed mid-turn work into the re-prompt on rotation.                                                                                                                                                              |
 
 Scalar options merge in three layers, most-specific winning: built-in default,

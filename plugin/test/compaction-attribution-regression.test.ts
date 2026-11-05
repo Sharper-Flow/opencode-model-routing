@@ -411,7 +411,7 @@ describe("compaction attribution regression (2026-10-07 incident)", () => {
 
     expect(ctx.store.health.isInCooldown(SOL)).toBe(true);
     expect(client.callsTo("session.abort")).toHaveLength(1);
-    expect(client.callsTo("session.revert")).toHaveLength(1);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
     expect(client.callsTo("session.prompt")).toHaveLength(1);
     const state = ctx.store.sessions.get(sessionId);
     expect(state.currentModel).toBe(LUNA);

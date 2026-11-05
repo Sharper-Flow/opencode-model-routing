@@ -21,7 +21,7 @@ function assistantMsg(id: string, parts: unknown[] = []) {
 }
 
 describe("attemptFallback — happy path", () => {
-  test("abort → revert → prompt called in order with next model", async () => {
+  test("abort → prompt called in order with next model, without reverting", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({ messages: [userMsg()] });
@@ -45,7 +45,6 @@ describe("attemptFallback — happy path", () => {
     expect(order).toEqual([
       "session.messages",
       "session.abort",
-      "session.revert",
       "session.prompt",
     ]);
 
@@ -64,10 +63,7 @@ describe("attemptFallback — happy path", () => {
     expect(client.callsTo("session.abort")[0]?.args).toEqual({
       path: { id: "s1" },
     });
-    expect(client.callsTo("session.revert")[0]?.args).toEqual({
-      path: { id: "s1" },
-      body: { messageID: "msg-1" },
-    });
+    expect(client.callsTo("session.revert")).toHaveLength(0);
 
     // session state updated
     const st = store.sessions.get("s1");
@@ -204,7 +200,7 @@ describe("attemptFallback — sequence failures", () => {
     expect(store.acquireLock("s1")).toBe(true);
   });
 
-  test("revert fails → returns revert failed", async () => {
+  test("recovery does not require the snapshot revert API", async () => {
     const store = new FallbackStore();
     store.sessions.get("s1").currentModel = "a/one";
     const client = new MockClient({
@@ -221,8 +217,9 @@ describe("attemptFallback — sequence failures", () => {
       logger: silentLogger,
       sleepMs: async () => {},
     });
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("revert failed");
+    expect(result.success).toBe(true);
+    expect(client.callsTo("session.revert")).toHaveLength(0);
+    expect(client.callsTo("session.prompt")).toHaveLength(1);
   });
 
   test("prompt fails → returns prompt failed (previous still cooled)", async () => {
@@ -822,7 +819,7 @@ describe("attemptFallback — subagent short-circuit", () => {
     // Full recovery path executes.
     const methods = client.calls.map((c) => c.method);
     expect(methods).toContain("session.abort");
-    expect(methods).toContain("session.revert");
+    expect(methods).not.toContain("session.revert");
     expect(methods).toContain("session.prompt");
   });
 });
