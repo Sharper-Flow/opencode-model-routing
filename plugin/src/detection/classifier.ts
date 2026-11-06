@@ -100,6 +100,10 @@ export function classifySessionError(
 
   const data = err.data ?? {};
   const code = data.statusCode ?? 0;
+  // Unrecognized client errors describe this request, not model health.
+  // Keep shared auth/quota/model signals below and HTTP 408 timeouts routable.
+  const unclassified =
+    code >= 400 && code < 500 && code !== 408 ? null : "unknown";
   // HTTP 429 is ambiguous: providers use it both for transient rate limiting
   // and for plan/quota exhaustion (OpenAI plan exhaustion is 429 "The usage
   // limit has been reached" — the usage-limit→quota mapping otherwise lives
@@ -169,7 +173,7 @@ export function classifySessionError(
   // above miss. Mirrors the responseBody-scan coverage below, ensuring the
   // message field gets the same pattern coverage as the response body.
   const msgClass = classifyRetryStatusText(data.message);
-  if (msgClass) return msgClass;
+  if (msgClass) return msgClass === "unknown" ? unclassified : msgClass;
 
   // Final fallback: scan responseBody text through retryPatterns. Catches
   // OpenAI insufficient_quota JSON, GoUsageLimitError / FreeUsageLimitError
@@ -179,10 +183,10 @@ export function classifySessionError(
   const body = data.responseBody;
   if (typeof body === "string" && body.length > 0) {
     const bodyClass = classifyRetryStatusText(body);
-    if (bodyClass) return bodyClass;
+    if (bodyClass) return bodyClass === "unknown" ? unclassified : bodyClass;
   }
 
-  return "unknown";
+  return unclassified;
 }
 
 /**

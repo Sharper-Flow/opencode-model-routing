@@ -85,6 +85,42 @@ describe("classifySessionError", () => {
   test("no signals → unknown", () => {
     expect(classifySessionError({})).toBe("unknown");
   });
+  test.each([400, 404, 405, 409, 413, 415, 422])(
+    "request-local HTTP %s → null",
+    (statusCode) => {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode, message: "Invalid request", isRetryable: false },
+        }),
+      ).toBeNull();
+    },
+  );
+  test("generic retry wording does not make a request error a model failure", () => {
+    for (const field of ["message", "responseBody"]) {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode: 400, [field]: "Retrying invalid request" },
+        }),
+      ).toBeNull();
+    }
+  });
+  test("explicit shared-failure signals on 4xx remain routable", () => {
+    for (const [statusCode, message, category] of [
+      [400, "monthly quota exceeded", "quota_exhausted"],
+      [404, "Model not found: unavailable", "unknown_model"],
+      [400, "Invalid API key", "auth_error"],
+      [408, "Request timeout", "unknown"],
+    ] as const) {
+      expect(
+        classifySessionError({
+          name: "APIError",
+          data: { statusCode, message },
+        }),
+      ).toBe(category);
+    }
+  });
   test("MessageAbortedError → null (user cancel, no fallback)", () => {
     expect(
       classifySessionError({

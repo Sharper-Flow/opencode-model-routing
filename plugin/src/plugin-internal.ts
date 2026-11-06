@@ -1409,7 +1409,11 @@ export async function handleEvent(
       if (!sessionId) return;
       if (!props.error) return;
       const category = classifySessionError(props.error);
-      if (!category) return;
+      if (!category) {
+        ctx.ttft.clear(sessionId);
+        ctx.ttftPending.delete(sessionId);
+        return;
+      }
       await handleFailureSignal(ctx, client, {
         source: "session_error",
         sessionId,
@@ -1503,7 +1507,11 @@ export async function handleEvent(
         "";
       if (!sessionId) return;
       const category = classifySessionError(info.error);
-      if (!category) return;
+      if (!category) {
+        ctx.ttft.clear(sessionId);
+        ctx.ttftPending.delete(sessionId);
+        return;
+      }
       // The persisted assistant message names the model that actually
       // served the failing request. Attribute the failure to it so the
       // cooldown lands on the failing model even when session state has
@@ -2006,7 +2014,16 @@ export async function handleV2RetrySignal(
   if (!sessionId) return;
   const errorRaw = isRecord(raw.error) ? raw.error : undefined;
   const category = classifyV2RetryError(errorRaw);
-  if (!category) return;
+  if (!category) {
+    if (
+      typeof errorRaw?.type === "string" ||
+      typeof errorRaw?.status === "number"
+    ) {
+      ctx.ttft.clear(sessionId);
+      ctx.ttftPending.delete(sessionId);
+    }
+    return;
+  }
 
   const agent =
     typeof raw.agent === "string" && raw.agent.trim().length > 0
