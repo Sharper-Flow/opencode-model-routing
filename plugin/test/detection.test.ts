@@ -85,7 +85,7 @@ describe("classifySessionError", () => {
   test("no signals → unknown", () => {
     expect(classifySessionError({})).toBe("unknown");
   });
-  test.each([400, 404, 405, 409, 413, 415, 422])(
+  test.each([400, 405, 409, 413, 415, 422])(
     "request-local HTTP %s → null",
     (statusCode) => {
       expect(
@@ -106,12 +106,38 @@ describe("classifySessionError", () => {
       ).toBeNull();
     }
   });
+  test("status-like numbers in a request error are request content", () => {
+    for (const message of [
+      "messages.512: `tool_use` ids were found without `tool_result` blocks immediately after",
+      "messages.429.content.0: unexpected `tool_use_id`",
+      "messages.403: text content blocks must be non-empty",
+    ]) {
+      for (const field of ["message", "responseBody"]) {
+        expect(
+          classifySessionError({
+            name: "APIError",
+            data: { statusCode: 400, [field]: message },
+          }),
+        ).toBeNull();
+      }
+    }
+    expect(
+      classifySessionError({ name: "APIError", data: { message: "HTTP 503" } }),
+    ).toBe("server_error");
+  });
   test("explicit shared-failure signals on 4xx remain routable", () => {
     for (const [statusCode, message, category] of [
       [400, "monthly quota exceeded", "quota_exhausted"],
       [404, "Model not found: unavailable", "unknown_model"],
       [400, "Invalid API key", "auth_error"],
       [408, "Request timeout", "unknown"],
+      [404, "model: claude-retired", "unknown"],
+      [402, "Payment Required", "unknown"],
+      [
+        400,
+        "Your credit balance is too low to access the Anthropic API.",
+        "quota_exhausted",
+      ],
     ] as const) {
       expect(
         classifySessionError({
