@@ -42,7 +42,7 @@ export interface SessionErrorLike {
  * Map a typed session.error payload to an ErrorCategory.
  * Precedence: non-retryable user abort → name → data.statusCode →
  * quota signals in data.message/responseBody → data.message →
- * data.responseBody scan → unknown.
+ * data.responseBody scan → unknown, or null for a request-local client error.
  *
  * Status codes 403 and 429 are the ambiguous ones:
  *   - 403: Kimi returns it for billing-cycle quota exhaustion ("You've
@@ -100,6 +100,13 @@ export function classifySessionError(
 
   const data = err.data ?? {};
   const code = data.statusCode ?? 0;
+  // Unrecognized client errors describe this request, not model health.
+  // Keep shared auth/quota/model signals below routable, along with HTTP 402
+  // (payment), 404 (Anthropic's unknown model is `model: <id>`) and 408.
+  const clientError =
+    code >= 400 && code < 500 && code !== 402 && code !== 404 && code !== 408;
+  const unclassified = clientError ? null : "unknown";
+  const textOptions = { statusTokens: !clientError };
   // HTTP 429 is ambiguous: providers use it both for transient rate limiting
   // and for plan/quota exhaustion (OpenAI plan exhaustion is 429 "The usage
   // limit has been reached" — the usage-limit→quota mapping otherwise lives
@@ -168,8 +175,8 @@ export function classifySessionError(
   // "billing cycle", "fully used up", and other patterns the hardcoded checks
   // above miss. Mirrors the responseBody-scan coverage below, ensuring the
   // message field gets the same pattern coverage as the response body.
-  const msgClass = classifyRetryStatusText(data.message);
-  if (msgClass) return msgClass;
+  const msgClass = classifyRetryStatusText(data.message, textOptions);
+  if (msgClass) return msgClass === "unknown" ? unclassified : msgClass;
 
   // Final fallback: scan responseBody text through retryPatterns. Catches
   // OpenAI insufficient_quota JSON, GoUsageLimitError / FreeUsageLimitError
@@ -178,23 +185,27 @@ export function classifySessionError(
   // only validates `data` is a Record, not that responseBody is a string.
   const body = data.responseBody;
   if (typeof body === "string" && body.length > 0) {
-    const bodyClass = classifyRetryStatusText(body);
-    if (bodyClass) return bodyClass;
+    const bodyClass = classifyRetryStatusText(body, textOptions);
+    if (bodyClass) return bodyClass === "unknown" ? unclassified : bodyClass;
   }
 
-  return "unknown";
+  return unclassified;
 }
 
 /**
  * Map session.status retry text to an ErrorCategory. Returns null when no
  * pattern matches — callers should treat null as "do not trigger fallback".
+ * `statusTokens: false` ignores bare HTTP status numbers in the text.
  */
 export function classifyRetryStatusText(
   text: string | null | undefined,
+  options: { statusTokens?: boolean } = {},
 ): ErrorCategory | null {
   if (!text) return null;
   const lower = text.toLowerCase();
+  const statusTokens = options.statusTokens ?? true;
   for (const pat of retryPatterns) {
+    if (pat.statusToken && !statusTokens) continue;
     if (pat.re.test(lower)) return pat.category;
   }
   return null;

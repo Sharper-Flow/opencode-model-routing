@@ -21,12 +21,19 @@ interface Pattern {
   // RegExp to match against the lower-cased text payload.
   re: RegExp;
   category: ErrorCategory;
+  // Matches a bare HTTP status number. It stands in for a missing typed
+  // status; in a typed client error the same digits are request content,
+  // such as an Anthropic `messages.512` index.
+  statusToken?: true;
 }
 
 export const retryPatterns: Pattern[] = [
   // Quota exhaustion
   { re: /\bquota.*(exhaust|exceed)/, category: "quota_exhausted" },
   { re: /\binsufficient.+(credit|quota)/, category: "quota_exhausted" },
+  // Anthropic account credit exhaustion arrives as HTTP 400: "Your credit
+  // balance is too low to access the Anthropic API."
+  { re: /\bcredit balance is too low\b/, category: "quota_exhausted" },
   // OpenAI literal error code. The previous \binsufficient.+(credit|quota)
   // pattern already matches the underscore/hyphen forms via .+, but the
   // no-separator form 'insufficientquota' is only caught here.
@@ -74,7 +81,7 @@ export const retryPatterns: Pattern[] = [
   // text wins first-match (see the precedence note in the header).
   { re: /\brate[ -]?limit/, category: "rate_limit" },
   { re: /\btoo many requests\b/, category: "rate_limit" },
-  { re: /\b429\b/, category: "rate_limit" },
+  { re: /\b429\b/, category: "rate_limit", statusToken: true },
 
   // Model not found / unknown
   { re: /\bmodel[ _-]?not[ _-]?found/, category: "unknown_model" },
@@ -84,11 +91,11 @@ export const retryPatterns: Pattern[] = [
   // generic "bad api key" / "invalid api key" hints.
   { re: /\b(unauthorized|unauthorised|forbidden)\b/, category: "auth_error" },
   { re: /\b(bad|invalid|missing).{0,16}\bapi\s*key\b/, category: "auth_error" },
-  { re: /\b(401|403)\b/, category: "auth_error" },
+  { re: /\b(401|403)\b/, category: "auth_error", statusToken: true },
 
   // Server errors
   { re: /\binternal server error\b/, category: "server_error" },
-  { re: /\b(5\d{2})\b/, category: "server_error" },
+  { re: /\b(5\d{2})\b/, category: "server_error", statusToken: true },
   { re: /\bservice unavailable\b/, category: "server_error" },
 
   // Generic retry signal — last resort; lowest priority.
