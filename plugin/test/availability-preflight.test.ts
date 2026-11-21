@@ -467,6 +467,46 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
     ctx.ttft.clear("other");
   });
 
+  test("degraded policy keeps chat.message preemptive redirects off Claude", async () => {
+    writeSnapshot({
+      schema: "opencode-claude-max/availability@1",
+      version: 1,
+      generated_at: new Date().toISOString(),
+      state: "degraded",
+      accounts: { configured: 2, enabled: 2, usable: 1 },
+      retry_at: null,
+    });
+    const ctx = createPluginContext({ logger: silentLogger });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains({}, silentLogger, {
+        agents: {
+          opted: {
+            fallback_models: [
+              "anthropic/claude",
+              "openai/gpt-5",
+              "google/gemini",
+            ],
+            blocked_models: ["openai/gpt-5"],
+            fallback_on_claude_degraded: true,
+          },
+        },
+      }),
+    );
+    const out = output("openai", "gpt-5");
+    await handleChatMessage(
+      ctx,
+      new MockClient(),
+      { sessionID: "blocked", agent: "opted" },
+      out,
+    );
+    expect(out.message.model).toEqual({
+      providerID: "google",
+      modelID: "gemini",
+    });
+    ctx.ttft.clear("blocked");
+  });
+
   test("strict opt-in and fresh valid degraded snapshot are required", async () => {
     const degraded = {
       schema: "opencode-claude-max/availability@1",
