@@ -9,11 +9,15 @@
 // via switchModel, and cleanup aborts the event subscription.
 
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createLogger } from "../src/logging/logger.ts";
 import {
   applyLoadedChains,
   classifyV2RetryError,
   createPluginContext,
+  createPluginHooks,
   createV2OrchestratorClient,
   createV2PluginDefinition,
   createV2ReplayTail,
@@ -140,6 +144,31 @@ describe("isV2PluginHost", () => {
 });
 
 describe("setupV2Plugin — lifecycle", () => {
+  test("each entry path logs its runtime at registration", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omr-runtime-log-"));
+    const logPath = join(dir, "omr.log");
+    const previous = process.env.OMR_LOG_FILE;
+    process.env.OMR_LOG_FILE = logPath;
+    try {
+      // The V1 marker must not depend on the config hook: OpenCode 2 never
+      // calls it, so a V1 entry registered there would otherwise log nothing.
+      await createPluginHooks({ client: {} as never });
+      const cleanup = await setupV2Plugin(createMockV2Host({}).host);
+      cleanup?.();
+      const runtimes = readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { event?: string; runtime?: string })
+        .filter((entry) => entry.event === "plugin.registered")
+        .map((entry) => entry.runtime);
+      expect(runtimes).toEqual(["v1", "v2"]);
+    } finally {
+      if (previous === undefined) delete process.env.OMR_LOG_FILE;
+      else process.env.OMR_LOG_FILE = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("registers context + retry hooks, loads chains from ctx.options, and cleanup aborts the event subscription", async () => {
     const fixture = createMockV2Host({
       agents: { general: { fallback_models: CHAIN } },
@@ -663,9 +692,10 @@ describe("V2 TTFT recovery — end-to-end through the timer entrance", () => {
     });
     // The stalled request never reaches the retry hook, so the tail itself
     // must free it: interrupt(resume:true) aborts the in-flight request.
-    // Verified live (v2.0.14): this ends the hung turn and anchors the
-    // session on the switched model; the host does NOT re-drive the turn
-    // in-run (upstream limitation, documented in the contract research).
+    // Verified live (v2.0.14 and v2.3.2): this ends the hung turn and
+    // anchors the session on the switched model; the host does NOT re-drive
+    // the turn in-run (upstream limitation, documented in the contract
+    // research).
     expect(mock.callsTo("session.interrupt")).toEqual([
       { sessionID: "s1", resume: true },
     ]);
