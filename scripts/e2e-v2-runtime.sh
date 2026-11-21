@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 # End-to-end verification of the OMR plugin against a REAL, isolated
-# OpenCode 2 binary (v2.x). Discharges the runtime half of:
+# OpenCode 2 binary (v2.3.2). Discharges the runtime half of:
 #   - check:v2-installed-plugin-load-and-hooks
 #   - check:v2-fallback-once-and-no-duplicate-replay
 #   - check:v1-v2-config-preservation-and-cli (writer half via e2e-helper)
 #
 # The run is fully isolated from the live installation:
+#   - bwrap hides the real home, /tmp and /run, and unshares the network
+#     namespace
 #   - XDG_* directories point into a throwaway fixture
 #   - --standalone runs a private server (never the shared background service)
 #   - the plugin under test is the PACKED + INSTALLED package, not the
 #     workspace copy
 #   - OMR state paths (cooldown, availability snapshot, log) point into the
 #     fixture
-# Nothing outside $FIXTURE is read or written by the OpenCode 2 side.
+# The rest of the filesystem is read-only inside the sandbox.
 #
 # Environment:
-#   OMR_V2_BIN  path to an opencode v2 binary; when unset the script installs
-#               @opencode/cli into the fixture (requires network)
+#   OMR_V2_BIN  path to an opencode v2.3.2 binary; when unset or empty the
+#               script installs @opencode/cli @ OMR_V2_VERSION into the
+#               fixture (requires network; lifecycle scripts are disabled).
+#               Every binary invocation — the version check
+#               and each run — executes inside bwrap with the stub provider
+#               started in the same sandbox; there is no unsandboxed path.
 #
 # Usage: ./scripts/e2e-v2-runtime.sh
 set -euo pipefail
@@ -34,9 +40,7 @@ ok() {
 }
 
 FIXTURE=$(mktemp -d /tmp/omr-v2-e2e-XXXXXX)
-SERVER_PID=""
 cleanup() {
-	[ -n "$SERVER_PID" ] && kill -9 "$SERVER_PID" 2>/dev/null || true
 	if [ "${OMR_E2E_KEEP:-0}" = "1" ]; then
 		echo "NOTE: fixture kept at $FIXTURE"
 		return
@@ -49,19 +53,22 @@ trap cleanup EXIT
 # 1. OpenCode 2 binary (never the live ~/.opencode installation).
 # ---------------------------------------------------------------------------
 V2_BIN="${OMR_V2_BIN:-}"
+OMR_V2_VERSION=2.3.2
+command -v bwrap >/dev/null || fail "bwrap is required to isolate OpenCode 2"
 if [ -z "$V2_BIN" ]; then
+	case "$(uname -m)" in
+		x86_64) arch=x64 ;;
+		aarch64) arch=arm64 ;;
+		*) fail "unsupported architecture: $(uname -m)" ;;
+	esac
 	echo "installing isolated OpenCode 2 (@opencode/cli) into fixture"
-	npm install --prefix "$FIXTURE/v2" --no-save --loglevel=error @opencode/cli \
+	npm install --prefix "$FIXTURE/v2" --no-save --ignore-scripts --loglevel=error "@opencode/cli@$OMR_V2_VERSION" \
 		>"$FIXTURE/v2-install.log" 2>&1 ||
 		fail "npm install @opencode/cli failed: $(tail -5 "$FIXTURE/v2-install.log")"
-	V2_BIN="$FIXTURE/v2/node_modules/.bin/opencode"
+	V2_BIN="$FIXTURE/v2/node_modules/@opencode/cli-linux-$arch/bin/opencode"
 fi
-v2_version=$("$V2_BIN" --version 2>/dev/null | head -1) ||
-	fail "opencode v2 binary not runnable at $V2_BIN"
-case "$v2_version" in
-opencode\ v2.*) ok "OpenCode 2 runtime: $v2_version" ;;
-*) fail "expected an opencode v2 binary, got: $v2_version" ;;
-esac
+cp -L "$V2_BIN" "$FIXTURE/opencode" || fail "cannot copy OpenCode binary at $V2_BIN"
+V2_BIN="$FIXTURE/opencode"
 
 # ---------------------------------------------------------------------------
 # 2. Build, pack, and install the plugin package (the shipped bytes).
@@ -119,13 +126,18 @@ Bun.serve({
     } catch {}
     appendFileSync(
       logPath,
-      JSON.stringify({ ts: Date.now(), path: url.pathname, model, body }) + "\n",
+      JSON.stringify({ ts: Date.now(), path: url.pathname, model, body, authorization: req.headers.get("authorization") }) + "\n",
     );
     if (url.pathname.startsWith("/fail")) {
       return new Response(
         JSON.stringify({ error: { message: "upstream exploded", type: "server_error" } }),
         { status: 500, headers: { "content-type": "application/json" } },
       );
+    }
+    if (url.pathname.startsWith("/stall")) {
+      return new Response(new ReadableStream({
+        start(c) { c.enqueue(new TextEncoder().encode(": waiting\n\n")); },
+      }), { headers: { "content-type": "text/event-stream" } });
     }
     const id = "chatcmpl-stub";
     const created = Math.floor(Date.now() / 1000);
@@ -196,15 +208,46 @@ Bun.serve({
 });
 console.log("stub listening on " + port);
 EOF
-bun "$FIXTURE/stub-server.ts" >"$FIXTURE/stub.log" 2>&1 &
-SERVER_PID=$!
-for _ in $(seq 1 50); do
-	curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
-	sleep 0.2
-done
-curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null ||
-	fail "stub provider did not start: $(cat "$FIXTURE/stub.log")"
-ok "stub provider listening on :$PORT"
+mkdir -p "$FIXTURE/project"
+touch "$FIXTURE/bun"
+BUN_BIN=$(readlink -f "$(command -v bun)")
+
+# /run is masked as well: a read-only bind still lets a process connect to
+# host Unix sockets (user D-Bus, gpg-agent, docker), which would reach
+# services outside the sandbox.
+sandbox_run() {
+	timeout 300 bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp \
+		--tmpfs /run --bind "$FIXTURE" "$FIXTURE" --tmpfs "$HOME" \
+		--ro-bind "$BUN_BIN" "$FIXTURE/bun" --unshare-all --die-with-parent \
+		--new-session --clearenv --setenv HOME "$HOME" \
+		--setenv PATH /usr/local/bin:/usr/bin:/bin \
+		--setenv XDG_CONFIG_HOME "$FIXTURE/config" \
+		--setenv XDG_DATA_HOME "$FIXTURE/data" \
+		--setenv XDG_CACHE_HOME "$FIXTURE/cache" \
+		--setenv XDG_STATE_HOME "$FIXTURE/state" \
+		--setenv OMR_LOG_FILE "$FIXTURE/omr.log" \
+		--setenv OPENCODE_MODEL_ROUTING_COOLDOWN "$FIXTURE/cooldown.json" \
+		--setenv OPENCODE_MODEL_ROUTING_SESSION_ROUTING "$FIXTURE/session-routing.json" \
+		--setenv OPENCODE_CLAUDE_MAX_AVAILABILITY "$FIXTURE/no-such-snapshot.json" \
+		--setenv OMR_PROBE_EVENTS "$FIXTURE/events.jsonl" \
+		--chdir "$FIXTURE/project" \
+		bash -c '
+			"$1/bun" "$1/stub-server.ts" >>"$1/stub.log" 2>&1 &
+			pid=$!
+			trap '\''kill "$pid" 2>/dev/null || true'\'' EXIT
+			for _ in $(seq 1 50); do
+				curl -fsS "http://127.0.0.1:$2/health" >/dev/null 2>&1 && break
+				sleep 0.2
+			done
+			curl -fsS "http://127.0.0.1:$2/health" >/dev/null || exit 1
+			shift 2
+			"$@"
+		' bash "$FIXTURE" "$PORT" "$V2_BIN" "$@"
+}
+v2_version=$(sandbox_run --version) || fail "sandboxed OpenCode version check failed"
+[ "$v2_version" = "opencode v$OMR_V2_VERSION" ] ||
+	fail "expected opencode v$OMR_V2_VERSION, got: $v2_version"
+ok "OpenCode 2 runtime: $v2_version"
 
 # ---------------------------------------------------------------------------
 # 4. Fixture config: native V2 shape, plugins array WITHOUT an OMR entry,
@@ -244,6 +287,12 @@ cat >"$CFG_DIR/opencode.json" <<EOF
       "options": { "baseURL": "http://127.0.0.1:$PORT/ok", "apiKey": "stub" },
       "models": { "m2": { "name": "m2" } }
     },
+    "stallp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "stallp",
+      "options": { "baseURL": "http://127.0.0.1:$PORT/stall", "apiKey": "stub" },
+      "models": { "m0": { "name": "m0" } }
+    },
     "parentp": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "parentp",
@@ -258,7 +307,7 @@ EOF
 # pins the real event payload shapes OMR's V2 event narrowing must accept.
 PROBE_DIR="$FIXTURE/probe-plugin"
 mkdir -p "$PROBE_DIR"
-(cd "$PROBE_DIR" && npm install @opencode/plugin --no-save --loglevel=error \
+(cd "$PROBE_DIR" && npm install "@opencode/plugin@$OMR_V2_VERSION" --no-save --loglevel=error \
 	>"$FIXTURE/probe-install.log" 2>&1) ||
 	fail "probe plugin dependency install failed: $(tail -3 "$FIXTURE/probe-install.log")"
 cat >"$PROBE_DIR/index.ts" <<'EOF'
@@ -332,16 +381,8 @@ jq --arg path "$PKG_PATH" --arg probe "$PROBE_DIR" \
 # ---------------------------------------------------------------------------
 # 6. Run OpenCode 2 (isolated XDG dirs, private server, fixture OMR state).
 # ---------------------------------------------------------------------------
-export XDG_CONFIG_HOME="$FIXTURE/config"
-export XDG_DATA_HOME="$FIXTURE/data"
-export XDG_CACHE_HOME="$FIXTURE/cache"
-export XDG_STATE_HOME="$FIXTURE/state"
-export OMR_LOG_FILE="$FIXTURE/omr.log"
-export OPENCODE_MODEL_ROUTING_COOLDOWN="$FIXTURE/cooldown.json"
-export OPENCODE_MODEL_ROUTING_SESSION_ROUTING="$FIXTURE/session-routing.json"
-export OPENCODE_CLAUDE_MAX_AVAILABILITY="$FIXTURE/no-such-snapshot.json"
-export OMR_PROBE_EVENTS="$FIXTURE/events.jsonl"
-
+# sandbox_run sets the isolated environment (--clearenv + --setenv).
+#
 # Two verification runs, one fixture, per the official V2 agents contract
 # (https://opencode.ai/v2/docs/agents/) and OMR's subagent short-circuit:
 #
@@ -360,17 +401,17 @@ export OMR_PROBE_EVENTS="$FIXTURE/events.jsonl"
 #   where the in-place advance happens: exactly one /fail → advance → one
 #   /ok replay, no duplicate.
 #
-# A prewarm run activates the provider SDK packages
-# (@ai-sdk/openai-compatible downloads lazily on first request); without it
-# the first request can fail at the SDK-activation layer before any HTTP
-# traffic, which races the fixture. Its traffic also warms the request log
-# baseline — assertions below consume only per-run deltas.
-timeout 120 "$V2_BIN" run --standalone --model parentp/p3 "warm" \
+# A prewarm run activates the provider before the asserted runs, so a
+# first-request activation failure cannot race the fixture. The sandbox has
+# no network, so activation uses only what the binary ships. Its traffic
+# also warms the request log baseline — assertions below consume only
+# per-run deltas.
+sandbox_run run --standalone --model parentp/p3 "warm" \
 	>/dev/null 2>"$FIXTURE/warm.err" || true
 BASELINE_A=$(wc -l <"$FIXTURE/requests.jsonl" 2>/dev/null || echo 0)
 
 # --- Run A: subagent path — native agent model override + short-circuit ----
-timeout 300 "$V2_BIN" run --standalone --print-logs \
+sandbox_run run --standalone --print-logs \
 	"Use the subagent tool to launch the reviewer agent with this task: reply with exactly PONG. When it finishes, reply with its answer." \
 	>"$FIXTURE/run-a.out" 2>"$FIXTURE/run-a.err" ||
 	fail "run A exited non-zero (see $FIXTURE/run-a.err tail): $(tail -20 "$FIXTURE/run-a.err")"
@@ -397,7 +438,7 @@ ok "run A: native agent model override honored ($m1_a request(s) on the configur
 # exercise the retry-hook advance, not a preemptive skip.
 rm -f "$FIXTURE/cooldown.json"
 BASELINE_B=$(wc -l <"$FIXTURE/requests.jsonl" 2>/dev/null || echo 0)
-timeout 300 "$V2_BIN" run --standalone --print-logs --model failp/m1 --agent reviewer \
+sandbox_run run --standalone --print-logs --model failp/m1 --agent reviewer \
 	"reply with exactly PONG" \
 	>"$FIXTURE/run-b.out" 2>"$FIXTURE/run-b.err" ||
 	fail "run B exited non-zero (see $FIXTURE/run-b.err tail): $(tail -20 "$FIXTURE/run-b.err")"
@@ -414,12 +455,9 @@ m2_b=$(printf '%s' "$delta_b" | jq -sr '[.[] | select(.path | startswith("/ok"))
 ok "run B: fallback advanced exactly once: $m1_b failing request(s) on m1, exactly 1 request on m2"
 
 # ---------------------------------------------------------------------------
-# 7. Runtime asserts: plugin load, one fallback advance, no duplicate replay.
+# 7. Runtime asserts: one fallback advance, no duplicate replay, the TTFT
+#    run, V2-only registration, and provider auth.
 # ---------------------------------------------------------------------------
-grep -q '"event":"config.loaded"' "$FIXTURE/omr.log" ||
-	fail "OMR plugin did not log config.loaded under the real V2 binary; log: $(tail -10 "$FIXTURE/omr.log")"
-ok "installed plugin loaded under the real V2 binary (config.loaded present)"
-
 # The advance itself, from OMR's own record: exactly one in-place advance
 # across both runs (run A's short-circuit logs fallback.subagent_skip, not
 # fallback.success), and it must be the failp/m1 → okp/m2 chain step at
@@ -436,6 +474,36 @@ and ([ $a[] | select(.from!="failp/m1" or .to!="okp/m2" or .depth!=1) ] | length
 ! grep -q '"event":"fallback.replay_failed"' "$FIXTURE/omr.log" ||
 	fail "OMR logged fallback.replay_failed"
 ok "OMR recorded exactly one classified failp/m1 → okp/m2 advance (depth 1, no duplicate replay)"
+
+# A stalled stream must end the current turn and leave the next rung selected.
+rm -f "$FIXTURE/cooldown.json"
+jq --argjson i "$omr_idx" '.agents.reviewer.model = "stallp/m0" | .plugins[$i].options.ttftMs = 3000 | .plugins[$i].options.agents.reviewer.fallback_models = ["stallp/m0", "okp/m2"]' "$CFG_DIR/opencode.json" >"$FIXTURE/config-next.json"
+mv "$FIXTURE/config-next.json" "$CFG_DIR/opencode.json"
+BASELINE_C=$(wc -l <"$FIXTURE/requests.jsonl")
+BASELINE_LOG=$(wc -l <"$FIXTURE/omr.log")
+BASELINE_EVENTS=$(wc -l <"$FIXTURE/events.jsonl")
+c_status=0
+sandbox_run run --standalone --print-logs --model stallp/m0 --agent reviewer \
+	"reply with exactly PONG" >"$FIXTURE/run-c.out" 2>"$FIXTURE/run-c.err" || c_status=$?
+[ "$c_status" -eq 1 ] && grep -q 'Session interrupted' "$FIXTURE/run-c.err" ||
+	fail "run C exited unexpectedly ($c_status): $(tail -20 "$FIXTURE/run-c.err")"
+[ ! -s "$FIXTURE/run-c.out" ] || fail "run C unexpectedly returned a response"
+delta_c=$(tail -n +"$((BASELINE_C + 1))" "$FIXTURE/requests.jsonl")
+[ "$(printf '%s' "$delta_c" | jq -sr '[.[] | select(.path | startswith("/stall"))] | length')" -ge 1 ] || fail "run C did not reach the stalled provider"
+[ "$(printf '%s' "$delta_c" | jq -sr '[.[] | select(.path | startswith("/ok"))] | length')" -eq 0 ] || fail "run C re-drove the stalled turn on the fallback model"
+tail -n +"$((BASELINE_LOG + 1))" "$FIXTURE/omr.log" | jq -se '[.[] | select(.event == "fallback.success" and .reason == "ttft_timeout" and .from == "stallp/m0" and .to == "okp/m2" and .depth == 1)] | length == 1' >/dev/null || fail "run C did not record one TTFT advance"
+tail -n +"$((BASELINE_EVENTS + 1))" "$FIXTURE/events.jsonl" | jq -se '[.[] | select(.type == "session.model.selected" and .data.model.providerID == "okp" and .data.model.id == "m2")] | length == 1' >/dev/null || fail "run C did not anchor the session on the next model"
+ok "run C: stalled turn aborted and advanced once; session anchored on okp/m2"
+
+# Across every run: only the V2 entry registered (the V1 entry logs its own
+# marker when OpenCode calls server()), and every provider request carried
+# the configured key.
+jq -se '[.[] | select(.event == "plugin.registered")] | length > 0 and all(.runtime == "v2")' "$FIXTURE/omr.log" >/dev/null ||
+	fail "plugin.registered must exist and identify only the V2 runtime"
+ok "installed plugin registered only through the V2 entry"
+jq -se 'length > 0 and all(.authorization == "Bearer stub")' "$FIXTURE/requests.jsonl" >/dev/null ||
+	fail "provider requests must all carry Bearer stub authorization"
+ok "all provider requests carried configured authorization"
 
 # Config preservation after the live runs.
 [ "$(jq -r '.plugins[0]' "$CFG_DIR/opencode.json")" = "unrelated-other-plugin" ] ||

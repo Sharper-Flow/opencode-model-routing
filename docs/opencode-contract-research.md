@@ -1,6 +1,8 @@
 # OpenCode Contract Research for OMR
 
-Last checked: 2026-09-23 (V2 section); 2026-05-23 (V1 sections).
+Last checked: 2026-11-21 (V2 live re-verification @ v2.3.2: plugin load,
+retry-hook advance, subagent model override + short-circuit, TTFT abort);
+2026-09-23 (V2 section); 2026-05-23 (V1 sections).
 
 ## Sources
 
@@ -36,16 +38,22 @@ Last checked: 2026-09-23 (V2 section); 2026-05-23 (V1 sections).
   `session.interrupt({sessionID, resume})`, `session.switchModel({sessionID,
   model})`. Shapes verified against the installed `@opencode/plugin`
   (SessionDomain) and `@opencode/client` input types @ v2.0.14, then
-  re-verified live against the binary. There is no `revert` — the V1
-  abort→revert→prompt replay cannot be transplanted.
+  re-verified live against the binary. The 2026-11-21 e2e @ v2.3.2
+  exercised `get` (subagent detection), `switchModel`, `interrupt` and the
+  context and retry hooks; it asserts nothing about `session.context`. There
+  is no `revert` — the V1 abort→revert→prompt replay cannot be transplanted.
 - VERIFIED LIVE (opencode v2.0.14): `interrupt({resume: true})` does NOT
   re-drive a settled turn — the session ends without a new model request.
   The working replay is `switchModel(next)` followed by approving one host
   retry from the retry hook (`event.decision = {retry: true, delay}`). A
   vetoed retry leaves nobody retrying. `interrupt({resume: false})` aborts a
-  child session for the subagent handoff.
-- VERIFIED LIVE (opencode v2.0.14, 2026-09-22 TTFT-stall fixture): a TTFT
-  timeout leaves the failed request IN FLIGHT; the retry hook never fires
+  child session for the subagent handoff. Re-verified live @ v2.3.2
+  (2026-11-21): the switchModel + one approved retry replay re-drove the
+  loop on the next rung, and interrupt({resume: true}) after a switch
+  aborted a stalled request without re-driving it.
+- VERIFIED LIVE (opencode v2.0.14, 2026-09-22 TTFT-stall fixture; re-verified
+  @ v2.3.2, 2026-11-21, except the switchModel-alone hang, which the e2e
+  does not run): a TTFT timeout leaves the failed request IN FLIGHT; the retry hook never fires
   for it. `switchModel(next)` alone re-drives nothing — the session hangs on
   the stalled request indefinitely. Adding `interrupt({resume: true})` after
   the switch aborts the stalled request and ENDS the turn (the run exits,
@@ -53,14 +61,17 @@ Last checked: 2026-09-23 (V2 section); 2026-05-23 (V1 sections).
   turn but duplicates the user message (rejected by the approved design).
   Net V2 TTFT behavior: bounded abort + one chain advance + the session
   anchored on the healthy rung for the next turn; in-run turn completion is
-  an upstream limitation.
+  an upstream limitation. Observed @ v2.3.2: the stalled run's `opencode
+  run` exits 1 with `Error: Session interrupted: user` and empty output.
 - VERIFIED LIVE: a directory-form `plugins` entry resolves its entry through
   `<dir>/server` then `<dir>/index` via Bun `resolveSync`; package.json
   `exports` is NOT consulted for that shape. A package without a root
   `index.js`/`index.ts` is SILENTLY skipped (no warning at any log level).
   The loader also must resolve `@opencode/plugin` from the installed package
   tree (published-plugin requirement). npm-name entries are npm-installed by
-  the host; unreleased names fail with a logged 404.
+  the host; unreleased names fail with a logged 404. The directory-form
+  resolution itself re-verified live @ v2.3.2 (2026-11-21): the e2e
+  fixture's package and probe directory entries both loaded and ran.
 - VERIFIED LIVE (opencode v2.0.14, 2026-09-22 primary-usage probe; corrected
   2026-09-23 against the official V2 agents contract,
   https://opencode.ai/v2/docs/agents/): the earlier probe drove the agent as
@@ -75,7 +86,10 @@ Last checked: 2026-09-23 (V2 section); 2026-05-23 (V1 sections).
   different shape that was not the probed one). The omr writer keeps the
   documented string form: effective under V1, the subagent's model under V2.
   The subagent path is verified live by scripts/e2e-v2-runtime.sh, whose
-  fixture anchors the failing chain head via `agents.reviewer.model` alone.
+  fixture anchors the failing chain head via `agents.reviewer.model` alone
+  (re-verified @ v2.3.2, 2026-11-21: the subagent request reached the
+  configured failing provider, and the short-circuit handed the child back
+  with no in-place replay).
 - TTFT continuation-route investigation (2026-09-23; installed
   @opencode/client 2.0.14 dist + upstream dev source): no supported
   plugin-reachable surface re-drives a stalled turn without duplicating the

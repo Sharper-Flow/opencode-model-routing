@@ -193,9 +193,10 @@ Under OpenCode 2 the plugin context replaces the client argument:
 - The replay tail advances once via `ctx.session.switchModel(next)` and never
   interrupts on the classified-failure entrance: verified against
   opencode v2.0.14, `interrupt({resume: true})` does not re-drive a settled
-  turn, and the approved host retry re-drives the loop. V2 has no revert, and
-  re-prompting would duplicate the user turn, so the V1
-  abort → wait → prompt sequence never runs under V2.
+  turn, and the approved host retry re-drives the loop (re-verified live @
+  v2.3.2, 2026-11-21). V2 has no revert, and re-prompting would duplicate
+  the user turn, so the V1 abort → wait → prompt sequence never runs under
+  V2.
   `interrupt({resume: false})` is used only to abort a subagent child for its
   terminal handoff.
 - A TTFT timeout is the one entrance whose failed request stays IN FLIGHT —
@@ -205,10 +206,12 @@ Under OpenCode 2 the plugin context replaces the client argument:
   leaving the session anchored on the healthy rung for the next turn. A tail
   rejection (switch or interrupt) leaves the fallback bookkeeping unadvanced,
   so a recovery that did not happen is never reported as success. Verified
-  against opencode v2.0.14 (2026-09-22 stall fixture): the host still does
-  not re-drive the aborted turn in-run, and completing it would require
-  re-prompting (rejected — it duplicates the user turn), so in-run TTFT turn
-  completion remains an upstream limitation.
+  against opencode v2.0.14 (2026-09-22 stall fixture), re-verified live @
+  v2.3.2 (2026-11-21): the host still does not re-drive the aborted turn
+  in-run, and completing it would require re-prompting (rejected — it
+  duplicates the user turn), so in-run TTFT turn completion remains an
+  upstream limitation. @ v2.3.2 the stalled `opencode run` exits 1 with
+  `Session interrupted: user` and empty output.
 
 ### V2 package loading contract
 
@@ -220,7 +223,8 @@ silently skipped. The package also declares `@opencode/plugin` as a
 dependency (the published-plugin requirement); the runtime bundle never
 imports it, but the V2 loader must resolve it from the installed package
 tree. These contracts are pinned by `plugin/test/v2-installed-package.test.ts`
-and verified live by `scripts/e2e-v2-runtime.sh`.
+and verified live by `scripts/e2e-v2-runtime.sh` (directory-form loading
+re-verified @ v2.3.2, 2026-11-21).
 
 For unmapped main agents/overlays (`build`, `adv`, `plan`), applying preferences always removes any direct `model` override from `opencode.json`.
 

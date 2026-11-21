@@ -1694,6 +1694,10 @@ export async function createPluginHooks(
     quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
   });
 
+  // Registration marker: the V1 entry has no other init-time log (its
+  // config.loaded waits for the config hook, which OpenCode 2 never calls).
+  logger.info("plugin.registered", { runtime: "v1" });
+
   return {
     "chat.message": async (input: unknown, output: unknown) => {
       const chatInput = normalizeChatMessageInput(input);
@@ -1780,7 +1784,8 @@ export interface V2PluginDefinition {
  * mirror the installed @opencode/plugin contract (SessionDomain =
  * Pick<SessionApi, ...> + hook): sessionID-first flat parameters and
  * interrupt({ sessionID, resume }). A TTFT interrupt aborts the stalled
- * request; resume:true does not re-drive that turn in OpenCode 2.0.14.
+ * request; resume:true does not re-drive that turn (observed on OpenCode
+ * 2.0.14 and 2.3.2).
  */
 export interface V2SessionDomain {
   get(input: Record<string, unknown>): Promise<unknown>;
@@ -1859,21 +1864,23 @@ export function createV2OrchestratorClient(
  * createV2ReplayTail builds the V2 replay tail: move the session onto `next`
  * with switchModel. Under V2 the replay itself is the HOST retry — the retry
  * hook approves one rescheduled attempt (decision {retry:true}), and the
- * host re-drives the agent loop on the session's switched model. Verified
- * against opencode v2.0.14: interrupt({resume:true}) does not re-drive a
- * settled turn, so a classified-failure tail never interrupts.
+ * host re-drives the agent loop on the session's switched model (verified
+ * live against v2.0.14 and v2.3.2). Verified against opencode v2.0.14:
+ * interrupt({resume:true}) does not re-drive a settled turn, so a
+ * classified-failure tail never interrupts.
  *
  * A TTFT timeout is the opposite situation: the failed request is still IN
  * FLIGHT, the retry hook never fires for it, and a bare switchModel would
  * leave the session waiting on the stalled request forever while the
- * fallback bookkeeping claims success (verified live against v2.0.14). For
- * that entrance the tail additionally interrupts with resume:true, aborting
- * the stalled request. Verified live against v2.0.14: that abort ENDS the
- * hung turn — it does not re-drive it in-run, and no supported continuation
- * surface re-drives a stalled turn without duplicating the user message
- * (contract research, TTFT continuation-route investigation). The session
- * stays anchored on the switched model, so the next turn serves the healthy
- * rung. A rejection from either call propagates: attemptFallback records
+ * fallback bookkeeping claims success (verified live against v2.0.14).
+ * For that entrance the tail additionally interrupts with
+ * resume:true, aborting the stalled request. Verified live against v2.0.14
+ * and v2.3.2: that abort ENDS the hung turn — it does not re-drive it
+ * in-run. On v2.0.14, no supported continuation surface re-drives a stalled
+ * turn without duplicating the user message (contract research, TTFT
+ * continuation-route investigation). The session stays anchored on the
+ * switched model, so the next turn serves the healthy rung. A rejection
+ * from either call propagates: attemptFallback records
  * fallback.replay_failed and leaves the bookkeeping unadvanced — a TTFT
  * recovery that did not happen is never reported as success.
  */
@@ -2095,8 +2102,8 @@ export async function handleV2RetrySignal(
  *
  *   1. the V1 envelope ({type, properties}) — pass-through;
  *   2. the live V2 flat envelope ({type, data}) — verified against
- *      opencode v2.0.14, where generated output streams as session.* deltas
- *      and tool events (data: {sessionID, delta | id, ...}); V1 names like
+ *      opencode v2.0.14 and v2.3.2, where generated output streams as
+ *      session.* deltas and tool events (data: {sessionID, delta | id, ...}); V1 names like
  *      message.part.updated do not exist on the V2 stream. Only the events
  *      OMR consumes are mapped: session.text.delta /
  *      session.reasoning.delta / session.tool.input.started /
@@ -2228,6 +2235,7 @@ export async function setupV2Plugin(
     logger,
     quotaBoundary: deps.quotaBoundary ?? PRODUCTION_QUOTA_BOUNDARY,
   });
+  logger.info("plugin.registered", { runtime: "v2" });
   applyLoadedChains(ctx, loadFallbackChains(undefined, logger, host.options));
   const client = createV2OrchestratorClient(host.session);
   const agentDomain = host.agent;

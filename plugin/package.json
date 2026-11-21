@@ -44,7 +44,7 @@
     "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "dependencies": {
-    "@opencode/plugin": "2.0.14",
+    "@opencode/plugin": "2.3.2",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
