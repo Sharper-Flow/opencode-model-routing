@@ -33,10 +33,10 @@ export interface PreemptiveInput {
   agentName: string | null;
   output: { message: { model?: OutputModel } };
   // Availability snapshot for the current turn (the same descriptor-validated
-  // read the preflight consumed). An `unavailable` snapshot vetoes Anthropic
-  // candidates in the rotation scan below, so a cooldown-driven redirect
-  // cannot land the session on a provider the snapshot already knows is dead.
+  // read the preflight consumed). Unavailable vetoes Anthropic for all agents;
+  // degraded vetoes it only when this agent opted in.
   snapshot?: AvailabilitySnapshotV1 | null;
+  fallbackOnClaudeDegraded?: boolean;
 }
 
 // What applyResumeReturn needs beyond PreemptiveInput: the persisted marker
@@ -87,7 +87,10 @@ export function applyResumeReturn(
       marker.original,
       store.health,
       blocked?.get(input.agentName),
-      claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+      claudeUnavailableVeto(
+        input.snapshot ?? null,
+        input.fallbackOnClaudeDegraded,
+      ) ?? undefined,
       familyVeto,
     )
   ) {
@@ -169,7 +172,10 @@ export function applyPreemptiveSkip(
         store.health,
         config.maxDepth,
         blocklist,
-        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        claudeUnavailableVeto(
+          input.snapshot ?? null,
+          input.fallbackOnClaudeDegraded,
+        ) ?? undefined,
         familyVeto,
       );
       if (!next) {
@@ -200,7 +206,10 @@ export function applyPreemptiveSkip(
         store.health,
         config.maxDepth,
         blocklist,
-        claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+        claudeUnavailableVeto(
+          input.snapshot ?? null,
+          input.fallbackOnClaudeDegraded,
+        ) ?? undefined,
         familyVeto,
       );
       if (!next) {
@@ -286,7 +295,10 @@ export function applyPreemptiveSkip(
     store.health,
     config.maxDepth,
     input.agentName ? blocked?.get(input.agentName) : undefined,
-    claudeUnavailableVeto(input.snapshot ?? null) ?? undefined,
+    claudeUnavailableVeto(
+      input.snapshot ?? null,
+      input.fallbackOnClaudeDegraded,
+    ) ?? undefined,
     familyVeto,
   );
   if (!next) {

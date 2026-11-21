@@ -38,6 +38,11 @@
         ["anthropic/claude-sonnet-4-5", "minimax/token-plan-model"]
       ]
     },
+    "fallback_on_claude_degraded": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, a fresh valid Claude availability snapshot in degraded state vetoes anthropic candidates for this agent."
+    },
     "family_disjoint_from_parent": {
       "type": "boolean",
       "description": "Per-agent opt-in for the model-family disjointness constraint. When true, a model selected for this agent must not share a model family with the model serving the requesting parent session. Intended for second-opinion sub-agents (e.g. `concord-advisor`): same-family verification carries systematic bias that is hard to detect downstream. Family comes from the global `model_families` map — never from the provider ID, which is not a family (`opencode-go/glm-5.3-flash` and `zai-coding-plan/glm-5.3` are two providers and one GLM family). A candidate with no `model_families` entry is skipped (disjointness must be proven, not assumed). When no chain rung satisfies the constraint, or the parent's model is unknown or unmapped, routing is unchanged and a warn event is emitted — the constraint never hard-fails a consult. Applies at every selection path: preemptive redirect, fallback rotation, availability preflight target selection, and suppressed-replay rung advance.",
@@ -78,5 +83,5 @@
     }
   ],
 
-  "$comment": "Cross-stack consumers MUST reference the field names `fallback_models` and `blocked_models` verbatim. Drift between Go writer (internal/config/) and TS reader (plugin/src/) is enforced via schema-contract-check.sh in `make lint`. The `family_disjoint_from_parent` and `model_families` fields are TS-reader-owned (the Go writer neither reads nor writes them) and are intentionally not part of that cross-stack check."
+  "$comment": "Cross-stack consumers MUST reference the field names `fallback_models` and `blocked_models` verbatim. Drift between Go writer (internal/config/) and TS reader (plugin/src/) is enforced via schema-contract-check.sh in `make lint`. The `fallback_on_claude_degraded`, `family_disjoint_from_parent` and `model_families` fields are TS-reader-owned; the Go writer preserves them without editing them."
 }

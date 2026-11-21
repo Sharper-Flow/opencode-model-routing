@@ -1,13 +1,8 @@
 // availability/preflight.ts — chat.message availability redirect.
 //
-// Consumes ONE already-validated snapshot per user turn. Only a fresh,
-// structurally valid `unavailable` snapshot carries routing authority: an
-// Anthropic/Claude selection is redirected to the first healthy configured
-// non-Anthropic chain entry BEFORE provider dispatch, so no Claude child
-// attempt starts on confirmed exhaustion. Every other outcome (missing,
-// stale, malformed, wrong-permission, unknown-version, non-unavailable, or
-// absent snapshot) is a strict no-op. Non-Anthropic selections are never
-// touched (SC4), and error text plays no part in the decision (DONT3).
+// Consumes one validated snapshot per user turn. Unavailable vetoes Anthropic
+// for every agent; degraded does so only for agents that opt in. Invalid or
+// absent snapshots and non-Anthropic selections leave routing unchanged.
 
 import type { Logger } from "../logging/logger.ts";
 import type { FallbackStore } from "../state/store.ts";
@@ -26,6 +21,7 @@ export interface AvailabilityPreflightInput {
   agentName: string | null;
   output: { message: { model?: { providerID: string; modelID: string } } };
   snapshot: AvailabilitySnapshotV1 | null;
+  fallbackOnClaudeDegraded?: boolean;
 }
 
 function providerOf(key: ModelKey): string {
@@ -39,14 +35,17 @@ function modelIdOf(key: ModelKey): string {
 }
 
 // Builds the provider-level availability veto shared by every rotation scan.
-// Only a `unavailable` snapshot carries veto authority; every other state
-// (available, degraded, disabled, unconfigured, or no snapshot at all)
-// yields null and leaves chain resolution untouched. The veto rejects
-// exactly the ANTHROPIC_PROVIDER_ID namespace the snapshot governs.
+// The veto rejects exactly the provider namespace the snapshot governs.
 export function claudeUnavailableVeto(
   snapshot: AvailabilitySnapshotV1 | null,
+  fallbackOnClaudeDegraded = false,
 ): ((key: ModelKey) => boolean) | null {
-  if (!snapshot || snapshot.state !== "unavailable") return null;
+  if (
+    !snapshot ||
+    (snapshot.state !== "unavailable" &&
+      !(fallbackOnClaudeDegraded && snapshot.state === "degraded"))
+  )
+    return null;
   return (key: ModelKey) => providerOf(key) === ANTHROPIC_PROVIDER_ID;
 }
 
@@ -60,7 +59,8 @@ export function applyAvailabilityPreflight(
   maxDepth = Number.POSITIVE_INFINITY,
 ): void {
   const snapshot = input.snapshot;
-  if (!snapshot || snapshot.state !== "unavailable") return;
+  const veto = claudeUnavailableVeto(snapshot, input.fallbackOnClaudeDegraded);
+  if (!snapshot || !veto) return;
 
   const current = input.output.message.model;
   if (!current || current.providerID !== ANTHROPIC_PROVIDER_ID) return;
@@ -75,7 +75,7 @@ export function applyAvailabilityPreflight(
     store.health,
     maxDepth,
     blocked,
-    claudeUnavailableVeto(snapshot) ?? undefined,
+    veto,
     familyVeto,
   );
   if (!target) {

@@ -146,6 +146,33 @@ describe("availability exhaustion guard — detached replay entrances", () => {
     return ctx;
   }
 
+  for (const entrance of ["failure", "ttft"] as const) {
+    test(`degraded policy excludes Claude from ${entrance} fallback without suppressing replay`, async () => {
+      writeSnapshot({
+        schema: "opencode-claude-max/availability@1",
+        version: 1,
+        generated_at: new Date().toISOString(),
+        state: "degraded",
+        accounts: { configured: 2, enabled: 2, usable: 1 },
+        retry_at: null,
+      });
+      const ctx = createPluginContext({ logger: silentLogger });
+      ctx.chains.set("scout", ["anthropic/claude", "z/model", "openai/gpt-5"]);
+      ctx.claudeDegraded.add("scout");
+      ctx.store.sessions.get("s1").currentModel = "z/model";
+      const client = new MockClient({ messages: [userMsg()] });
+      if (entrance === "ttft") {
+        await handleTtftTimeout(ctx, client, "s1", "scout");
+      } else {
+        await handleEvent(ctx, client, assistantRowEvent("s1", "z/model"));
+        await handleEvent(ctx, client, rateLimitError());
+      }
+      expect(ctx.store.sessions.get("s1").currentModel).toBe("openai/gpt-5");
+      expect(ctx.guard.isSuppressed("s1")).toBe(false);
+      expect(client.callsTo("session.prompt")).toHaveLength(1);
+    });
+  }
+
   test("session.error entrance: fresh unavailable + anthropic → suppress, zero SDK calls", async () => {
     writeSnapshot(freshUnavailableDoc());
     const ctx = anthropicCtx();

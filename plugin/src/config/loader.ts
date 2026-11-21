@@ -60,6 +60,7 @@ export interface PluginOptionsShape {
       fallback_models?: unknown;
       blocked_models?: unknown;
       family_disjoint_from_parent?: unknown;
+      fallback_on_claude_degraded?: unknown;
     }
   >;
   // Global model-key → family map (model_families). Flat and closed, the
@@ -82,6 +83,7 @@ export interface LoaderResult {
   // this set get the family constraint; routing for every other agent is
   // untouched.
   familyDisjoint: Set<string>;
+  claudeDegraded: Set<string>;
   warnings: string[];
 }
 
@@ -142,6 +144,7 @@ export function loadFallbackChains(
   const blocked = new Map<string, Set<ModelKey>>();
   const families = new Map<ModelKey, string>();
   const familyDisjoint = new Set<string>();
+  const claudeDegraded = new Set<string>();
   const warnings: string[] = [];
 
   const pluginAgents =
@@ -196,6 +199,7 @@ export function loadFallbackChains(
       if (agent.family_disjoint_from_parent === true) {
         familyDisjoint.add(name);
       }
+      if (agent.fallback_on_claude_degraded === true) claudeDegraded.add(name);
     }
   }
 
@@ -248,7 +252,14 @@ export function loadFallbackChains(
   const root = (cfg ?? {}) as ConfigShape;
   const agents = root.agent ?? {};
   if (typeof agents !== "object" || agents === null) {
-    return { chains, blocked, families, familyDisjoint, warnings };
+    return {
+      chains,
+      blocked,
+      families,
+      familyDisjoint,
+      claudeDegraded,
+      warnings,
+    };
   }
 
   for (const [name, agent] of Object.entries(agents)) {
@@ -306,5 +317,12 @@ export function loadFallbackChains(
   for (const [name, chain] of chains) {
     chains.set(name, withConfiguredPrimary(chain, agents[name]?.model));
   }
-  return { chains, blocked, families, familyDisjoint, warnings };
+  return {
+    chains,
+    blocked,
+    families,
+    familyDisjoint,
+    claudeDegraded,
+    warnings,
+  };
 }

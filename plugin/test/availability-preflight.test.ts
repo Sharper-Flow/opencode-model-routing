@@ -12,7 +12,8 @@ import {
   handleChatMessage,
 } from "../src/plugin-internal.ts";
 import { FallbackStore } from "../src/state/store.ts";
-import type { ModelKey } from "../src/types.ts";
+import { defaultConfig, type ModelKey } from "../src/types.ts";
+import { applyPreemptiveSkip, applyResumeReturn } from "../src/preemptive.ts";
 import { MockClient } from "./helpers/mock-client.ts";
 
 const T0 = 1_800_000_000_000;
@@ -53,6 +54,66 @@ function userMsg(id = "msg-1", agent = "scout") {
 }
 
 describe("applyAvailabilityPreflight", () => {
+  test("degraded policy excludes Claude from preemptive scans", () => {
+    const snapshot = unavailableSnapshot({
+      state: "degraded",
+      accounts: { configured: 2, enabled: 2, usable: 1 },
+      retry_at: null,
+      marker: undefined,
+    });
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5", "google/gemini"]],
+    ]);
+    const store = new FallbackStore();
+    const out = output("openai", "gpt-5");
+    applyPreemptiveSkip(
+      {
+        sessionId: "scan",
+        agentName: "scout",
+        output: out,
+        snapshot,
+        fallbackOnClaudeDegraded: true,
+      },
+      store,
+      chains,
+      defaultConfig,
+      silentLogger,
+      new Map([["scout", new Set<ModelKey>(["openai/gpt-5"])]]),
+    );
+    expect(out.message.model.providerID).toBe("google");
+  });
+  test("degraded policy prevents resume return to Claude", () => {
+    const snapshot = unavailableSnapshot({
+      state: "degraded",
+      accounts: { configured: 2, enabled: 2, usable: 1 },
+      retry_at: null,
+      marker: undefined,
+    });
+    const chains = new Map<string, ModelKey[]>([
+      ["scout", ["anthropic/claude", "openai/gpt-5"]],
+    ]);
+    const store = new FallbackStore();
+    const resumed = output("openai", "gpt-5");
+    const returned = applyResumeReturn(
+      {
+        sessionId: "resume",
+        agentName: "scout",
+        output: resumed,
+        snapshot,
+        fallbackOnClaudeDegraded: true,
+        marker: {
+          served: "openai/gpt-5",
+          original: "anthropic/claude",
+          at: T0,
+        },
+      },
+      store,
+      chains,
+      silentLogger,
+    );
+    expect(returned).toBe(false);
+    expect(resumed.message.model.providerID).toBe("openai");
+  });
   test("fresh unavailable + anthropic selection → first healthy non-anthropic chain entry", () => {
     const store = new FallbackStore();
     const chains = new Map<string, ModelKey[]>([
@@ -356,6 +417,122 @@ describe("chat.message preflight integration (descriptor-bound reader + redirect
       marker: "CLAUDE_MAX_UNAVAILABLE",
     };
   }
+
+  test("degraded availability redirects only opted-in agents without cooling Claude", async () => {
+    writeSnapshot({
+      schema: "opencode-claude-max/availability@1",
+      version: 1,
+      generated_at: new Date().toISOString(),
+      state: "degraded",
+      accounts: { configured: 2, enabled: 2, usable: 1 },
+      retry_at: null,
+    });
+    const ctx = createPluginContext({ logger: silentLogger });
+    applyLoadedChains(
+      ctx,
+      loadFallbackChains({}, silentLogger, {
+        agents: {
+          opted: {
+            fallback_models: ["anthropic/claude", "openai/gpt-5"],
+            fallback_on_claude_degraded: true,
+          },
+          other: { fallback_models: ["anthropic/claude", "openai/gpt-5"] },
+        },
+      }),
+    );
+    const opted = output("anthropic", "claude");
+    await handleChatMessage(
+      ctx,
+      new MockClient(),
+      { sessionID: "opted", agent: "opted" },
+      opted,
+    );
+    expect(opted.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5",
+    });
+    const other = output("anthropic", "claude");
+    await handleChatMessage(
+      ctx,
+      new MockClient(),
+      { sessionID: "other", agent: "other" },
+      other,
+    );
+    expect(other.message.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude",
+    });
+    expect(ctx.store.health.isInCooldown("anthropic/claude")).toBe(false);
+    ctx.ttft.clear("opted");
+    ctx.ttft.clear("other");
+  });
+
+  test("strict opt-in and fresh valid degraded snapshot are required", async () => {
+    const degraded = {
+      schema: "opencode-claude-max/availability@1",
+      version: 1,
+      generated_at: new Date().toISOString(),
+      state: "degraded",
+      accounts: { configured: 2, enabled: 2, usable: 1 },
+      retry_at: null,
+    };
+    const agents = {
+      yes: {
+        fallback_models: ["anthropic/claude", "openai/gpt-5"],
+        fallback_on_claude_degraded: true,
+      },
+      no: {
+        fallback_models: ["anthropic/claude", "openai/gpt-5"],
+        fallback_on_claude_degraded: false,
+      },
+      string: {
+        fallback_models: ["anthropic/claude", "openai/gpt-5"],
+        fallback_on_claude_degraded: "true",
+      },
+    };
+    const ctx = createPluginContext({ logger: silentLogger });
+    applyLoadedChains(ctx, loadFallbackChains({}, silentLogger, { agents }));
+    for (const [name, doc, mode, redirected] of [
+      ["yes", degraded, 0o600, true],
+      ["no", degraded, 0o600, false],
+      ["string", degraded, 0o600, false],
+      [
+        "yes",
+        {
+          ...degraded,
+          state: "available",
+          accounts: { configured: 2, enabled: 1, usable: 1 },
+        },
+        0o600,
+        false,
+      ],
+      [
+        "yes",
+        {
+          ...degraded,
+          generated_at: new Date(Date.now() - 120_000).toISOString(),
+        },
+        0o600,
+        false,
+      ],
+      ["yes", { ...degraded, version: 2 }, 0o600, false],
+      ["yes", degraded, 0o644, false],
+    ] as const) {
+      writeSnapshot(doc, mode);
+      const sessionID = `matrix-${name}-${Math.random()}`;
+      const out = output("anthropic", "claude");
+      await handleChatMessage(
+        ctx,
+        new MockClient(),
+        { sessionID, agent: name },
+        out,
+      );
+      expect(out.message.model.providerID).toBe(
+        redirected ? "openai" : "anthropic",
+      );
+      ctx.ttft.clear(sessionID);
+    }
+  });
 
   test("fresh valid unavailable snapshot redirects anthropic before dispatch; zero fallback SDK calls", async () => {
     writeSnapshot(freshUnavailable());

@@ -30,6 +30,23 @@ Once enabled, the plugin sits in the request path and acts on three triggers:
 
 Recovery details:
 
+- **Claude account threshold**: an agent may set the strict boolean
+  `fallback_on_claude_degraded: true` in its OMR plugin options alongside
+  `fallback_models`. A fresh, validated Claude Max V1 snapshot in `degraded`
+  state then excludes the `anthropic` provider for that agent's routing scans.
+  Omitted or false leaves existing routing unchanged. An available snapshot
+  with one usable account out of one enabled account does not trigger it.
+  The policy does not create a shared cooldown or suppress other agents' replay.
+  The producer's unavailable-account state includes 401, 403 and 429 responses;
+  the snapshot is not quota-specific telemetry. Missing, stale or invalid
+  snapshots do not trigger the policy. If no eligible fallback exists, the
+  existing fail-soft behavior applies.
+
+  On OpenCode 1.18.35, preemptive routing happens on the next user message,
+  not on every model request. The provider plugin may silently try the remaining
+  account within the current turn; this option does not guarantee an immediate
+  in-flight switch. Recovery and resume behavior otherwise remain unchanged.
+
 - **Repository effects survive recovery**: V1 aborts the failed request and
   appends a recovery prompt without calling `session.revert`. Snapshot rollback
   changes working files but not git HEAD, the index, or external effects.
