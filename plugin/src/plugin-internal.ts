@@ -116,6 +116,7 @@ export interface PluginContext {
   // Agent names opted into family_disjoint_from_parent. Only these agents
   // get the family constraint; routing for every other agent is untouched.
   familyDisjoint: Set<string>;
+  claudeDegraded: Set<string>;
   config: PluginConfig;
   logger: Logger;
   pluginOptions?: unknown;
@@ -352,6 +353,7 @@ export function createPluginContext(
     blocked: new Map(),
     families: new Map(),
     familyDisjoint: new Set(),
+    claudeDegraded: new Set(),
     config: merged,
     logger,
     pluginOptions: opts.pluginOptions,
@@ -655,12 +657,12 @@ export async function handleChatMessage(
   const familyVeto = await buildFamilyVeto(ctx, client, sessionId, agentName);
 
   // Availability preflight: consume one descriptor-validated snapshot per
-  // turn. Only a fresh, structurally valid `unavailable` snapshot redirects an
-  // Anthropic/Claude selection to the first healthy configured non-Anthropic
-  // chain entry before dispatch — no Claude child attempt starts on confirmed
-  // exhaustion. Missing/stale/malformed/wrong-permission/unknown-version
-  // snapshot → null → no-op; non-Anthropic selections are never touched.
+  // turn. Unavailable redirects every agent; degraded redirects opted-in agents.
+  // Invalid snapshots yield null, and non-Anthropic selections are untouched.
   const snapshot = readAvailabilitySnapshot();
+  const fallbackOnClaudeDegraded = agentName
+    ? ctx.claudeDegraded.has(agentName)
+    : false;
 
   // Resume return: a fresh session state plus a persisted routing
   // marker whose served model matches the arriving selection means the TUI
@@ -677,6 +679,7 @@ export async function handleChatMessage(
         agentName,
         output,
         snapshot,
+        fallbackOnClaudeDegraded,
         marker: freshMarker,
       },
       ctx.store,
@@ -688,7 +691,7 @@ export async function handleChatMessage(
   }
 
   applyAvailabilityPreflight(
-    { sessionId, agentName, output, snapshot },
+    { sessionId, agentName, output, snapshot, fallbackOnClaudeDegraded },
     ctx.store,
     ctx.chains,
     ctx.logger,
@@ -698,7 +701,7 @@ export async function handleChatMessage(
   );
 
   applyPreemptiveSkip(
-    { sessionId, agentName, output, snapshot },
+    { sessionId, agentName, output, snapshot, fallbackOnClaudeDegraded },
     ctx.store,
     ctx.chains,
     ctx.config,
@@ -843,7 +846,10 @@ export async function handleTtftTimeout(
       isSubagent,
       blocked,
       unavailableVeto:
-        claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+        claudeUnavailableVeto(
+          readAvailabilitySnapshot(),
+          agentName ? ctx.claudeDegraded.has(agentName) : false,
+        ) ?? undefined,
       familyVeto,
       replayTail: ctx.replayTail,
     });
@@ -1173,7 +1179,10 @@ async function advancePastUnavailableRung(
     ctx.store.health,
     ctx.config.maxDepth,
     blocked,
-    claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+    claudeUnavailableVeto(
+      readAvailabilitySnapshot(),
+      agentName ? ctx.claudeDegraded.has(agentName) : false,
+    ) ?? undefined,
     familyVeto,
   );
   if (next) {
@@ -1335,7 +1344,10 @@ async function handleFailureSignal(
     errorText: input.errorText,
     blocked,
     unavailableVeto:
-      claudeUnavailableVeto(readAvailabilitySnapshot()) ?? undefined,
+      claudeUnavailableVeto(
+        readAvailabilitySnapshot(),
+        agentName ? ctx.claudeDegraded.has(agentName) : false,
+      ) ?? undefined,
     familyVeto,
     replayTail: ctx.replayTail,
     // Classified-failure dispatch is the only entrance that carries the
@@ -1651,6 +1663,8 @@ export function applyLoadedChains(
   for (const [key, family] of loaded.families) ctx.families.set(key, family);
   ctx.familyDisjoint.clear();
   for (const name of loaded.familyDisjoint) ctx.familyDisjoint.add(name);
+  ctx.claudeDegraded.clear();
+  for (const name of loaded.claudeDegraded) ctx.claudeDegraded.add(name);
   for (const w of loaded.warnings)
     ctx.logger.warn("loader.warning", { message: w });
   ctx.logger.info("config.loaded", { agentCount: ctx.chains.size });

@@ -26,6 +26,24 @@ const v2ConfigFixture = `{
   "agents": {"general": {"model": "anthropic/claude-opus-4"}}
 }`
 
+func TestBuildApplyPlanPreservesClaudeDegradedOption(t *testing.T) {
+	for _, tc := range []struct{ name, raw, path string }{
+		{"v1", `{"plugin":[["@sharper-flow/opencode-model-routing-plugin",{"agents":{"general":{"fallback_on_claude_degraded":true,"fallback_models":["old/model"]}}}]]}`, "plugin.0.1.agents.general.fallback_on_claude_degraded"},
+		{"v2", `{"plugins":[{"package":"@sharper-flow/opencode-model-routing-plugin","options":{"agents":{"general":{"fallback_on_claude_degraded":true,"fallback_models":["old/model"]}}}}]}`, "plugins.0.options.agents.general.fallback_on_claude_degraded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pc := PreferencesConfig{TargetFallbacks: map[string][]string{"general": {"new/model"}}}
+			plan, err := BuildApplyPlan([]byte(tc.raw), "config.json", pc, []Target{{Name: "general", Kind: KindAgent}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := gjson.GetBytes(plan.Updated, tc.path); got.Type != gjson.True {
+				t.Fatalf("option changed: %s", got.Raw)
+			}
+		})
+	}
+}
+
 func TestRoutingPluginsV2Index_FindsObjectAndStringEntries(t *testing.T) {
 	raw := []byte(v2ConfigFixture)
 	idx, ok := routingPluginsV2Index(raw)
