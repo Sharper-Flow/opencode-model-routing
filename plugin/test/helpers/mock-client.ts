@@ -15,6 +15,7 @@ export interface MockClientOptions {
   // sessions fall back to `messages`.
   messagesBySession?: Record<string, unknown[]>;
   abortError?: Error;
+  syntheticError?: Error;
   revertError?: Error;
   promptError?: Error;
   messagesError?: Error;
@@ -61,6 +62,10 @@ export class MockClient {
     abort: async (args: unknown) => {
       this.calls.push({ method: "session.abort", args });
       if (this.opts.abortError) throw this.opts.abortError;
+    },
+    synthetic: async (args: unknown) => {
+      this.calls.push({ method: "session.synthetic", args });
+      if (this.opts.syntheticError) throw this.opts.syntheticError;
     },
     revert: async (args: unknown) => {
       this.calls.push({ method: "session.revert", args });

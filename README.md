@@ -70,6 +70,9 @@ Recovery details:
   immediately re-probe a dead model.
 - **Sub-agent aware**: a failing sub-agent is marked unhealthy and the parent's
   replacement hits the preemptive redirect path instead of a mid-turn replay.
+  When supported, the parent also receives one notice before the cancelled
+  report, naming the plugin, cause, failed model and next healthy model, if
+  one is available.
 - **Resume returns to the original**: a fallback-served turn persists the
   fallback model on the session's last user message, and OpenCode's TUI
   re-imports that model when the session resumes — without a countermeasure

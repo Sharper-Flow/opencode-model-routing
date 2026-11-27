@@ -78,6 +78,8 @@ export interface ReplayResult {
   success: boolean;
   fallbackModel?: ModelKey;
   fromModel?: ModelKey | null;
+  cooldownTarget?: ModelKey | null;
+  cooldownMs?: number;
   error?: string;
   // True when the recovery was short-circuited because the session is a
   // subagent. The model was still marked unhealthy (with category-aware

@@ -792,11 +792,19 @@ export function handleChatParams(
   armTtft(ctx, client, sessionId, chatInput.agent ?? agentName);
 }
 
-/**
- * TTFT replay entrance. The centralized exhaustion guard runs synchronously
- * before the first await: confirmed mid-task Claude exhaustion suppresses
- * the replay with zero SDK calls (AC4/AC5).
- */
+// Carries the facts a parent needs to judge whether to relaunch a helper.
+interface SubagentHandoff {
+  agent: string | null;
+  reason: string;
+  cause: string;
+  failedModel: ModelKey | null;
+  cooldownMs?: number;
+  nextModel: ModelKey | null;
+}
+
+// A sequence distinguishes handoffs of the same child within one millisecond.
+let handoffSequence = 0;
+
 // Hands a subagent session back to its parent by aborting it. Used when the
 // child cannot be re-served in place (subagent skip, exhausted chain, or a
 // suppressed replay whose current rung is dead): without the abort the child
@@ -808,7 +816,59 @@ async function abortSubagentSession(
   client: OrchestratorClient,
   sessionId: string,
   eventPrefix: string,
+  handoff: SubagentHandoff,
 ): Promise<void> {
+  const parent = ctx.store.sessions.get(sessionId).parentSessionId;
+  if (parent && client.session.synthetic) {
+    const agent = handoff.agent ?? "unknown";
+    const minutes = Math.ceil((handoff.cooldownMs ?? 0) / 60_000);
+    const cooldown =
+      handoff.cooldownMs === undefined
+        ? ""
+        : handoff.cooldownMs < 60_000
+          ? ", avoided for under a minute"
+          : `, avoided for about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+    const text = [
+      `OpenCode Model Routing cancelled subagent session ${sessionId} (${agent}).`,
+      'This is an automatic routing handoff, not an operator request. The separate "Subagent cancelled" report carries no reason; this notice is the reason.',
+      `Cause: ${handoff.cause}`,
+      `Failed model: ${handoff.failedModel ?? "unknown"}${cooldown}.`,
+      handoff.nextModel
+        ? `A relaunch of the same agent starts on ${handoff.nextModel}.`
+        : "No model in the agent's fallback chain is healthy, so a relaunch now repeats the failure.",
+    ].join("\n");
+    try {
+      await client.session.synthetic({
+        path: { id: parent },
+        body: {
+          id: `msg_omr_handoff_${sessionId}_${Date.now()}-${++handoffSequence}`,
+          text,
+          description: `Routing handoff: ${agent} helper cancelled`,
+          resume: false,
+          metadata: {
+            source: "opencode-model-routing",
+            childID: sessionId,
+            agent,
+            reason: handoff.reason,
+            failedModel: handoff.failedModel,
+            nextModel: handoff.nextModel,
+          },
+        },
+      });
+      ctx.logger.info("fallback.subagent_notice", {
+        sessionId,
+        parentSessionId: parent,
+        reason: handoff.reason,
+        nextModel: handoff.nextModel,
+      });
+    } catch (err) {
+      ctx.logger.error("fallback.subagent_notice_failed", {
+        sessionId,
+        reason: handoff.reason,
+        err: String(err),
+      });
+    }
+  }
   try {
     await client.session.abort({ path: { id: sessionId } } as never);
   } catch (err) {
@@ -819,6 +879,11 @@ async function abortSubagentSession(
   }
 }
 
+/**
+ * TTFT replay entrance. The centralized exhaustion guard runs synchronously
+ * before the first await: confirmed mid-task Claude exhaustion suppresses
+ * the replay with zero SDK calls (AC4/AC5).
+ */
 export async function handleTtftTimeout(
   ctx: PluginContext,
   client: OrchestratorClient,
@@ -857,7 +922,14 @@ export async function handleTtftTimeout(
       // Unlike session.error, a TTFT timeout has no provider error to
       // terminate the child. Abort only this stalled-child path so the parent
       // Task wait observes a terminal cancellation and regains control.
-      await abortSubagentSession(ctx, client, sessionId, "ttft");
+      await abortSubagentSession(ctx, client, sessionId, "ttft", {
+        agent: agentName,
+        reason: "ttft_timeout",
+        cause: `no first token within ${ctx.config.ttftMs} ms (ttft_timeout)`,
+        failedModel: result.cooldownTarget ?? null,
+        cooldownMs: result.cooldownMs,
+        nextModel: result.fallbackModel ?? null,
+      });
     }
   } catch (err) {
     ctx.logger.error("ttft.callback_failed", {
@@ -1168,6 +1240,7 @@ async function advancePastUnavailableRung(
   sessionId: string,
 ): Promise<void> {
   const state = ctx.store.sessions.get(sessionId);
+  const failedModel = state.currentModel;
   const agentName = state.agentName ?? null;
   const chain = agentName ? (ctx.chains.get(agentName) ?? []) : [];
   const blocked = agentName ? ctx.blocked.get(agentName) : undefined;
@@ -1202,7 +1275,13 @@ async function advancePastUnavailableRung(
   }
   const isSubagent = await detectSubagent(sessionId, client, ctx.store);
   if (isSubagent) {
-    await abortSubagentSession(ctx, client, sessionId, "failure");
+    await abortSubagentSession(ctx, client, sessionId, "failure", {
+      agent: agentName,
+      reason: "availability",
+      cause: "the availability snapshot marks the current model unavailable",
+      failedModel: failedModel ?? null,
+      nextModel: next ?? null,
+    });
   }
 }
 
@@ -1363,7 +1442,16 @@ async function handleFailureSignal(
   // when the chain is exhausted — nowhere left to roll means the child must
   // fail fast rather than hang.
   if (isSubagent && (result.subagentSkipped || result.error === "exhausted")) {
-    await abortSubagentSession(ctx, client, input.sessionId, "failure");
+    // The notice reaches the parent as user-role input, so it carries the
+    // classified category only, never provider-supplied error text.
+    await abortSubagentSession(ctx, client, input.sessionId, "failure", {
+      agent: agentName,
+      reason: input.category,
+      cause: `provider error classified as ${input.category}`,
+      failedModel: result.cooldownTarget ?? null,
+      cooldownMs: result.cooldownMs,
+      nextModel: result.subagentSkipped ? (result.fallbackModel ?? null) : null,
+    });
   }
   // OpenCode may deliver an event before the Hooks.config callback has
   // populated chains. Preserve the existing lifecycle behavior: the same
@@ -1792,6 +1880,7 @@ export interface V2SessionDomain {
   context(input: Record<string, unknown>): Promise<unknown>;
   switchModel(input: Record<string, unknown>): Promise<unknown>;
   interrupt(input: Record<string, unknown>): Promise<unknown>;
+  synthetic?(input: Record<string, unknown>): Promise<unknown>;
   prompt(input: Record<string, unknown>): Promise<unknown>;
   hook(
     name: string,
@@ -1842,6 +1931,7 @@ function v2SessionId(args: unknown): string {
 export function createV2OrchestratorClient(
   session: V2SessionDomain,
 ): OrchestratorClient {
+  const synthetic = session.synthetic?.bind(session);
   return {
     session: {
       messages: async (args) => ({
@@ -1849,6 +1939,15 @@ export function createV2OrchestratorClient(
       }),
       abort: async (args) =>
         session.interrupt({ sessionID: v2SessionId(args), resume: false }),
+      ...(synthetic
+        ? {
+            synthetic: async (args: unknown) =>
+              synthetic({
+                sessionID: v2SessionId(args),
+                ...(isRecord(args) && isRecord(args.body) ? args.body : {}),
+              }),
+          }
+        : {}),
       prompt: async () => {
         // V2 retries the existing turn; a V1 recovery prompt would duplicate it.
         throw new Error("omr: V2 replay tail owns recovery; cannot re-prompt");

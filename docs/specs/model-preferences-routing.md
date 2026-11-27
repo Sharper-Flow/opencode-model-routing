@@ -198,7 +198,16 @@ Under OpenCode 2 the plugin context replaces the client argument:
   the user turn, so the V1 abort → wait → prompt sequence never runs under
   V2.
   `interrupt({resume: false})` is used only to abort a subagent child for its
-  terminal handoff.
+  terminal handoff. Before interrupting, OMR enqueues a synthetic notice without
+  waking the parent when its identity and the synthetic method are available.
+  The native Task result wakes the parent. The notice
+  identifies OMR, the child and agent, cause, failed model, cooldown when
+  applicable, and next healthy model or chain exhaustion. The parent receives
+  the notice as user-role input, so a provider failure's cause is its
+  classified category only; provider error text never crosses into the parent.
+  A rejected notice is logged and never blocks the interrupt. On OpenCode 1.x, OMR uses the SDK
+  client as-is; if `session.synthetic` is absent it posts no notice and still
+  aborts the child.
 - A TTFT timeout is the one entrance whose failed request stays IN FLIGHT —
   the retry hook never fires for a hang. There the tail also issues
   `interrupt({resume: true})` after the switch: the stalled request is
