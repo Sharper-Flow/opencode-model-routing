@@ -90,6 +90,23 @@ retry-hook advance, subagent model override + short-circuit, TTFT abort);
   (re-verified @ v2.3.2, 2026-11-21: the subagent request reached the
   configured failing provider, and the short-circuit handed the child back
   with no in-place replay).
+  Run A of `scripts/e2e-v2-runtime.sh` also asserts that the parent receives a
+  `ctx.session.synthetic` notice before the cancelled report.
+  Verified live on 2026-11-27 with OpenCode v2.3.2: the parent request carried
+  the notice before the cancelled report.
+  Verified live on 2026-11-27 with OpenCode v2.4.1: the notice preceded the
+  cancelled report using `OMR_V2_BIN` with the installed host binary and a
+  scratch copy of the script with its version pin overridden; the committed
+  script still pins v2.3.2.
+  With its default resume setting, `session.synthetic` does not wait for the parent's turn (read from the
+  installed v2.4.1 host bundle, 2026-11-27): `Session.synthetic` looks up the
+  session, admits the item to its inbox with default `steer` delivery, then
+  calls the runner's synchronous `wake`, which only marks a pending wake on an
+  active parent or forks a new run. The interrupt that follows therefore waits
+  only for that local admission. OMR supplies `resume: false` to enqueue
+  without requesting a wake; the native Task result must wake the parent.
+  Re-verified with `resume: false` on v2.3.2 and v2.4.1: the first parent
+  request carrying the cancelled report already carried the notice ahead of it.
 - TTFT continuation-route investigation (2026-09-23; installed
   @opencode/client 2.0.14 dist + upstream dev source): no supported
   plugin-reachable surface re-drives a stalled turn without duplicating the

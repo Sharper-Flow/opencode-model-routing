@@ -27,6 +27,7 @@ export interface OrchestratorClient {
   session: {
     messages(args: unknown): Promise<unknown>;
     abort(args: unknown): Promise<unknown>;
+    synthetic?(args: unknown): Promise<unknown>;
     prompt(args: unknown): Promise<unknown>;
     // session.get is used to detect subagent sessions (presence of
     // parentID) so the orchestrator can short-circuit recovery for
@@ -449,7 +450,7 @@ export async function attemptFallback(
         chain,
         agent: state.agentName,
       });
-      return { success: false, error: "exhausted" };
+      return { success: false, error: "exhausted", cooldownTarget, cooldownMs };
     }
 
     // Subagent short-circuit: mark unhealthy and exit without recovering.
@@ -480,6 +481,8 @@ export async function attemptFallback(
         fallbackModel: next,
         fromModel: current,
         subagentSkipped: true,
+        cooldownTarget,
+        cooldownMs,
       };
     }
 

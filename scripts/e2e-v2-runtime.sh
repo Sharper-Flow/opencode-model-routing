@@ -430,6 +430,22 @@ grep -q '"event":"fallback.subagent_skip"' "$FIXTURE/omr.log" ||
 	fail "run A: OMR logged no fallback.subagent_skip — the child was not handed back"
 ok "run A: native agent model override honored ($m1_a request(s) on the configured failp/m1), short-circuit handed the child back with no in-place replay"
 
+parent_messages_a=$(printf '%s' "$delta_a" | jq -sc '
+  [.[] | select(.path | startswith("/parent")) | .body | fromjson |
+   [.messages[]?.content |
+    if type == "string" then .
+    elif type == "array" then map(.text? // tojson) | join("\n")
+    else tojson end] | join("\n")]
+') || fail "run A: could not parse parent request messages"
+# The first parent request that carries the cancelled report must already
+# carry the notice ahead of it: the parent never sees an unexplained cancel.
+printf '%s' "$parent_messages_a" | jq -e '
+  first(.[] | select(index("state=\"cancelled\"") != null)) |
+  index("OpenCode Model Routing is requesting cancellation of subagent session") as $notice |
+  $notice != null and $notice < index("state=\"cancelled\"")
+' >/dev/null || fail "run A: the first parent request with the cancelled report lacks the routing notice before it"
+ok "run A: parent received the routing notice before cancellation"
+
 # --- Run B: primary path — CLI-anchored head, in-place advance once --------
 # Run A's classified failure cooled failp/m1 (persisted in the fixture
 # cooldown file; each --standalone run is a fresh server, so only the file

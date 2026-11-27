@@ -68,8 +68,11 @@ Recovery details:
   fallback whenever no fresh boundary exists. Cooldowns are shared across
   processes through a cooldown file, so a fresh OpenCode session does not
   immediately re-probe a dead model.
-- **Sub-agent aware**: a failing sub-agent is marked unhealthy and the parent's
-  replacement hits the preemptive redirect path instead of a mid-turn replay.
+- **Sub-agent aware**: the failed model is cooled when applicable, and a fresh
+  replacement passes through preemptive routing instead of a mid-turn replay.
+  When supported, the plugin queues a notice for the parent before requesting
+  cancellation, naming the cause, failed model and any fallback candidate.
+  A fresh launch may route differently, and cancellation is not guaranteed.
 - **Resume returns to the original**: a fallback-served turn persists the
   fallback model on the session's last user message, and OpenCode's TUI
   re-imports that model when the session resumes — without a countermeasure
