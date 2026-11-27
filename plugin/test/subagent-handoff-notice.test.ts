@@ -149,7 +149,7 @@ test("failed request identifies the routing handoff to the parent before abort",
   expect(notice.path.id).toBe("parent");
   expect(notice.body.id).toMatch(/^msg_omr_handoff_child_\d+-\d+$/);
   expect(notice.body.description).toBe(
-    "Routing handoff: scout helper cancelled",
+    "Routing handoff: requesting cancellation of scout helper",
   );
   expect(notice.body.metadata).toEqual({
     source: "opencode-model-routing",
@@ -162,20 +162,58 @@ test("failed request identifies the routing handoff to the parent before abort",
   const text = notice.body.text;
   expect(
     text.startsWith(
-      "OpenCode Model Routing cancelled subagent session child (scout).",
+      "OpenCode Model Routing is requesting cancellation of subagent session child (scout).",
     ),
   ).toBe(true);
   expect(text).toMatch(/automatic routing handoff/i);
   expect(text).toMatch(/not an operator request/i);
   expect(text).toContain("Subagent cancelled");
-  expect(text).toMatch(/no reason/i);
+  expect(text).toMatch(/if.*Subagent cancelled/i);
   expect(text).toMatch(/this notice.*reason/i);
   expect(text).toContain("Cause: provider error classified as rate_limit");
   expect(text).toContain("a/one");
   expect(text).toContain("avoided for about 2 minutes");
-  expect(text.endsWith("A relaunch of the same agent starts on b/two.")).toBe(
-    true,
+  expect(
+    text.endsWith(
+      "This handoff selected fallback candidate b/two; a fresh launch may route differently.",
+    ),
+  ).toBe(true);
+});
+
+test("a rejected abort leaves only a cancellation request, not a claim of completion", async () => {
+  const { ctx, client } = fixture({ abortError: new Error("abort rejected") });
+  await failRequest(ctx, client);
+  const notice = noticeBeforeAbort(client);
+  expect(notice.body.text).toContain("is requesting cancellation");
+  expect(notice.body.text).toContain(
+    'If a subsequent native "Subagent cancelled" report appears',
   );
+  expect(notice.body.description).toContain("requesting cancellation");
+  expect(notice.body.text).not.toContain("Routing cancelled subagent");
+});
+
+test("zero cooldown does not claim avoidance or guarantee fresh routing", async () => {
+  const { ctx, client } = fixture();
+  ctx.config.cooldownMsByCategory = { rate_limit: 0 };
+  await failRequest(ctx, client);
+  const notice = noticeBeforeAbort(client);
+  expect(notice.body.metadata.nextModel).toBe("b/two");
+  expect(notice.body.text).not.toContain("avoided for");
+  expect(notice.body.text).toContain(
+    "This handoff selected fallback candidate b/two; a fresh launch may route differently.",
+  );
+});
+
+test("depth cap reports no selected candidate without asserting chain health", async () => {
+  const { ctx, client } = fixture();
+  ctx.config.maxDepth = 0;
+  await failRequest(ctx, client);
+  const notice = noticeBeforeAbort(client);
+  expect(notice.body.metadata.nextModel).toBeNull();
+  expect(notice.body.text).toContain(
+    "This handoff selected no fallback candidate.",
+  );
+  expect(notice.body.text).not.toContain("healthy");
 });
 
 for (const [cooldownMs, expected] of [
@@ -206,15 +244,13 @@ test("first-token timeout notices the parent before abort", async () => {
   });
 });
 
-test("exhausted chain explains that relaunch repeats the failure", async () => {
+test("exhausted chain reports that this handoff selected no fallback", async () => {
   const { ctx, client } = fixture({}, ["a/one"]);
   await failRequest(ctx, client);
   const notice = noticeBeforeAbort(client);
   expect(notice.body.metadata.nextModel).toBeNull();
   expect(
-    notice.body.text.endsWith(
-      "No model in the agent's fallback chain is healthy, so a relaunch now repeats the failure.",
-    ),
+    notice.body.text.endsWith("This handoff selected no fallback candidate."),
   ).toBe(true);
 });
 
@@ -372,7 +408,7 @@ test("V2 retry hook posts to parent before interrupting child", async () => {
       sessionID: "parent",
       resume: false,
       text: expect.stringContaining(
-        "OpenCode Model Routing cancelled subagent session",
+        "OpenCode Model Routing is requesting cancellation of subagent session",
       ),
     });
     expect(JSON.stringify(handoff[0]?.args)).not.toContain(message);

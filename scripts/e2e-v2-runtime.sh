@@ -441,7 +441,7 @@ parent_messages_a=$(printf '%s' "$delta_a" | jq -sc '
 # carry the notice ahead of it: the parent never sees an unexplained cancel.
 printf '%s' "$parent_messages_a" | jq -e '
   first(.[] | select(index("state=\"cancelled\"") != null)) |
-  index("OpenCode Model Routing cancelled subagent session") as $notice |
+  index("OpenCode Model Routing is requesting cancellation of subagent session") as $notice |
   $notice != null and $notice < index("state=\"cancelled\"")
 ' >/dev/null || fail "run A: the first parent request with the cancelled report lacks the routing notice before it"
 ok "run A: parent received the routing notice before cancellation"

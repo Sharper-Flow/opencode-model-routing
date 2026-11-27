@@ -200,9 +200,11 @@ Under OpenCode 2 the plugin context replaces the client argument:
   `interrupt({resume: false})` is used only to abort a subagent child for its
   terminal handoff. Before interrupting, OMR enqueues a synthetic notice without
   waking the parent when its identity and the synthetic method are available.
-  The native Task result wakes the parent. The notice
-  identifies OMR, the child and agent, cause, failed model, cooldown when
-  applicable, and next healthy model or chain exhaustion. The parent receives
+  A native Task result can wake the parent. The notice identifies OMR's
+  cancellation request, the child and agent, cause, failed model, positive
+  cooldown when applicable, and the fallback candidate selected by this
+  handoff, if any. A fresh launch can route differently; a later native
+  cancelled result is not guaranteed. The parent receives
   the notice as user-role input, so a provider failure's cause is its
   classified category only; provider error text never crosses into the parent.
   A rejected notice is logged and never blocks the interrupt. On OpenCode 1.x, OMR uses the SDK

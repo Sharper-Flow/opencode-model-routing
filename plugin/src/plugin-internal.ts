@@ -823,19 +823,19 @@ async function abortSubagentSession(
     const agent = handoff.agent ?? "unknown";
     const minutes = Math.ceil((handoff.cooldownMs ?? 0) / 60_000);
     const cooldown =
-      handoff.cooldownMs === undefined
+      handoff.cooldownMs === undefined || handoff.cooldownMs <= 0
         ? ""
         : handoff.cooldownMs < 60_000
           ? ", avoided for under a minute"
           : `, avoided for about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
     const text = [
-      `OpenCode Model Routing cancelled subagent session ${sessionId} (${agent}).`,
-      'This is an automatic routing handoff, not an operator request. The separate "Subagent cancelled" report carries no reason; this notice is the reason.',
+      `OpenCode Model Routing is requesting cancellation of subagent session ${sessionId} (${agent}).`,
+      'This is an automatic routing handoff, not an operator request. If a subsequent native "Subagent cancelled" report appears, this notice explains the reason for OMR\'s cancellation request.',
       `Cause: ${handoff.cause}`,
       `Failed model: ${handoff.failedModel ?? "unknown"}${cooldown}.`,
       handoff.nextModel
-        ? `A relaunch of the same agent starts on ${handoff.nextModel}.`
-        : "No model in the agent's fallback chain is healthy, so a relaunch now repeats the failure.",
+        ? `This handoff selected fallback candidate ${handoff.nextModel}; a fresh launch may route differently.`
+        : "This handoff selected no fallback candidate.",
     ].join("\n");
     try {
       await client.session.synthetic({
@@ -843,7 +843,7 @@ async function abortSubagentSession(
         body: {
           id: `msg_omr_handoff_${sessionId}_${Date.now()}-${++handoffSequence}`,
           text,
-          description: `Routing handoff: ${agent} helper cancelled`,
+          description: `Routing handoff: requesting cancellation of ${agent} helper`,
           resume: false,
           metadata: {
             source: "opencode-model-routing",
